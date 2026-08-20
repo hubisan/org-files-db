@@ -18,6 +18,8 @@ These read-only commands emit JSON by default:
 
 The ~view register~, ~view show~, and ~view remove~ commands also emit JSON. These commands do not accept output-format options.
 
+~view read~ emits the cached ~presentation-json~ payload directly. It does not accept an output-format option.
+
 For read-only commands, use ~--format json~ as the explicit machine-readable form. ~--json~ is a compatibility form for the same output.
 
 #+begin_src shell
@@ -150,7 +152,7 @@ Emacs can register a small set of expensive views after it starts its watcher in
 
 Registrations exist only in watcher memory. A new watcher session starts with an empty registry.
 
-The current registry commands do not materialize or read cached presentation payloads. Later cache tasks use these registrations as their source of view definitions.
+The watcher eagerly materializes cache-enabled registered views. A view read uses only the materialized cache and never starts query work.
 
 ** Control connection
 
@@ -197,6 +199,8 @@ The watcher normalizes explicit includes by sorting them and removing duplicates
 
 An identical registration returns ~unchanged~ and keeps its revision.
 
+A new or changed registration starts an eager full cache rebuild.
+
 A changed definition returns ~replaced~ and receives a new revision.
 
 A new definition returns ~registered~.
@@ -214,6 +218,24 @@ orgfdb view show \
 ~show~ returns the current session ID, definition revision, and complete registered definition.
 
 ~show~ does not run the structural query. It also does not start presentation cache work.
+
+** Read a materialized view
+
+#+begin_src shell
+orgfdb view read \
+  --config ./org-files-db.toml \
+  agenda
+#+end_src
+
+~read~ waits until the registered view cache matches the current database generation and view revision.
+
+The command does not start a rebuild. Registration and watcher database changes start rebuilds eagerly.
+
+If a rebuild is active, ~read~ waits for the current target. If that rebuild fails, ~read~ returns an error.
+
+The command never returns the previous stale payload as the current view.
+
+After the cache is ready, ~read~ validates the cache envelope and streams the stored ~presentation-json~ payload to stdout.
 
 ** Remove a registered view
 

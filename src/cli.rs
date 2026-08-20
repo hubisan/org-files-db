@@ -26,9 +26,13 @@ use crate::{
     },
     presentation_view::{
         register_presentation_view, remove_presentation_view, show_presentation_view,
-        PresentationViewDefinition, PresentationViewInclude, PresentationViewOutputMode,
-        ViewControlClientError,
+        wait_for_presentation_view, PresentationViewDefinition, PresentationViewInclude,
+        PresentationViewOutputMode, ViewControlClientError,
     },
+    presentation_view_cache::{
+        PresentationViewCachePathError, PresentationViewCacheReadError, PresentationViewCacheStore,
+    },
+    presentation_view_rebuild::run_rebuild_worker,
     query::{
         execute_and_shape_query, parse_query, shape_matched_heading_nodes,
         sqlite_query_validation_options, validate_query, HeadingResultNode, QueryExecutionError,
@@ -110,6 +114,17 @@ enum Command {
         #[command(subcommand)]
         command: ViewCommand,
     },
+    #[command(name = "__presentation-view-rebuild-worker", hide = true)]
+    PresentationViewRebuildWorker {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        cache_root: PathBuf,
+        #[arg(long)]
+        database_id: String,
+        #[arg(long)]
+        generation: i64,
+    },
     Query {
         #[command(flatten)]
         format: CliQueryFormatArgs,
@@ -171,6 +186,13 @@ enum ViewCommand {
     },
     #[command(about = "Show the active registration for a presentation view")]
     Show {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(help = "Session-local view name")]
+        name: String,
+    },
+    #[command(about = "Read the current materialized presentation view")]
+    Read {
         #[arg(long)]
         config: PathBuf,
         #[arg(help = "Session-local view name")]
@@ -402,6 +424,16 @@ where
             write_output(output_format, writer, &response)
         }
         Command::View { command } => run_view_command(command, writer),
+        Command::PresentationViewRebuildWorker {
+            db,
+            cache_root,
+            database_id,
+            generation,
+        } => {
+            let stdin = io::stdin();
+            run_rebuild_worker(&db, &cache_root, &database_id, generation, stdin.lock())
+                .map_err(CliError::PresentationViewRebuild)
+        }
         Command::Query {
             format,
             output,
@@ -496,12 +528,49 @@ fn run_view_command(command: ViewCommand, writer: &mut impl Write) -> Result<(),
             let view = show_presentation_view(&config, name).map_err(CliError::ViewControl)?;
             write_json_output(writer, &view)
         }
+        ViewCommand::Read { config, name } => {
+            let config = Config::load_from_file(config).map_err(CliError::Config)?;
+            read_presentation_view_payload(&config, &name, writer)
+        }
         ViewCommand::Remove { config, name } => {
             let config = Config::load_from_file(config).map_err(CliError::Config)?;
             let removal = remove_presentation_view(&config, name).map_err(CliError::ViewControl)?;
             write_json_output(writer, &removal)
         }
     }
+}
+
+fn read_presentation_view_payload(
+    config: &Config,
+    name: &str,
+    writer: &mut impl Write,
+) -> Result<(), CliError> {
+    loop {
+        let ticket =
+            wait_for_presentation_view(config, name.to_string()).map_err(CliError::ViewControl)?;
+        let store = PresentationViewCacheStore::for_session(config, ticket.view.session_id.clone())
+            .map_err(CliError::PresentationViewCachePath)?;
+        match store.open_valid(&ticket.view, &ticket.database_id, ticket.generation) {
+            Ok(mut reader) => {
+                reader
+                    .copy_payload_to(writer)
+                    .map_err(CliError::PresentationViewCacheRead)?;
+                return Ok(());
+            }
+            Err(source) if cache_read_target_changed(&source) => continue,
+            Err(source) => return Err(CliError::PresentationViewCacheRead(source)),
+        }
+    }
+}
+
+fn cache_read_target_changed(source: &PresentationViewCacheReadError) -> bool {
+    matches!(
+        source,
+        PresentationViewCacheReadError::InvalidDatabase { .. }
+            | PresentationViewCacheReadError::InvalidGeneration { .. }
+            | PresentationViewCacheReadError::InvalidViewRevision { .. }
+            | PresentationViewCacheReadError::InvalidViewDefinition { .. }
+    )
 }
 
 fn presentation_view_definition(
@@ -1217,6 +1286,9 @@ enum CliError {
     Indexer(IndexerError),
     Watcher(WatcherCommandError),
     ViewControl(ViewControlClientError),
+    PresentationViewCachePath(PresentationViewCachePathError),
+    PresentationViewCacheRead(PresentationViewCacheReadError),
+    PresentationViewRebuild(String),
     InvalidPresentationViewUsage(String),
     QueryParse(QueryParseError),
     QueryValidate(QueryValidationError),
@@ -1268,6 +1340,9 @@ impl CliError {
             | Self::Indexer(_)
             | Self::Watcher(_)
             | Self::ViewControl(_)
+            | Self::PresentationViewCachePath(_)
+            | Self::PresentationViewCacheRead(_)
+            | Self::PresentationViewRebuild(_)
             | Self::QueryParse(_)
             | Self::QueryValidate(_)
             | Self::QueryExecute(_)
@@ -1300,6 +1375,9 @@ impl fmt::Display for CliError {
             Self::Indexer(source) => write!(f, "{source}"),
             Self::Watcher(source) => write!(f, "{source}"),
             Self::ViewControl(source) => write!(f, "{source}"),
+            Self::PresentationViewCachePath(source) => write!(f, "{source}"),
+            Self::PresentationViewCacheRead(source) => write!(f, "{source}"),
+            Self::PresentationViewRebuild(message) => write!(f, "{message}"),
             Self::InvalidPresentationViewUsage(message) => write!(f, "{message}"),
             Self::QueryParse(source) => write!(f, "{source}"),
             Self::QueryValidate(source) => write!(f, "{source}"),
@@ -1358,6 +1436,9 @@ impl Error for CliError {
             Self::Indexer(source) => Some(source),
             Self::Watcher(source) => Some(source),
             Self::ViewControl(source) => Some(source),
+            Self::PresentationViewCachePath(source) => Some(source),
+            Self::PresentationViewCacheRead(source) => Some(source),
+            Self::PresentationViewRebuild(_) => None,
             Self::QueryParse(source) => Some(source),
             Self::QueryValidate(source) => Some(source),
             Self::QueryExecute(source) => Some(source),
@@ -1855,6 +1936,22 @@ mod tests {
             cli.command,
             super::Command::View {
                 command: super::ViewCommand::Show { .. }
+            }
+        ));
+
+        let cli = Cli::try_parse_from([
+            "orgfdb",
+            "view",
+            "read",
+            "--config",
+            "config.toml",
+            "agenda",
+        ])
+        .expect("view read args should parse");
+        assert!(matches!(
+            cli.command,
+            super::Command::View {
+                command: super::ViewCommand::Read { .. }
             }
         ));
 

@@ -23,7 +23,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::{config::Config, hex_encoding::encode_lower};
+use crate::{
+    config::Config,
+    hex_encoding::encode_lower,
+    presentation_view_rebuild::{PresentationViewReadState, PresentationViewRebuildHandle},
+};
 
 const CONTROL_PROTOCOL_VERSION: u32 = 1;
 const CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -60,9 +64,9 @@ pub(crate) struct PresentationViewDefinition {
 }
 
 impl PresentationViewDefinition {
-    fn normalize(mut self) -> Result<Self, ViewRegistryError> {
+    fn normalize(mut self) -> Result<Self, PresentationViewRegistryAccessError> {
         if self.name.trim().is_empty() {
-            return Err(ViewRegistryError::InvalidName);
+            return Err(PresentationViewRegistryAccessError::InvalidName);
         }
         self.includes.sort_unstable();
         self.includes.dedup();
@@ -91,6 +95,13 @@ pub(crate) struct RegisteredPresentationView {
     pub session_id: String,
     pub revision: u64,
     pub definition: PresentationViewDefinition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct PresentationViewReadTicket {
+    pub view: RegisteredPresentationView,
+    pub database_id: String,
+    pub generation: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -128,6 +139,55 @@ impl PresentationViewRegistryHandle {
             inner: Arc::new(Mutex::new(PresentationViewRegistry::new(session_id))),
         }
     }
+
+    pub(crate) fn register(
+        &self,
+        definition: PresentationViewDefinition,
+    ) -> Result<PresentationViewRegistration, PresentationViewRegistryAccessError> {
+        self.inner
+            .lock()
+            .map_err(|_| PresentationViewRegistryAccessError::Unavailable)?
+            .register(definition)
+    }
+
+    pub(crate) fn show(
+        &self,
+        name: &str,
+    ) -> Result<RegisteredPresentationView, PresentationViewRegistryAccessError> {
+        self.inner
+            .lock()
+            .map_err(|_| PresentationViewRegistryAccessError::Unavailable)?
+            .show(name)
+    }
+
+    pub(crate) fn remove(
+        &self,
+        name: &str,
+    ) -> Result<PresentationViewRemoval, PresentationViewRegistryAccessError> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PresentationViewRegistryAccessError::Unavailable)?
+            .remove(name))
+    }
+
+    pub(crate) fn list(
+        &self,
+    ) -> Result<Vec<RegisteredPresentationView>, PresentationViewRegistryAccessError> {
+        let registry = self
+            .inner
+            .lock()
+            .map_err(|_| PresentationViewRegistryAccessError::Unavailable)?;
+        Ok(registry
+            .views
+            .values()
+            .map(|entry| RegisteredPresentationView {
+                session_id: registry.session_id.clone(),
+                revision: entry.revision,
+                definition: entry.definition.clone(),
+            })
+            .collect())
+    }
 }
 
 impl PresentationViewRegistry {
@@ -142,7 +202,7 @@ impl PresentationViewRegistry {
     fn register(
         &mut self,
         definition: PresentationViewDefinition,
-    ) -> Result<PresentationViewRegistration, ViewRegistryError> {
+    ) -> Result<PresentationViewRegistration, PresentationViewRegistryAccessError> {
         let definition = definition.normalize()?;
         let name = definition.name.clone();
 
@@ -183,11 +243,14 @@ impl PresentationViewRegistry {
         })
     }
 
-    fn show(&self, name: &str) -> Result<RegisteredPresentationView, ViewRegistryError> {
+    fn show(
+        &self,
+        name: &str,
+    ) -> Result<RegisteredPresentationView, PresentationViewRegistryAccessError> {
         let entry = self
             .views
             .get(name)
-            .ok_or_else(|| ViewRegistryError::NotFound(name.to_string()))?;
+            .ok_or_else(|| PresentationViewRegistryAccessError::NotFound(name.to_string()))?;
         Ok(RegisteredPresentationView {
             session_id: self.session_id.clone(),
             revision: entry.revision,
@@ -205,19 +268,23 @@ impl PresentationViewRegistry {
 }
 
 #[derive(Debug)]
-enum ViewRegistryError {
+pub(crate) enum PresentationViewRegistryAccessError {
     InvalidName,
     NotFound(String),
+    Unavailable,
 }
 
-impl fmt::Display for ViewRegistryError {
+impl fmt::Display for PresentationViewRegistryAccessError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidName => write!(f, "presentation view name must not be empty"),
             Self::NotFound(name) => write!(f, "presentation view `{name}` is not registered"),
+            Self::Unavailable => write!(f, "presentation view registry is unavailable"),
         }
     }
 }
+
+impl Error for PresentationViewRegistryAccessError {}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
@@ -227,6 +294,10 @@ enum ViewControlRequest {
         definition: Box<PresentationViewDefinition>,
     },
     Show {
+        protocol_version: u32,
+        name: String,
+    },
+    Read {
         protocol_version: u32,
         name: String,
     },
@@ -251,6 +322,13 @@ impl ViewControlRequest {
         }
     }
 
+    fn read(name: String) -> Self {
+        Self::Read {
+            protocol_version: CONTROL_PROTOCOL_VERSION,
+            name,
+        }
+    }
+
     fn remove(name: String) -> Self {
         Self::Remove {
             protocol_version: CONTROL_PROTOCOL_VERSION,
@@ -264,6 +342,9 @@ impl ViewControlRequest {
                 protocol_version, ..
             }
             | Self::Show {
+                protocol_version, ..
+            }
+            | Self::Read {
                 protocol_version, ..
             }
             | Self::Remove {
@@ -281,6 +362,10 @@ enum ViewControlResponse {
     },
     View {
         view: Box<RegisteredPresentationView>,
+    },
+    ReadPending,
+    ReadReady {
+        ticket: Box<PresentationViewReadTicket>,
     },
     Removed {
         removal: PresentationViewRemoval,
@@ -301,14 +386,24 @@ impl PresentationViewControlServer {
     pub(crate) fn start(
         config: &Config,
         registry: &PresentationViewRegistryHandle,
+        rebuild: &PresentationViewRebuildHandle,
     ) -> Result<Self, ViewControlServerError> {
         let socket_path = control_socket_path(config)?;
-        Self::start_at_path(&socket_path, registry)
+        Self::start_at_path_with_rebuild(&socket_path, registry, Some(rebuild.clone()))
     }
 
+    #[cfg(test)]
     fn start_at_path(
         socket_path: &Path,
         registry: &PresentationViewRegistryHandle,
+    ) -> Result<Self, ViewControlServerError> {
+        Self::start_at_path_with_rebuild(socket_path, registry, None)
+    }
+
+    fn start_at_path_with_rebuild(
+        socket_path: &Path,
+        registry: &PresentationViewRegistryHandle,
+        rebuild: Option<PresentationViewRebuildHandle>,
     ) -> Result<Self, ViewControlServerError> {
         prepare_control_socket(socket_path)?;
         let listener =
@@ -333,7 +428,7 @@ impl PresentationViewControlServer {
         let thread_shutdown = Arc::clone(&shutdown);
         let thread = match thread::Builder::new()
             .name("orgfdb-view-control".to_string())
-            .spawn(move || run_control_server(listener, thread_registry, thread_shutdown))
+            .spawn(move || run_control_server(listener, thread_registry, rebuild, thread_shutdown))
         {
             Ok(thread) => thread,
             Err(source) => {
@@ -363,11 +458,14 @@ impl Drop for PresentationViewControlServer {
 fn run_control_server(
     listener: UnixListener,
     registry: PresentationViewRegistryHandle,
+    rebuild: Option<PresentationViewRebuildHandle>,
     shutdown: Arc<AtomicBool>,
 ) {
     while !shutdown.load(Ordering::Acquire) {
         match listener.accept() {
-            Ok((stream, _address)) => handle_control_connection(stream, &registry),
+            Ok((stream, _address)) => {
+                handle_control_connection(stream, &registry, rebuild.as_ref())
+            }
             Err(source) if source.kind() == io::ErrorKind::WouldBlock => {
                 thread::sleep(CONTROL_POLL_INTERVAL);
             }
@@ -376,12 +474,16 @@ fn run_control_server(
     }
 }
 
-fn handle_control_connection(stream: UnixStream, registry: &PresentationViewRegistryHandle) {
+fn handle_control_connection(
+    stream: UnixStream,
+    registry: &PresentationViewRegistryHandle,
+    rebuild: Option<&PresentationViewRebuildHandle>,
+) {
     let mut reader = BufReader::new(stream);
     let mut request_line = String::new();
     let response = match reader.read_line(&mut request_line) {
         Ok(0) => return,
-        Ok(_) => parse_and_apply_request(&request_line, registry),
+        Ok(_) => parse_and_apply_request(&request_line, registry, rebuild),
         Err(source) => ViewControlResponse::Error {
             code: "read_request".to_string(),
             message: format!("failed to read presentation view request: {source}"),
@@ -397,6 +499,7 @@ fn handle_control_connection(stream: UnixStream, registry: &PresentationViewRegi
 fn parse_and_apply_request(
     request_line: &str,
     registry: &PresentationViewRegistryHandle,
+    rebuild: Option<&PresentationViewRebuildHandle>,
 ) -> ViewControlResponse {
     let request: ViewControlRequest = match serde_json::from_str(request_line) {
         Ok(request) => request,
@@ -419,19 +522,14 @@ fn parse_and_apply_request(
         };
     }
 
-    let mut registry = match registry.inner.lock() {
-        Ok(registry) => registry,
-        Err(_) => {
-            return ViewControlResponse::Error {
-                code: "registry_unavailable".to_string(),
-                message: "presentation view registry is unavailable".to_string(),
-            };
-        }
-    };
-
     match request {
         ViewControlRequest::Register { definition, .. } => match registry.register(*definition) {
-            Ok(registration) => ViewControlResponse::Registered { registration },
+            Ok(registration) => {
+                if let Some(rebuild) = rebuild {
+                    rebuild.request_refresh();
+                }
+                ViewControlResponse::Registered { registration }
+            }
             Err(source) => ViewControlResponse::Error {
                 code: "invalid_view".to_string(),
                 message: source.to_string(),
@@ -446,8 +544,43 @@ fn parse_and_apply_request(
                 message: source.to_string(),
             },
         },
-        ViewControlRequest::Remove { name, .. } => ViewControlResponse::Removed {
-            removal: registry.remove(&name),
+        ViewControlRequest::Read { name, .. } => {
+            let Some(rebuild) = rebuild else {
+                return ViewControlResponse::Error {
+                    code: "view_cache_unavailable".to_string(),
+                    message: "presentation view cache coordination is unavailable".to_string(),
+                };
+            };
+            match rebuild.read_state(&name) {
+                Ok(PresentationViewReadState::Pending) => ViewControlResponse::ReadPending,
+                Ok(PresentationViewReadState::Ready(target)) => ViewControlResponse::ReadReady {
+                    ticket: Box::new(PresentationViewReadTicket {
+                        view: target.view,
+                        database_id: target.database_id,
+                        generation: target.generation,
+                    }),
+                },
+                Ok(PresentationViewReadState::Failed(message)) => ViewControlResponse::Error {
+                    code: "view_rebuild_failed".to_string(),
+                    message,
+                },
+                Err(source) => ViewControlResponse::Error {
+                    code: "view_read_failed".to_string(),
+                    message: source.to_string(),
+                },
+            }
+        }
+        ViewControlRequest::Remove { name, .. } => match registry.remove(&name) {
+            Ok(removal) => {
+                if let Some(rebuild) = rebuild {
+                    rebuild.request_refresh();
+                }
+                ViewControlResponse::Removed { removal }
+            }
+            Err(source) => ViewControlResponse::Error {
+                code: "registry_unavailable".to_string(),
+                message: source.to_string(),
+            },
         },
     }
 }
@@ -469,6 +602,19 @@ pub(crate) fn show_presentation_view(
     match send_control_request(config, ViewControlRequest::show(name))? {
         ViewControlResponse::View { view } => Ok(*view),
         response => Err(unexpected_response("show", response)),
+    }
+}
+
+pub(crate) fn wait_for_presentation_view(
+    config: &Config,
+    name: String,
+) -> Result<PresentationViewReadTicket, ViewControlClientError> {
+    loop {
+        match send_control_request(config, ViewControlRequest::read(name.clone()))? {
+            ViewControlResponse::ReadPending => thread::sleep(CONTROL_POLL_INTERVAL),
+            ViewControlResponse::ReadReady { ticket } => return Ok(*ticket),
+            response => return Err(unexpected_response("read", response)),
+        }
     }
 }
 
@@ -536,6 +682,8 @@ fn response_kind(response: &ViewControlResponse) -> &'static str {
     match response {
         ViewControlResponse::Registered { .. } => "registered",
         ViewControlResponse::View { .. } => "view",
+        ViewControlResponse::ReadPending => "read_pending",
+        ViewControlResponse::ReadReady { .. } => "read_ready",
         ViewControlResponse::Removed { .. } => "removed",
         ViewControlResponse::Error { .. } => "error",
     }
@@ -1000,6 +1148,31 @@ mod tests {
         assert!(matches!(
             error,
             ViewControlClientError::Remote { ref code, .. } if code == "view_not_found"
+        ));
+    }
+
+    #[test]
+    fn read_requires_rebuild_coordination() {
+        let test_dir = TestDir::new("read-without-rebuild");
+        let socket_path = test_dir.path.join("control.sock");
+        let registry = PresentationViewRegistryHandle::new("test-session".to_string());
+        let _server = PresentationViewControlServer::start_at_path(&socket_path, &registry)
+            .expect("control server should start");
+
+        send_control_request_to_path(
+            &socket_path,
+            ViewControlRequest::register(definition("agenda", 40)),
+        )
+        .expect("registration should succeed");
+
+        let error = send_control_request_to_path(
+            &socket_path,
+            ViewControlRequest::read("agenda".to_string()),
+        )
+        .expect_err("read should fail without rebuild coordination");
+        assert!(matches!(
+            error,
+            ViewControlClientError::Remote { ref code, .. } if code == "view_cache_unavailable"
         ));
     }
 

@@ -1,0 +1,227 @@
+#+TITLE: Integrate Eager Presentation View Rebuild Coordination
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-20 Thu 19:18]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Start this task after view registration and cache storage are available.
+
+Keep registered cache-enabled views current after database changes.
+
+After each successful database generation change, mark all registered view caches stale.
+
+Start full rebuilds without waiting for a view request.
+
+Keep the normal watcher input loop responsive while rebuilds run.
+
+Use separate rebuild worker processes.
+
+Run different view rebuilds concurrently with a bounded active-worker count.
+
+Queue excess registered views instead of starting every large rebuild at once.
+
+Use the validation results as the initial concurrency evidence.
+
+On the measured 8-CPU host, 3 concurrent large workers are comfortable and 5 remain practical.
+
+Do not use 10 concurrent large workers as the default target.
+
+If a newer generation appears, terminate or discard obsolete worker output.
+
+Coalesce skipped intermediate generations into the newest required generation.
+
+A view request for a stale or rebuilding view waits until the current cache is ready.
+
+If the current rebuild fails, return an error for that view.
+
+Never return the stale payload as the current view.
+
+Acceptance criteria:
+
+- Database changes start eager rebuilds without a view request.
+- The watcher continues to process file changes while rebuild workers run.
+- Different views rebuild concurrently with bounded worker concurrency.
+- New generations make old rebuild work disposable.
+- Obsolete payloads never become current.
+- Intermediate generations can be skipped.
+- A view request waits for the current generation when necessary.
+- A failed current rebuild produces a view error.
+- ~make ci~ passes.
+
+* Planning
+
+** Problem summary
+
+The registry and cache storage exist, but no production component connects them.
+
+Registered views need eager rebuilds after registration and database generation changes.
+
+A rebuild must not block the watcher event loop.
+
+** Goals
+
+- Add a watcher-owned rebuild coordinator.
+- Run full rebuilds in separate ~orgfdb~ worker processes.
+- Limit concurrent rebuild workers.
+- Queue additional views.
+- Cancel obsolete workers when a newer generation or view revision appears.
+- Publish only cache data that matches the worker target.
+- Add a blocking ~orgfdb view read~ command for materialized payloads.
+- Return an error when the current rebuild fails.
+
+** Non-goals
+
+- Do not add session cache cleanup.
+- Do not add old-session recovery.
+- Do not add relative-date refresh.
+- Do not add incremental per-file cache updates.
+- Do not persist view registrations.
+- Do not change the normal ~orgfdb query~ path.
+
+** Architecture
+
+The watcher starts one rebuild coordinator after its startup reconciliation.
+
+The coordinator owns a small manager thread and separate rebuild child processes.
+
+Registry changes and successful watcher executions wake the manager thread.
+
+The manager reads the current database identity and generation before it selects rebuild targets.
+
+A target contains the registered view revision, ~database_id~, and ~generation~.
+
+The default worker limit is at most three active rebuild processes.
+
+Additional views stay queued until a worker slot is free.
+
+A worker receives the registered view definition through stdin.
+
+The worker uses the normal query and presentation pipeline against a database snapshot.
+
+The worker verifies the target generation before and after presentation work.
+
+The worker publishes through the existing cache storage API only when the target remains valid.
+
+A newer target terminates the old child process and replaces queued work with the newest target.
+
+~orgfdb view read~ polls the watcher control path until the current target is ready or failed.
+
+The CLI then validates the cache envelope and streams the raw presentation JSON payload to stdout.
+
+** Execution plan
+
+1. Add shared registry access needed by the coordinator.
+2. Add the rebuild coordinator and bounded worker queue.
+3. Add the hidden rebuild-worker command.
+4. Connect successful watcher executions to coordinator refreshes.
+5. Connect registration and removal changes to coordinator refreshes.
+6. Add blocking ~orgfdb view read~ behavior.
+7. Add focused coordinator and CLI tests.
+8. Update CLI and architecture documentation.
+9. Run ~cargo fmt --all~ and ~make ci~.
+
+** Risks & assumptions
+
+The watcher remains the only supported writer during normal cache-enabled operation.
+
+A separate worker process gives the watcher a direct cancellation boundary.
+
+A cache file from an obsolete target can exist briefly, but strict envelope validation makes it unusable for the current target.
+
+Three active workers use the validation result as the initial safe default on larger hosts.
+
+The worker limit decreases on hosts with fewer than three available CPUs.
+
+** Open questions
+
+None.
+
+** Proposed checks
+
+- ~cargo test presentation_view_rebuild~
+- ~cargo test presentation_view~
+- ~cargo test parses_presentation_view_commands~
+- ~cargo fmt --all~
+- ~make ci~
+
+* Results
+
+** Approach
+
+The implementation adds a watcher-owned rebuild coordinator.
+
+The coordinator uses a manager thread and separate ~orgfdb~ worker processes.
+
+Registration changes and successful watcher executions request a target refresh.
+
+Each target contains the registered view, ~database_id~, and ~generation~.
+
+The coordinator runs at most three rebuild workers at the same time.
+
+Additional registered views remain queued until a worker slot becomes free.
+
+A newer generation or view revision terminates obsolete work and queues only the newest target.
+
+Each worker uses the normal query and presentation pipeline against one database snapshot.
+
+The worker validates ~database_id~ and ~generation~ before and after presentation work.
+
+The worker publishes through the existing cache storage API.
+
+~orgfdb view read~ waits through the watcher control path until the current target is ready.
+
+The command validates the cache envelope and streams the stored presentation payload directly to stdout.
+
+A failed current rebuild returns an error instead of the previous stale payload.
+
+** Changed files
+
+- ~src/presentation_view_rebuild.rs~
+- ~src/presentation_view.rs~
+- ~src/presentation_view_cache.rs~
+- ~src/watcher_cli.rs~
+- ~src/cli.rs~
+- ~src/lib.rs~
+- ~docs/cli.org~
+- ~docs/architecture.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-20--integrate-eager-presentation-view-rebuild-coordination.org~
+
+** Checks performed
+
+Static review covered the new worker lifecycle, target replacement, cache validation, CLI routing, and watcher refresh path.
+
+The assistant environment does not provide ~cargo~, ~rustc~, or ~rustfmt~.
+
+Run these checks after applying the patch:
+
+- ~cargo test presentation_view_rebuild~
+- ~cargo test presentation_view~
+- ~cargo test parses_presentation_view_commands~
+- ~cargo fmt --all~
+- ~make ci~
+
+** Test results
+
+The new unit tests cover bounded worker selection, obsolete generation replacement, and direct materialized cache publication.
+
+The watcher tests also verify that an executed watcher batch requests a rebuild refresh.
+
+Runtime test results remain pending until the local Rust checks run.
+
+** Blockers
+
+No design blocker was found.
+
+The task stays in ~BUILD~ until ~make ci~ passes.
+
+** Follow-ups
+
+Keep session cleanup and recovery in the existing focused task.
+
+Keep relative-date refresh in the existing focused task.

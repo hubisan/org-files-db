@@ -24,7 +24,13 @@ use crate::{
     presentation_view::{
         PresentationViewControlServer, PresentationViewRegistryHandle, ViewControlServerError,
     },
-    watcher::{IndexerWatcherExecutor, WatcherBatchExecutor, WatcherExecutionError},
+    presentation_view_rebuild::{
+        PresentationViewRebuildCoordinator, PresentationViewRebuildHandle,
+        PresentationViewRebuildStartError,
+    },
+    watcher::{
+        IndexerWatcherExecutor, WatcherBatchExecutor, WatcherExecutionError, WatcherExecutionStatus,
+    },
     watcher_runtime::{
         WatcherMessageSource, WatcherRuntime, WatcherRuntimeError, WatcherStartupError,
     },
@@ -37,9 +43,6 @@ pub(crate) fn run_watch_command(
     stderr: &mut impl Write,
 ) -> Result<(), WatcherCommandError> {
     let shutdown = SignalShutdown::install()?;
-    let view_registry = PresentationViewRegistryHandle::for_watcher(config);
-    let _view_control = PresentationViewControlServer::start(config, &view_registry)
-        .map_err(WatcherCommandError::ViewControl)?;
     let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, config.search.fts5_enabled);
     let mut connection = open_database_with_schema(&config.db_path, &schema)
         .map_err(WatcherCommandError::Database)?;
@@ -48,12 +51,57 @@ pub(crate) fn run_watch_command(
     let mut runtime = WatcherRuntime::start_notify(config, Instant::now(), &mut executor)
         .map_err(|source| WatcherCommandError::Startup(Box::new(source)))?;
 
+    let view_registry = PresentationViewRegistryHandle::for_watcher(config);
+    let (_view_rebuild, view_rebuild) =
+        PresentationViewRebuildCoordinator::start(config, &view_registry)
+            .map_err(WatcherCommandError::ViewRebuild)?;
+    let _view_control = PresentationViewControlServer::start(config, &view_registry, &view_rebuild)
+        .map_err(WatcherCommandError::ViewControl)?;
+
     if !shutdown.requested() {
         writeln!(stderr, "watcher ready").map_err(WatcherCommandError::Io)?;
     }
     let mut clock = SystemLoopClock;
-    drive_watcher_loop(&mut runtime, &mut executor, &shutdown, &mut clock, stderr)?;
+    drive_watcher_loop(
+        &mut runtime,
+        &mut executor,
+        &shutdown,
+        &mut clock,
+        stderr,
+        &view_rebuild,
+    )?;
     Ok(())
+}
+
+trait ViewRebuildRefresh {
+    fn request_refresh(&self);
+}
+
+impl ViewRebuildRefresh for PresentationViewRebuildHandle {
+    fn request_refresh(&self) {
+        PresentationViewRebuildHandle::request_refresh(self);
+    }
+}
+
+#[cfg(test)]
+struct NoopViewRebuildRefresh;
+
+#[cfg(test)]
+impl ViewRebuildRefresh for NoopViewRebuildRefresh {
+    fn request_refresh(&self) {}
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct CountingViewRebuildRefresh {
+    requests: std::cell::Cell<usize>,
+}
+
+#[cfg(test)]
+impl ViewRebuildRefresh for CountingViewRebuildRefresh {
+    fn request_refresh(&self) {
+        self.requests.set(self.requests.get() + 1);
+    }
 }
 
 trait ShutdownRequest {
@@ -135,6 +183,7 @@ fn drive_watcher_loop<S, E, R, C, W>(
     shutdown: &R,
     clock: &mut C,
     stderr: &mut W,
+    view_rebuild: &impl ViewRebuildRefresh,
 ) -> Result<(), WatcherCommandError>
 where
     S: WatcherMessageSource<Error = NotifyWatcherError>,
@@ -156,6 +205,9 @@ where
         let report = runtime
             .process_available(now, executor)
             .map_err(|source| WatcherCommandError::Runtime(Box::new(source)))?;
+        if report.execution_status == WatcherExecutionStatus::Executed {
+            view_rebuild.request_refresh();
+        }
 
         if shutdown_started && runtime.is_shutdown_complete() {
             writeln!(stderr, "watcher stopped").map_err(WatcherCommandError::Io)?;
@@ -190,6 +242,7 @@ pub(crate) enum WatcherCommandError {
     Startup(Box<WatcherStartupError<NotifyWatcherError, WatcherExecutionError>>),
     Runtime(Box<WatcherRuntimeError<NotifyWatcherError, WatcherExecutionError>>),
     ViewControl(ViewControlServerError),
+    ViewRebuild(PresentationViewRebuildStartError),
     Io(io::Error),
 }
 
@@ -208,6 +261,12 @@ impl fmt::Display for WatcherCommandError {
             Self::ViewControl(source) => {
                 write!(f, "failed to start presentation view control: {source}")
             }
+            Self::ViewRebuild(source) => {
+                write!(
+                    f,
+                    "failed to start presentation view rebuild coordination: {source}"
+                )
+            }
             Self::Io(source) => write!(f, "failed to write watcher lifecycle output: {source}"),
         }
     }
@@ -221,6 +280,7 @@ impl Error for WatcherCommandError {
             Self::Startup(source) => Some(source.as_ref()),
             Self::Runtime(source) => Some(source.as_ref()),
             Self::ViewControl(source) => Some(source),
+            Self::ViewRebuild(source) => Some(source),
             Self::Io(source) => Some(source),
         }
     }
@@ -229,8 +289,8 @@ impl Error for WatcherCommandError {
 #[cfg(test)]
 mod tests {
     use super::{
-        drive_watcher_loop, next_wait_duration, LoopClock, ShutdownRequest, WatcherCommandError,
-        MAX_IDLE_POLL_INTERVAL,
+        drive_watcher_loop, next_wait_duration, CountingViewRebuildRefresh, LoopClock,
+        NoopViewRebuildRefresh, ShutdownRequest, WatcherCommandError, MAX_IDLE_POLL_INTERVAL,
     };
     use crate::{
         config::{Config, ConfiguredDir},
@@ -427,6 +487,7 @@ mod tests {
             &TestShutdown::immediate(),
             &mut clock,
             &mut stderr,
+            &NoopViewRebuildRefresh,
         )
         .expect("shutdown should succeed");
 
@@ -463,6 +524,7 @@ mod tests {
             &TestShutdown::immediate(),
             &mut clock,
             &mut stderr,
+            &NoopViewRebuildRefresh,
         )
         .expect("shutdown should succeed");
 
@@ -488,6 +550,7 @@ mod tests {
             .expect("runtime should start");
         let mut clock = TestClock::new(started);
         let mut stderr = Vec::new();
+        let refresh = CountingViewRebuildRefresh::default();
 
         drive_watcher_loop(
             &mut runtime,
@@ -495,10 +558,12 @@ mod tests {
             &TestShutdown::immediate(),
             &mut clock,
             &mut stderr,
+            &refresh,
         )
         .expect("shutdown should flush pending work");
 
         assert_eq!(executor.batches.len(), 2);
+        assert_eq!(refresh.requests.get(), 1);
         assert!(matches!(
             executor.batches[1],
             NormalizedWatcherBatch::Candidates(_)
@@ -534,6 +599,7 @@ mod tests {
             &TestShutdown::after_checks(usize::MAX),
             &mut clock,
             &mut stderr,
+            &NoopViewRebuildRefresh,
         )
         .expect_err("fatal execution should stop the loop");
 

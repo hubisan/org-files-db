@@ -42,6 +42,7 @@ struct PresentationViewCacheHeader {
     payload_bytes: u64,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PresentationViewCachePublishReport {
     pub path: PathBuf,
@@ -64,7 +65,7 @@ impl PresentationViewCacheStore {
         Ok(Self::in_root(root, session_id))
     }
 
-    fn in_root(root: PathBuf, session_id: String) -> Self {
+    pub(crate) fn in_root(root: PathBuf, session_id: String) -> Self {
         let session_dir = root
             .join("presentation-views")
             .join(session_directory_name(&session_id));
@@ -244,6 +245,7 @@ pub(crate) struct PresentationViewCacheReader {
 }
 
 impl PresentationViewCacheReader {
+    #[cfg(test)]
     pub(crate) fn payload_bytes(&self) -> u64 {
         self.payload_bytes
     }
@@ -252,12 +254,20 @@ impl PresentationViewCacheReader {
         &mut self,
         writer: &mut impl Write,
     ) -> Result<u64, PresentationViewCacheReadError> {
-        io::copy(&mut self.file, writer).map_err(|source| {
+        let copied = io::copy(&mut self.file, writer).map_err(|source| {
             PresentationViewCacheReadError::ReadPayload {
                 path: self.path.clone(),
                 source,
             }
-        })
+        })?;
+        if copied != self.payload_bytes {
+            return Err(PresentationViewCacheReadError::PayloadLengthMismatch {
+                path: self.path.clone(),
+                expected: self.payload_bytes,
+                actual: copied,
+            });
+        }
+        Ok(copied)
     }
 }
 
@@ -418,7 +428,7 @@ fn view_definition_identity(
     Ok(format!("sha256:{}", encode_lower(digest.finalize())))
 }
 
-fn presentation_view_cache_root(
+pub(crate) fn presentation_view_cache_root(
     config: &Config,
 ) -> Result<PathBuf, PresentationViewCachePathError> {
     let xdg_cache_home = absolute_env_path("XDG_CACHE_HOME");

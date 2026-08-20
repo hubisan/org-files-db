@@ -847,10 +847,12 @@ Acceptance criteria:
 - The default path follows the XDG cache convention.
 - ~make ci~ passes.
 
-* TODO Integrate eager presentation view rebuild coordination with the watcher
+* DONE Integrate eager presentation view rebuild coordination with the watcher
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
+
+Task file: [[./2026-08-20--integrate-eager-presentation-view-rebuild-coordination.org][Integrate Eager Presentation View Rebuild Coordination]]
 
 Start this task after view registration and cache storage are available.
 
@@ -896,7 +898,7 @@ Acceptance criteria:
 - A failed current rebuild produces a view error.
 - ~make ci~ passes.
 
-* TODO Add presentation view session cleanup and cache recovery
+* DONE Add presentation view session cleanup and cache recovery
 :PROPERTIES:
 :VISIBILITY: folded
 :END:

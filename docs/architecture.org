@@ -118,6 +118,8 @@ The search command is read-only. It does not repair or rebuild stale FTS state.
 
 ~src/notify_source.rs~, ~src/watcher.rs~, ~src/watcher_runtime.rs~, and ~src/watcher_cli.rs~ implement watcher-driven reconciliation.
 
+~src/presentation_view_rebuild.rs~ coordinates eager materialized-view rebuilds without blocking the watcher input loop.
+
 The watcher translates filesystem activity into bounded reconciliation work. Backend uncertainty requests a full configured-source reconciliation instead of guessed file mutations.
 
 The watcher uses the same indexer planning and application boundary as manual indexing work.
@@ -138,7 +140,15 @@ A replacement uses a temporary file in the same directory. An atomic rename publ
 
 The cache is disposable session data, so cache publication does not call ~fsync~. A payload of at least ~250 MiB~ produces a soft warning.
 
-The storage layer does not start rebuilds. Watcher rebuild coordination is a separate layer.
+The rebuild coordinator starts full rebuilds after registration changes and successful watcher executions that advance the database generation.
+
+Each rebuild runs in a separate ~orgfdb~ worker process. The coordinator runs at most three workers on hosts with at least three available CPUs.
+
+Additional registered views remain queued. A newer generation or view revision terminates obsolete work and replaces it with the newest target.
+
+A worker validates ~database_id~ and ~generation~ before and after presentation work. It publishes through the cache storage layer only for its target.
+
+~orgfdb view read~ waits through the control path while the current target is queued or rebuilding. It reports a current rebuild error instead of returning stale data.
 
 * Generations and changes
 
