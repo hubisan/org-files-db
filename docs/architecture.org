@@ -122,6 +122,24 @@ The watcher translates filesystem activity into bounded reconciliation work. Bac
 
 The watcher uses the same indexer planning and application boundary as manual indexing work.
 
+* Presentation view cache storage
+
+~src/presentation_view_cache.rs~ stores one current materialized payload for each registered presentation view.
+
+The cache uses ~${XDG_CACHE_HOME}/orgfdb~ when ~XDG_CACHE_HOME~ is an absolute path. Otherwise it uses ~$HOME/.cache/orgfdb~.
+
+Each watcher session has a separate cache namespace. Each view name maps to one current cache file inside that namespace.
+
+A cache file contains a versioned metadata header followed by the unchanged presentation JSON payload. This layout supports direct payload streaming after metadata validation.
+
+The metadata records the watcher session, database identity, generation, view revision, view-definition identity, cache format version, and presentation wire version.
+
+A replacement uses a temporary file in the same directory. An atomic rename publishes the complete file after the writer closes it.
+
+The cache is disposable session data, so cache publication does not call ~fsync~. A payload of at least ~250 MiB~ produces a soft warning.
+
+The storage layer does not start rebuilds. Watcher rebuild coordination is a separate layer.
+
 * Generations and changes
 
 Each database has a persistent ~database_id~ and committed ~generation~. A transaction that changes query-visible state advances the generation once.
@@ -140,8 +158,8 @@ Current machine-readable CLI output uses JSON. ~src/cli.rs~ owns command-specifi
 
 Read [[./reference/query-json.org][Query JSON Contract]] for client-facing query fields.
 
-* Planned presentation work
+* Presentation output
 
-The next architecture adds an opt-in presentation representation for structural queries. Rust will prepare UI-independent rows while the existing query JSON contract stays unchanged.
+Structural queries can use the opt-in ~presentation-json~ format. Rust prepares UI-independent rows while the existing query JSON contract stays unchanged.
 
-This feature does not exist yet. Read [[./design/presentation.org][Presentation Output Design]] for the planned boundary.
+Read [[./design/presentation.org][Presentation Output Design]] for the presentation boundary.

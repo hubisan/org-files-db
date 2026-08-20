@@ -1,0 +1,224 @@
+#+TITLE: Implement Persistent Presentation View Cache Storage and Validity
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-20 Thu 16:48]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Start this task after the session-local view registry exists.
+
+Store one current materialized presentation payload for each registered cache-enabled view.
+
+Use ~${XDG_CACHE_HOME}/orgfdb~ when ~XDG_CACHE_HOME~ is set.
+
+Otherwise use ~$HOME/.cache/orgfdb~ as the default cache location.
+
+Keep each watcher session in a separate cache namespace.
+
+Write new payloads to temporary files and publish them with an atomic rename.
+
+Do not require ~fsync~ for disposable session cache data.
+
+Use a cache envelope with an independent cache format version.
+
+Cache validity must include:
+
+- active watcher session identity
+- ~database_id~
+- ~generation~
+- view-definition identity
+- cache format version
+- presentation wire version
+
+Keep only one current cache for each registered view.
+
+Do not keep historical generation payloads.
+
+Do not add a hard cache-size limit.
+
+Emit a soft warning when one materialized view reaches about ~250 MB~.
+
+Acceptance criteria:
+
+- A valid cache can survive separate ~orgfdb~ CLI processes in one watcher session.
+- A cache from another database, generation, view definition, or session is rejected.
+- Readers never observe a partially written payload.
+- Only one current cache exists for each registered view.
+- The cache format has an explicit version independent of the presentation wire version.
+- The default path follows the XDG cache convention.
+- ~make ci~ passes.
+
+* Planning
+
+** Problem summary
+
+The view registry exists only in the watcher process.
+
+Materialized presentation data must survive separate ~orgfdb~ CLI processes in the same watcher session.
+
+The storage layer must reject stale or unrelated cache files before a caller reads the payload.
+
+** Goals
+
+- Add a persistent cache store for one current payload per registered view.
+- Keep each watcher session in a separate cache namespace.
+- Use an explicit cache format version.
+- Store validity metadata before the raw presentation payload.
+- Validate the session, database, generation, view definition, and presentation wire version.
+- Publish replacement payloads with an atomic rename.
+- Keep cache reads compatible with direct payload streaming.
+- Report a soft size warning at about ~250 MB~.
+
+** Non-goals
+
+- Do not start cache rebuilds.
+- Do not add watcher rebuild coordination.
+- Do not add rebuild cancellation.
+- Do not add a public materialized-view read command.
+- Do not clean old watcher session directories.
+- Do not add relative-date invalidation.
+- Do not keep historical cache generations.
+- Do not add a configurable cache directory.
+
+** Architecture
+
+Use ~${XDG_CACHE_HOME}/orgfdb~ when ~XDG_CACHE_HOME~ is an absolute path.
+
+Otherwise use ~$HOME/.cache/orgfdb~.
+
+Store presentation views below a dedicated ~presentation-views~ directory.
+
+Hash the watcher session identity for the session directory name.
+
+Hash the view name for the current cache file name.
+
+Each cache file contains a small binary prefix, a JSON metadata header, and the raw presentation JSON payload.
+
+The metadata header contains an independent cache format version.
+
+The raw payload remains unchanged, so a later reader can stream it without JSON reserialization.
+
+The metadata header records:
+
+- watcher session identity
+- database identity
+- database generation
+- view name
+- view registry revision
+- view-definition SHA-256 identity
+- presentation wire version
+- payload byte count
+
+Write a replacement cache to a unique temporary file in the same directory.
+
+Close the temporary file before the atomic rename to the current cache path.
+
+Do not call ~fsync~ because this cache is disposable session data.
+
+A reader validates the complete metadata header before it exposes the payload.
+
+A reader also validates the stored payload length against the file size.
+
+** Execution plan
+
+1. Add the presentation view cache storage module.
+2. Add XDG cache path resolution and session namespaces.
+3. Add deterministic view-definition identities.
+4. Add the versioned cache envelope.
+5. Add atomic publish and validated cache reads.
+6. Add the soft cache-size warning report.
+7. Add focused storage and validity tests.
+8. Document the storage boundary in ~docs/architecture.org~.
+9. Run ~cargo fmt --all~ and ~make ci~.
+
+** Risks & assumptions
+
+The cache is local disposable data for one Unix user.
+
+Atomic rename requires the temporary file and current cache file to share one directory.
+
+The current presentation JSON payload can contain tens of megabytes.
+
+The reader must not parse or reserialize that payload during a cache hit.
+
+The later watcher task supplies the current database identity and generation to this storage layer.
+
+** Open questions
+
+None.
+
+** Proposed checks
+
+- ~cargo test presentation_view_cache~
+- ~cargo fmt --all~
+- ~make ci~
+
+* Results
+
+** Approach
+
+The new cache store keeps each watcher session in a hashed directory below the XDG cache root.
+
+Each view name maps to one hashed current cache file. A new generation or view revision replaces that same file.
+
+The cache envelope uses format version ~1~. It stores a small JSON header before the unchanged presentation JSON payload.
+
+The header records all current validity inputs except the later relative-date validity value. That value belongs to its separate follow-up task.
+
+The view-definition identity is a SHA-256 digest of the normalized registered definition.
+
+The writer creates a private temporary file in the same directory. It closes the file before an atomic rename publishes it.
+
+The reader validates the complete header and payload length before it returns a streaming reader. It does not parse or reserialize the presentation payload.
+
+The cache format version is separate from ~PRESENTATION_VERSION~. A separate producer version is not necessary for this session-local cache.
+
+A watcher restart creates a new session identity. This already prevents reuse across a producer restart.
+
+Payloads of at least ~250 MiB~ emit a soft warning. The cache has no hard size limit.
+
+The storage API is not connected to rebuild workers in this task. A temporary ~dead_code~ allowance keeps this staged internal API lint-clean until the next task connects it.
+
+** Changed files
+
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-20--implement-persistent-presentation-view-cache-storage-validity.org~
+- ~docs/architecture.org~
+- ~src/lib.rs~
+- ~src/presentation_view_cache.rs~
+
+** Checks performed
+
+The implementation includes focused tests for:
+
+- XDG and home cache-root selection
+- reuse from a new cache-store handle in the same watcher session
+- atomic replacement of one current view cache
+- session, database, generation, revision, and definition validity
+- cache format and presentation wire versions
+- truncated payload rejection
+- temporary-file isolation before publication
+- raw payload streaming without JSON reserialization
+- the ~250 MiB~ soft-warning threshold
+
+The current execution environment does not provide ~cargo~, ~rustfmt~, or ~clippy~.
+
+Run the proposed checks on the project Rust environment before this task moves to ~REVIEW~.
+
+** Test results
+
+Native Rust test and lint results are pending.
+
+** Blockers
+
+No design blocker is known.
+
+The final ~make ci~ result is still required.
+
+** Follow-ups
+
+The next task integrates eager view rebuild coordination with the watcher.

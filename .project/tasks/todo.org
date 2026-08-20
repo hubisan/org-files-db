@@ -797,10 +797,12 @@ Acceptance criteria:
 - CLI documentation describes the new commands.
 - ~make ci~ passes.
 
-* TODO Implement persistent presentation view cache storage and validity
+* DONE Implement persistent presentation view cache storage and validity
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
+
+Task file: [[./2026-08-20--implement-persistent-presentation-view-cache-storage-validity.org][Implement Persistent Presentation View Cache Storage and Validity]]
 
 Start this task after the session-local view registry exists.
 

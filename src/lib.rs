@@ -20,6 +20,9 @@ pub mod presentation_cache_benchmark;
 #[cfg(feature = "presentation-parallel-benchmark")]
 pub mod presentation_parallel_benchmark;
 pub(crate) mod presentation_view;
+// The next watcher task connects this tested storage API to production rebuild workers.
+#[allow(dead_code)]
+pub(crate) mod presentation_view_cache;
 pub(crate) mod property;
 pub mod query;
 pub mod query_sql_benchmark;
