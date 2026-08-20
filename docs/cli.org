@@ -138,6 +138,10 @@ Normal lifecycle messages use stderr:
 
 Routine file activity does not produce a JSON event stream.
 
+A clean shutdown also removes materialized presentation-view data for the current watcher session.
+
+A later watcher session starts with an empty view registry and a new cache-session identity.
+
 ** Backend uncertainty
 
 A watcher backend can report uncertainty instead of exact file changes. Buffer overflow can create the same condition.

@@ -898,10 +898,12 @@ Acceptance criteria:
 - A failed current rebuild produces a view error.
 - ~make ci~ passes.
 
-* DONE Add presentation view session cleanup and cache recovery
+* BUILD Add presentation view session cleanup and cache recovery
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
+
+Task file: [[./2026-08-21--add-presentation-view-session-cleanup-cache-recovery.org][Add Presentation View Session Cleanup and Cache Recovery]]
 
 Start this task after production view caching works.
 
@@ -925,7 +927,7 @@ Acceptance criteria:
 - A new watcher session starts with an empty view registry.
 - ~make ci~ passes.
 
-* BUILD Add relative-date refresh for cached presentation views
+* DONE Add relative-date refresh for cached presentation views
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
@@ -956,7 +958,6 @@ Acceptance criteria:
 - Date-triggered rebuilds keep the current database generation unchanged.
 - Existing ~generation~ and ~changes~ semantics remain unchanged.
 - ~make ci~ passes.
-
 
 * TODO Benchmark-Sachen entfernen?
 

@@ -24,6 +24,7 @@ use crate::{
     presentation_view::{
         PresentationViewControlServer, PresentationViewRegistryHandle, ViewControlServerError,
     },
+    presentation_view_cache::{PresentationViewCacheSession, PresentationViewCacheSessionError},
     presentation_view_rebuild::{
         PresentationViewRebuildCoordinator, PresentationViewRebuildHandle,
         PresentationViewRebuildStartError,
@@ -52,25 +53,43 @@ pub(crate) fn run_watch_command(
         .map_err(|source| WatcherCommandError::Startup(Box::new(source)))?;
 
     let view_registry = PresentationViewRegistryHandle::for_watcher(config);
-    let (_view_rebuild, view_rebuild) =
+    let view_cache_session =
+        PresentationViewCacheSession::start(config, view_registry.session_id().to_string())
+            .map_err(WatcherCommandError::ViewCacheSession)?;
+    let (view_rebuild_coordinator, view_rebuild) =
         PresentationViewRebuildCoordinator::start(config, &view_registry)
             .map_err(WatcherCommandError::ViewRebuild)?;
-    let _view_control = PresentationViewControlServer::start(config, &view_registry, &view_rebuild)
+    let view_control = PresentationViewControlServer::start(config, &view_registry, &view_rebuild)
         .map_err(WatcherCommandError::ViewControl)?;
+    view_cache_session
+        .recover_abandoned()
+        .map_err(WatcherCommandError::ViewCacheSession)?;
 
     if !shutdown.requested() {
         writeln!(stderr, "watcher ready").map_err(WatcherCommandError::Io)?;
     }
     let mut clock = SystemLoopClock;
-    drive_watcher_loop(
+    let loop_result = drive_watcher_loop(
         &mut runtime,
         &mut executor,
         &shutdown,
         &mut clock,
         stderr,
         &view_rebuild,
-    )?;
-    Ok(())
+    );
+
+    drop(view_control);
+    drop(view_rebuild);
+    drop(view_rebuild_coordinator);
+    let cleanup_result = view_cache_session
+        .cleanup()
+        .map_err(WatcherCommandError::ViewCacheSession);
+
+    if let Err(source) = loop_result {
+        let _ = cleanup_result;
+        return Err(source);
+    }
+    cleanup_result
 }
 
 trait ViewRebuildRefresh {
@@ -242,6 +261,7 @@ pub(crate) enum WatcherCommandError {
     Startup(Box<WatcherStartupError<NotifyWatcherError, WatcherExecutionError>>),
     Runtime(Box<WatcherRuntimeError<NotifyWatcherError, WatcherExecutionError>>),
     ViewControl(ViewControlServerError),
+    ViewCacheSession(PresentationViewCacheSessionError),
     ViewRebuild(PresentationViewRebuildStartError),
     Io(io::Error),
 }
@@ -260,6 +280,12 @@ impl fmt::Display for WatcherCommandError {
             Self::Runtime(source) => write!(f, "{source}"),
             Self::ViewControl(source) => {
                 write!(f, "failed to start presentation view control: {source}")
+            }
+            Self::ViewCacheSession(source) => {
+                write!(
+                    f,
+                    "failed to manage presentation view cache session: {source}"
+                )
             }
             Self::ViewRebuild(source) => {
                 write!(
@@ -280,6 +306,7 @@ impl Error for WatcherCommandError {
             Self::Startup(source) => Some(source.as_ref()),
             Self::Runtime(source) => Some(source.as_ref()),
             Self::ViewControl(source) => Some(source),
+            Self::ViewCacheSession(source) => Some(source),
             Self::ViewRebuild(source) => Some(source),
             Self::Io(source) => Some(source),
         }

@@ -171,28 +171,19 @@ The view control protocol version increases from ~1~ to ~2~ because registered d
 
 Static review covers date dependency detection, timezone reuse, target replacement, worker publication, cache validation, and CLI reads.
 
-The assistant environment does not provide ~cargo~, ~rustc~, or ~rustfmt~.
-
-Run these checks after applying the patch:
-
-- ~cargo test query::resolve::tests::detects_relative_date_dependencies_in_validated_queries~
-- ~cargo test presentation_view_cache~
-- ~cargo test presentation_view_rebuild~
-- ~cargo test presentation_view_definition_marks_relative_date_queries~
-- ~cargo fmt --all~
-- ~make ci~
+The user reported that ~make ci~ passes with the implementation.
 
 ** Test results
 
 The new unit tests cover relative-date detection, fixed-date targets, timezone date transitions, refresh detection, and cache date validity.
 
-Runtime test results remain pending until the local Rust checks run.
+The full local CI suite passes.
 
 ** Blockers
 
 No design blocker was found.
 
-The task stays in ~BUILD~ until ~make ci~ passes.
+The task is ready for review.
 
 ** Follow-ups
 

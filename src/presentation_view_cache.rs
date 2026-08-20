@@ -4,7 +4,10 @@ use std::{
     fmt, fs,
     fs::{File, OpenOptions},
     io::{self, Read, Seek, Write},
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    os::unix::{
+        ffi::OsStrExt,
+        fs::{OpenOptionsExt, PermissionsExt},
+    },
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
@@ -26,7 +29,10 @@ const CACHE_HEADER_LENGTH_BYTES: usize = 4;
 const MAX_CACHE_HEADER_BYTES: usize = 64 * 1024;
 const CACHE_SIZE_WARNING_BYTES: u64 = 250 * 1024 * 1024;
 const SESSION_DIRECTORY_HASH_BYTES: usize = 16;
+const DATABASE_SCOPE_HASH_BYTES: usize = 16;
 const VIEW_FILE_HASH_BYTES: usize = 16;
+const SESSION_MARKER_FORMAT_VERSION: u32 = 1;
+const MAX_SESSION_MARKER_BYTES: usize = 16 * 1024;
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,6 +48,167 @@ struct PresentationViewCacheHeader {
     view_revision: u64,
     view_definition_id: String,
     payload_bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct PresentationViewCacheSessionMarker {
+    marker_format_version: u32,
+    session_id: String,
+}
+
+pub(crate) struct PresentationViewCacheSession {
+    views_root: PathBuf,
+    owners_root: PathBuf,
+    database_path: PathBuf,
+    session_dir: PathBuf,
+    marker_path: PathBuf,
+    active: bool,
+}
+
+impl PresentationViewCacheSession {
+    pub(crate) fn start(
+        config: &Config,
+        session_id: String,
+    ) -> Result<Self, PresentationViewCacheSessionError> {
+        let root = presentation_view_cache_root(config)
+            .map_err(PresentationViewCacheSessionError::CachePath)?;
+        Self::start_in_root(root, config.db_path.clone(), session_id)
+    }
+
+    fn start_in_root(
+        root: PathBuf,
+        database_path: PathBuf,
+        session_id: String,
+    ) -> Result<Self, PresentationViewCacheSessionError> {
+        let views_root = root.join("presentation-views");
+        let owners_root = views_root.join("session-owners");
+        prepare_private_session_directories(&root, &views_root, &owners_root)?;
+        let session_dir = session_directory_path(&root, &session_id);
+        let marker_path = owners_root.join(session_marker_file_name(&database_path, &session_id));
+        write_session_marker(&marker_path, &session_id)?;
+
+        Ok(Self {
+            views_root,
+            owners_root,
+            database_path,
+            session_dir,
+            marker_path,
+            active: true,
+        })
+    }
+
+    pub(crate) fn recover_abandoned(&self) -> Result<usize, PresentationViewCacheSessionError> {
+        let marker_prefix = database_marker_prefix(&self.database_path);
+        let temporary_marker_prefix = format!(".{marker_prefix}");
+        let mut removed = 0;
+        let entries = fs::read_dir(&self.owners_root).map_err(|source| {
+            PresentationViewCacheSessionError::ReadOwners {
+                path: self.owners_root.clone(),
+                source,
+            }
+        })?;
+
+        for entry in entries {
+            let entry = entry.map_err(|source| PresentationViewCacheSessionError::ReadOwners {
+                path: self.owners_root.clone(),
+                source,
+            })?;
+            let file_name = entry.file_name();
+            let Some(file_name) = file_name.to_str() else {
+                continue;
+            };
+            if file_name.starts_with(&temporary_marker_prefix) {
+                remove_cache_path(&entry.path()).map_err(|source| {
+                    PresentationViewCacheSessionError::RemoveMarker {
+                        path: entry.path(),
+                        source,
+                    }
+                })?;
+                continue;
+            }
+            if !file_name.starts_with(&marker_prefix) || entry.path() == self.marker_path {
+                continue;
+            }
+
+            let marker = read_session_marker(&entry.path())?;
+            let Some(marker) = marker else {
+                remove_cache_path(&entry.path()).map_err(|source| {
+                    PresentationViewCacheSessionError::RemoveMarker {
+                        path: entry.path(),
+                        source,
+                    }
+                })?;
+                continue;
+            };
+            if marker.marker_format_version != SESSION_MARKER_FORMAT_VERSION {
+                remove_cache_path(&entry.path()).map_err(|source| {
+                    PresentationViewCacheSessionError::RemoveMarker {
+                        path: entry.path(),
+                        source,
+                    }
+                })?;
+                continue;
+            }
+            if session_marker_file_name(&self.database_path, &marker.session_id) != file_name {
+                remove_cache_path(&entry.path()).map_err(|source| {
+                    PresentationViewCacheSessionError::RemoveMarker {
+                        path: entry.path(),
+                        source,
+                    }
+                })?;
+                continue;
+            }
+
+            let abandoned_dir = self
+                .views_root
+                .join(session_directory_name(&marker.session_id));
+            remove_cache_path(&abandoned_dir).map_err(|source| {
+                PresentationViewCacheSessionError::RemoveSession {
+                    path: abandoned_dir,
+                    source,
+                }
+            })?;
+            remove_cache_path(&entry.path()).map_err(|source| {
+                PresentationViewCacheSessionError::RemoveMarker {
+                    path: entry.path(),
+                    source,
+                }
+            })?;
+            removed += 1;
+        }
+
+        Ok(removed)
+    }
+
+    pub(crate) fn cleanup(mut self) -> Result<(), PresentationViewCacheSessionError> {
+        self.cleanup_inner()?;
+        self.active = false;
+        Ok(())
+    }
+
+    fn cleanup_inner(&self) -> Result<(), PresentationViewCacheSessionError> {
+        remove_cache_path(&self.session_dir).map_err(|source| {
+            PresentationViewCacheSessionError::RemoveSession {
+                path: self.session_dir.clone(),
+                source,
+            }
+        })?;
+        remove_cache_path(&self.marker_path).map_err(|source| {
+            PresentationViewCacheSessionError::RemoveMarker {
+                path: self.marker_path.clone(),
+                source,
+            }
+        })?;
+        Ok(())
+    }
+}
+
+impl Drop for PresentationViewCacheSession {
+    fn drop(&mut self) {
+        if self.active {
+            let _ = self.cleanup_inner();
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -68,9 +235,7 @@ impl PresentationViewCacheStore {
     }
 
     pub(crate) fn in_root(root: PathBuf, session_id: String) -> Self {
-        let session_dir = root
-            .join("presentation-views")
-            .join(session_directory_name(&session_id));
+        let session_dir = session_directory_path(&root, &session_id);
         Self {
             session_id,
             session_dir,
@@ -464,6 +629,147 @@ fn presentation_view_cache_root_from(
     Err(PresentationViewCachePathError::MissingCacheDirectory)
 }
 
+fn session_directory_path(root: &Path, session_id: &str) -> PathBuf {
+    root.join("presentation-views")
+        .join(session_directory_name(session_id))
+}
+
+fn database_marker_prefix(database_path: &Path) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"orgfdb-presentation-view-cache-database-v1\0");
+    digest.update(database_path.as_os_str().as_bytes());
+    let digest = digest.finalize();
+    format!(
+        "database-{}-session-",
+        encode_lower(&digest[..DATABASE_SCOPE_HASH_BYTES])
+    )
+}
+
+fn session_marker_file_name(database_path: &Path, session_id: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"orgfdb-presentation-view-cache-owner-v1\0");
+    digest.update(session_id.as_bytes());
+    let digest = digest.finalize();
+    format!(
+        "{}{}.json",
+        database_marker_prefix(database_path),
+        encode_lower(&digest[..SESSION_DIRECTORY_HASH_BYTES])
+    )
+}
+
+fn prepare_private_session_directories(
+    root: &Path,
+    views_root: &Path,
+    owners_root: &Path,
+) -> Result<(), PresentationViewCacheSessionError> {
+    for path in [root, views_root, owners_root] {
+        fs::create_dir_all(path).map_err(|source| {
+            PresentationViewCacheSessionError::CreateDirectory {
+                path: path.to_path_buf(),
+                source,
+            }
+        })?;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).map_err(|source| {
+            PresentationViewCacheSessionError::SetPermissions {
+                path: path.to_path_buf(),
+                source,
+            }
+        })?;
+    }
+    Ok(())
+}
+
+fn write_session_marker(
+    marker_path: &Path,
+    session_id: &str,
+) -> Result<(), PresentationViewCacheSessionError> {
+    let marker = PresentationViewCacheSessionMarker {
+        marker_format_version: SESSION_MARKER_FORMAT_VERSION,
+        session_id: session_id.to_string(),
+    };
+    let data =
+        serde_json::to_vec(&marker).map_err(PresentationViewCacheSessionError::SerializeMarker)?;
+    let parent = marker_path.parent().ok_or_else(|| {
+        PresentationViewCacheSessionError::InvalidMarkerPath(marker_path.to_path_buf())
+    })?;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let counter = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let marker_name = marker_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| {
+            PresentationViewCacheSessionError::InvalidMarkerPath(marker_path.to_path_buf())
+        })?;
+    let temp_path = parent.join(format!(
+        ".{marker_name}.{}.{now}.{counter}.tmp",
+        std::process::id()
+    ));
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temp_path)
+            .map_err(|source| PresentationViewCacheSessionError::WriteMarker {
+                path: temp_path.clone(),
+                source,
+            })?;
+        file.write_all(&data)
+            .and_then(|()| file.flush())
+            .map_err(|source| PresentationViewCacheSessionError::WriteMarker {
+                path: temp_path.clone(),
+                source,
+            })?;
+        drop(file);
+        fs::rename(&temp_path, marker_path).map_err(|source| {
+            PresentationViewCacheSessionError::PublishMarker {
+                from: temp_path.clone(),
+                to: marker_path.to_path_buf(),
+                source,
+            }
+        })
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    result
+}
+
+fn read_session_marker(
+    marker_path: &Path,
+) -> Result<Option<PresentationViewCacheSessionMarker>, PresentationViewCacheSessionError> {
+    let data = match fs::read(marker_path) {
+        Ok(data) => data,
+        Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(source) => {
+            return Err(PresentationViewCacheSessionError::ReadMarker {
+                path: marker_path.to_path_buf(),
+                source,
+            });
+        }
+    };
+    if data.len() > MAX_SESSION_MARKER_BYTES {
+        return Ok(None);
+    }
+    Ok(serde_json::from_slice(&data).ok())
+}
+
+fn remove_cache_path(path: &Path) -> io::Result<()> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(source) => return Err(source),
+    };
+    if metadata.is_dir() {
+        fs::remove_dir_all(path)
+    } else {
+        fs::remove_file(path)
+    }
+}
+
 fn absolute_env_path(name: &'static str) -> Option<PathBuf> {
     env::var_os(name)
         .map(PathBuf::from)
@@ -528,6 +834,122 @@ fn prepare_private_cache_directory(
         })?;
     }
     Ok(())
+}
+
+#[derive(Debug)]
+pub(crate) enum PresentationViewCacheSessionError {
+    CachePath(PresentationViewCachePathError),
+    CreateDirectory {
+        path: PathBuf,
+        source: io::Error,
+    },
+    SetPermissions {
+        path: PathBuf,
+        source: io::Error,
+    },
+    InvalidMarkerPath(PathBuf),
+    SerializeMarker(serde_json::Error),
+    WriteMarker {
+        path: PathBuf,
+        source: io::Error,
+    },
+    PublishMarker {
+        from: PathBuf,
+        to: PathBuf,
+        source: io::Error,
+    },
+    ReadOwners {
+        path: PathBuf,
+        source: io::Error,
+    },
+    ReadMarker {
+        path: PathBuf,
+        source: io::Error,
+    },
+    RemoveSession {
+        path: PathBuf,
+        source: io::Error,
+    },
+    RemoveMarker {
+        path: PathBuf,
+        source: io::Error,
+    },
+}
+
+impl fmt::Display for PresentationViewCacheSessionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::CachePath(source) => write!(f, "{source}"),
+            Self::CreateDirectory { path, source } => write!(
+                f,
+                "failed to create presentation view cache session directory {}: {source}",
+                path.display()
+            ),
+            Self::SetPermissions { path, source } => write!(
+                f,
+                "failed to set presentation view cache session permissions for {}: {source}",
+                path.display()
+            ),
+            Self::InvalidMarkerPath(path) => write!(
+                f,
+                "presentation view cache session marker has no parent directory: {}",
+                path.display()
+            ),
+            Self::SerializeMarker(source) => write!(
+                f,
+                "failed to serialize presentation view cache session marker: {source}"
+            ),
+            Self::WriteMarker { path, source } => write!(
+                f,
+                "failed to write presentation view cache session marker {}: {source}",
+                path.display()
+            ),
+            Self::PublishMarker { from, to, source } => write!(
+                f,
+                "failed to publish presentation view cache session marker {} as {}: {source}",
+                from.display(),
+                to.display()
+            ),
+            Self::ReadOwners { path, source } => write!(
+                f,
+                "failed to read presentation view cache session owners from {}: {source}",
+                path.display()
+            ),
+            Self::ReadMarker { path, source } => write!(
+                f,
+                "failed to read presentation view cache session marker {}: {source}",
+                path.display()
+            ),
+            Self::RemoveSession { path, source } => write!(
+                f,
+                "failed to remove presentation view cache session {}: {source}",
+                path.display()
+            ),
+            Self::RemoveMarker { path, source } => write!(
+                f,
+                "failed to remove presentation view cache session marker {}: {source}",
+                path.display()
+            ),
+        }
+    }
+}
+
+impl Error for PresentationViewCacheSessionError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::CachePath(source) => Some(source),
+            Self::SerializeMarker(source) => Some(source),
+            Self::CreateDirectory { source, .. }
+            | Self::SetPermissions { source, .. }
+            | Self::WriteMarker { source, .. }
+            | Self::PublishMarker { source, .. }
+            | Self::ReadOwners { source, .. }
+            | Self::ReadMarker { source, .. }
+            | Self::RemoveSession { source, .. }
+            | Self::RemoveMarker { source, .. } => Some(source),
+            Self::InvalidMarkerPath(_) => None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -858,8 +1280,8 @@ mod tests {
     use super::{
         cache_size_warning, presentation_view_cache_root_from, read_cache_header,
         view_definition_identity, PresentationViewCacheHeader, PresentationViewCacheReadError,
-        PresentationViewCacheStore, PresentationViewCacheWriteError, CACHE_SIZE_WARNING_BYTES,
-        PRESENTATION_VIEW_CACHE_FORMAT_VERSION,
+        PresentationViewCacheSession, PresentationViewCacheStore, PresentationViewCacheWriteError,
+        CACHE_SIZE_WARNING_BYTES, PRESENTATION_VIEW_CACHE_FORMAT_VERSION,
     };
     use crate::{
         presentation::PRESENTATION_VERSION,
@@ -951,6 +1373,115 @@ mod tests {
         let root = presentation_view_cache_root_from(None, Some(&home))
             .expect("cache root should resolve");
         assert_eq!(root, home.join(".cache").join("orgfdb"));
+    }
+
+    #[test]
+    fn clean_session_cleanup_removes_current_cache_and_marker() {
+        let test_dir = TestDir::new("session-cleanup");
+        let cache_root = test_dir.path.join("cache");
+        let database_path = test_dir.path.join("org-files.db");
+        let session = PresentationViewCacheSession::start_in_root(
+            cache_root.clone(),
+            database_path,
+            "session-one".to_string(),
+        )
+        .expect("cache session should start");
+        let session_dir = session.session_dir.clone();
+        let marker_path = session.marker_path.clone();
+        let store = PresentationViewCacheStore::in_root(cache_root, "session-one".to_string());
+        let registered = view("session-one", 1, 40);
+        store
+            .publish(&registered, "database-one", 1, None, b"payload")
+            .expect("cache publish should succeed");
+
+        assert!(session_dir.is_dir());
+        assert!(marker_path.is_file());
+        session.cleanup().expect("cache session should clean up");
+        assert!(!session_dir.exists());
+        assert!(!marker_path.exists());
+    }
+
+    #[test]
+    fn startup_recovery_removes_abandoned_session_for_same_database() {
+        let test_dir = TestDir::new("session-recovery");
+        let cache_root = test_dir.path.join("cache");
+        let database_path = test_dir.path.join("org-files.db");
+        let abandoned = PresentationViewCacheSession::start_in_root(
+            cache_root.clone(),
+            database_path.clone(),
+            "abandoned-session".to_string(),
+        )
+        .expect("abandoned cache session should start");
+        let abandoned_dir = abandoned.session_dir.clone();
+        let abandoned_marker = abandoned.marker_path.clone();
+        let store = PresentationViewCacheStore::in_root(
+            cache_root.clone(),
+            "abandoned-session".to_string(),
+        );
+        let registered = view("abandoned-session", 1, 40);
+        store
+            .publish(&registered, "database-one", 1, None, b"payload")
+            .expect("abandoned cache publish should succeed");
+        std::mem::forget(abandoned);
+
+        let current = PresentationViewCacheSession::start_in_root(
+            cache_root,
+            database_path,
+            "current-session".to_string(),
+        )
+        .expect("current cache session should start");
+        assert!(abandoned_dir.is_dir());
+        assert!(abandoned_marker.is_file());
+        assert_eq!(
+            current
+                .recover_abandoned()
+                .expect("abandoned session should be recovered"),
+            1
+        );
+        assert!(!abandoned_dir.exists());
+        assert!(!abandoned_marker.exists());
+        assert!(current.marker_path.is_file());
+        current.cleanup().expect("current session should clean up");
+    }
+
+    #[test]
+    fn startup_recovery_keeps_sessions_for_other_databases() {
+        let test_dir = TestDir::new("session-database-scope");
+        let cache_root = test_dir.path.join("cache");
+        let database_a = test_dir.path.join("a.db");
+        let database_b = test_dir.path.join("b.db");
+        let abandoned_a = PresentationViewCacheSession::start_in_root(
+            cache_root.clone(),
+            database_a.clone(),
+            "session-a-old".to_string(),
+        )
+        .expect("database A session should start");
+        let abandoned_a_marker = abandoned_a.marker_path.clone();
+        let abandoned_b = PresentationViewCacheSession::start_in_root(
+            cache_root.clone(),
+            database_b,
+            "session-b".to_string(),
+        )
+        .expect("database B session should start");
+        let abandoned_b_marker = abandoned_b.marker_path.clone();
+        std::mem::forget(abandoned_a);
+        std::mem::forget(abandoned_b);
+
+        let current = PresentationViewCacheSession::start_in_root(
+            cache_root,
+            database_a,
+            "session-a-current".to_string(),
+        )
+        .expect("current database A session should start");
+        assert_eq!(
+            current
+                .recover_abandoned()
+                .expect("database A recovery should succeed"),
+            1
+        );
+        assert!(!abandoned_a_marker.exists());
+        assert!(abandoned_b_marker.is_file());
+        current.cleanup().expect("current session should clean up");
     }
 
     #[test]

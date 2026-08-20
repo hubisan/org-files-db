@@ -142,6 +142,14 @@ A replacement uses a temporary file in the same directory. An atomic rename publ
 
 The cache is disposable session data, so cache publication does not call ~fsync~. A payload of at least ~250 MiB~ produces a soft warning.
 
+Each watcher session also owns a small cache-session marker. The marker name scopes ownership by database path and watcher session.
+
+The marker exists before view control accepts client registrations. It does not make old cache data valid in a new session.
+
+After the watcher owns the database control socket, it removes abandoned marked cache sessions for that database. Other database scopes stay untouched.
+
+Clean shutdown stops view control and rebuild workers first. It then removes the current session cache directory and ownership marker.
+
 The rebuild coordinator starts full rebuilds after registration changes and successful watcher executions that advance the database generation.
 
 Each rebuild runs in a separate ~orgfdb~ worker process. The coordinator runs at most three workers on hosts with at least three available CPUs.

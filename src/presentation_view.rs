@@ -128,6 +128,7 @@ struct PresentationViewRegistry {
 
 #[derive(Clone)]
 pub(crate) struct PresentationViewRegistryHandle {
+    session_id: Arc<str>,
     inner: Arc<Mutex<PresentationViewRegistry>>,
 }
 
@@ -138,8 +139,13 @@ impl PresentationViewRegistryHandle {
 
     fn new(session_id: String) -> Self {
         Self {
+            session_id: Arc::from(session_id.clone()),
             inner: Arc::new(Mutex::new(PresentationViewRegistry::new(session_id))),
         }
+    }
+
+    pub(crate) fn session_id(&self) -> &str {
+        &self.session_id
     }
 
     pub(crate) fn register(

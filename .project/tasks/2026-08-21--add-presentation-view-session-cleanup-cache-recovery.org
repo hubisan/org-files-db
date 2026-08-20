@@ -1,0 +1,166 @@
+#+TITLE: Add Presentation View Session Cleanup and Cache Recovery
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-21 Fri 00:28]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Keep cache lifetime aligned with the non-persistent watcher view registry.
+
+On clean watcher shutdown, remove cache data for the current watcher session.
+
+On watcher startup, do not accept cache data from an old watcher session.
+
+Remove abandoned session cache directories when it is safe to do so.
+
+A new Emacs session must register its views again before any cached view becomes available.
+
+Do not add persistent view registration.
+
+Acceptance criteria:
+
+- Clean shutdown removes the current session cache data.
+- Abnormal shutdown files cannot become valid in a later watcher session.
+- Startup can clean abandoned cache namespaces safely.
+- A new watcher session starts with an empty view registry.
+- ~make ci~ passes.
+
+* Planning
+
+** Problem summary
+
+The task index marked this lifecycle task as done, but production cleanup code was absent.
+
+Session IDs already reject cache files from old watcher sessions.
+
+However, clean shutdown left current cache files on disk.
+
+Abnormal shutdown also left session cache directories without targeted startup cleanup.
+
+** Goals
+
+- Track each watcher cache session with a small ownership marker.
+- Remove the current cache session on clean shutdown.
+- Remove abandoned sessions for the same database after exclusive watcher startup.
+- Keep cache sessions for other active databases untouched.
+- Keep view registration session-local.
+
+** Non-goals
+
+- Do not persist view registrations.
+- Do not reuse cache data from old sessions.
+- Do not change cache validity rules.
+- Do not change rebuild scheduling.
+- Do not add a general cache garbage collector.
+
+** Architecture
+
+The watcher creates one ownership marker for its cache session.
+
+The marker name contains separate hashes for the database path and watcher session.
+
+Creating the marker is safe before the watcher owns the control socket.
+
+Recovery runs only after the watcher owns the control socket for its database.
+
+Recovery scans markers for that database and removes cache directories from older sessions.
+
+Markers for other database paths stay untouched.
+
+Malformed or unknown markers do not identify a cache directory for removal.
+
+Clean shutdown stops view control and rebuild workers before it removes the current cache session.
+
+The existing session ID remains the authority for cache validity.
+
+** Execution plan
+
+1. Expose the current watcher session ID from the registry handle.
+2. Add cache session ownership markers.
+3. Add safe abandoned-session recovery scoped by database path.
+4. Add explicit clean-shutdown cleanup after rebuild workers stop.
+5. Add focused storage lifecycle tests.
+6. Update cache lifecycle documentation.
+7. Run ~cargo fmt --all~ and ~make ci~.
+
+** Risks & assumptions
+
+The control socket already prevents two active watchers for the same database control path.
+
+Recovery starts only after that exclusive control path is active.
+
+A different database can use the same XDG cache root at the same time.
+
+Recovery must never remove that database's cache session.
+
+** Open questions
+
+None.
+
+** Proposed checks
+
+- ~cargo test presentation_view_cache~
+- ~cargo test presentation_view~
+- ~cargo fmt --all~
+- ~make ci~
+
+* Results
+
+** Approach
+
+The cache now creates one database-scoped ownership marker for each watcher session.
+
+A new watcher creates its marker before view control becomes available.
+
+After it owns the control socket, it removes abandoned marked sessions for the same database.
+
+Recovery does not scan or remove sessions for another database path.
+
+Clean shutdown stops view control and rebuild coordination before cache cleanup.
+
+The current session cache directory and ownership marker are then removed.
+
+The session ID validity check remains unchanged and still rejects old-session cache data.
+
+** Changed files
+
+- ~src/presentation_view.rs~
+- ~src/presentation_view_cache.rs~
+- ~src/watcher_cli.rs~
+- ~docs/architecture.org~
+- ~docs/cli.org~
+- ~docs/presentation-performance.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-20--add-relative-date-refresh-for-cached-presentation-views.org~
+- ~.project/tasks/2026-08-21--add-presentation-view-session-cleanup-cache-recovery.org~
+
+** Checks performed
+
+The assistant environment does not provide ~cargo~, ~rustc~, or ~rustfmt~.
+
+Run these checks after applying the patch:
+
+- ~cargo test presentation_view_cache~
+- ~cargo test presentation_view~
+- ~cargo fmt --all~
+- ~make ci~
+
+** Test results
+
+New unit tests cover clean cleanup, abandoned-session recovery, and database-scoped recovery isolation.
+
+Runtime test results remain pending until the local Rust checks run.
+
+** Blockers
+
+No design blocker was found.
+
+The task stays in ~BUILD~ until ~make ci~ passes.
+
+** Follow-ups
+
+No further cache implementation task remains in the current task index.

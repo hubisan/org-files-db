@@ -990,11 +990,15 @@ Keep each watcher session in a separate cache namespace.
 
 A cache entry is valid only for an active registration in the current watcher session.
 
-A clean watcher shutdown can remove the session cache directory.
+A clean watcher shutdown removes the current session cache directory and ownership marker.
 
-A later watcher session must not use cache files from an abandoned session.
+A later watcher session cannot use cache files from an abandoned session.
 
-The implementation can remove abandoned session directories during startup cleanup.
+Each watcher session creates a database-scoped ownership marker for cleanup.
+
+After the watcher owns the control socket, startup recovery removes abandoned marked sessions for the same database.
+
+Recovery leaves cache sessions for other database paths untouched.
 
 Use a separate cache format version in addition to the presentation wire version.
 
