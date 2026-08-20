@@ -136,6 +136,8 @@ A cache file contains a versioned metadata header followed by the unchanged pres
 
 The metadata records the watcher session, database identity, generation, view revision, view-definition identity, cache format version, and presentation wire version.
 
+For relative-date views, the metadata also records the effective query date. Fixed-date views do not store this value.
+
 A replacement uses a temporary file in the same directory. An atomic rename publishes the complete file after the writer closes it.
 
 The cache is disposable session data, so cache publication does not call ~fsync~. A payload of at least ~250 MiB~ produces a soft warning.
@@ -148,7 +150,17 @@ Additional registered views remain queued. A newer generation or view revision t
 
 A worker validates ~database_id~ and ~generation~ before and after presentation work. It publishes through the cache storage layer only for its target.
 
+A registered view also records whether its validated query contains relative date operands. The detection covers ~today~ and integer day offsets in date options.
+
+Relative-date rebuild targets include the effective query date from the registered query timezone. Fixed-date targets do not include a date value.
+
+The coordinator checks relative-date targets while the watcher runs. A changed effective date queues a full rebuild without changing the database generation.
+
+The rebuild worker captures one UTC instant for query execution. It checks the effective query date again before it publishes the cache.
+
 ~orgfdb view read~ waits through the control path while the current target is queued or rebuilding. It reports a current rebuild error instead of returning stale data.
+
+The read target also contains the effective query date for relative-date views. A read never accepts a cache from the previous effective date.
 
 * Generations and changes
 

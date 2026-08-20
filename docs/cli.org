@@ -191,6 +191,7 @@ A view definition contains:
 - the query output mode
 - explicit query includes
 - the effective query timezone
+- whether the validated query depends on relative dates
 - the presentation specification
 
 Registration validates the query and presentation specification before it contacts the watcher.
@@ -200,6 +201,10 @@ The watcher normalizes explicit includes by sorting them and removing duplicates
 An identical registration returns ~unchanged~ and keeps its revision.
 
 A new or changed registration starts an eager full cache rebuild.
+
+Queries with ~today~ or integer day offsets also rebuild when their effective query date changes. The configured query timezone determines that date.
+
+A date-only refresh keeps the current database generation unchanged. Fixed-date views do not rebuild only because the calendar date changes.
 
 A changed definition returns ~replaced~ and receives a new revision.
 
@@ -228,6 +233,8 @@ orgfdb view read \
 #+end_src
 
 ~read~ waits until the registered view cache matches the current database generation and view revision.
+
+For relative-date views, the cache must also match the current effective query date.
 
 The command does not start a rebuild. Registration and watcher database changes start rebuilds eagerly.
 

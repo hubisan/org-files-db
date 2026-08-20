@@ -34,10 +34,10 @@ use crate::{
     },
     presentation_view_rebuild::run_rebuild_worker,
     query::{
-        execute_and_shape_query, parse_query, shape_matched_heading_nodes,
-        sqlite_query_validation_options, validate_query, HeadingResultNode, QueryExecutionError,
-        QueryExecutionOptions, QueryInclude, QueryOutputMode, QueryParseError, QueryResponse,
-        QueryShapeError, QueryValidationError,
+        execute_and_shape_query, parse_query, query_depends_on_relative_dates,
+        shape_matched_heading_nodes, sqlite_query_validation_options, validate_query,
+        HeadingResultNode, QueryExecutionError, QueryExecutionOptions, QueryInclude,
+        QueryOutputMode, QueryParseError, QueryResponse, QueryShapeError, QueryValidationError,
     },
     watcher_cli::{run_watch_command, WatcherCommandError},
 };
@@ -124,6 +124,8 @@ enum Command {
         database_id: String,
         #[arg(long)]
         generation: i64,
+        #[arg(long)]
+        effective_query_date: Option<String>,
     },
     Query {
         #[command(flatten)]
@@ -429,10 +431,18 @@ where
             cache_root,
             database_id,
             generation,
+            effective_query_date,
         } => {
             let stdin = io::stdin();
-            run_rebuild_worker(&db, &cache_root, &database_id, generation, stdin.lock())
-                .map_err(CliError::PresentationViewRebuild)
+            run_rebuild_worker(
+                &db,
+                &cache_root,
+                &database_id,
+                generation,
+                effective_query_date.as_deref(),
+                stdin.lock(),
+            )
+            .map_err(CliError::PresentationViewRebuild)
         }
         Command::Query {
             format,
@@ -550,7 +560,12 @@ fn read_presentation_view_payload(
             wait_for_presentation_view(config, name.to_string()).map_err(CliError::ViewControl)?;
         let store = PresentationViewCacheStore::for_session(config, ticket.view.session_id.clone())
             .map_err(CliError::PresentationViewCachePath)?;
-        match store.open_valid(&ticket.view, &ticket.database_id, ticket.generation) {
+        match store.open_valid(
+            &ticket.view,
+            &ticket.database_id,
+            ticket.generation,
+            ticket.effective_query_date.as_deref(),
+        ) {
             Ok(mut reader) => {
                 reader
                     .copy_payload_to(writer)
@@ -568,6 +583,7 @@ fn cache_read_target_changed(source: &PresentationViewCacheReadError) -> bool {
         source,
         PresentationViewCacheReadError::InvalidDatabase { .. }
             | PresentationViewCacheReadError::InvalidGeneration { .. }
+            | PresentationViewCacheReadError::InvalidEffectiveQueryDate { .. }
             | PresentationViewCacheReadError::InvalidViewRevision { .. }
             | PresentationViewCacheReadError::InvalidViewDefinition { .. }
     )
@@ -618,6 +634,7 @@ fn presentation_view_definition(
             .map(PresentationViewInclude::from)
             .collect(),
         query_timezone: config.query.timezone.clone(),
+        relative_date_dependent: query_depends_on_relative_dates(&validated),
         presentation_spec,
     })
 }
@@ -1999,6 +2016,27 @@ mod tests {
             crate::presentation_view::PresentationViewOutputMode::Flat
         );
         assert_eq!(definition.presentation_spec["columns"][0]["name"], "title");
+        assert!(!definition.relative_date_dependent);
+    }
+
+    #[test]
+    fn presentation_view_definition_marks_relative_date_queries() {
+        let test_dir = TestDir::new("presentation-view-relative-date");
+        let config_path = write_query_fixture(&test_dir);
+        let config = crate::config::Config::load_from_file(&config_path)
+            .expect("fixture config should load");
+
+        let definition = presentation_view_definition(
+            &config,
+            "agenda".to_string(),
+            "(headings (scheduled :on today))".to_string(),
+            super::CliQueryOutput::Flat,
+            &[],
+            r#"{"columns":[{"name":"title"}]}"#,
+        )
+        .expect("relative-date view definition should validate");
+
+        assert!(definition.relative_date_dependent);
     }
 
     #[test]

@@ -1,0 +1,199 @@
+#+TITLE: Add Relative-Date Refresh for Cached Presentation Views
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-20 Thu 23:51]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Start this task after eager production view rebuilding works.
+
+Support cached views whose queries contain relative date operands such as ~today~ or integer day offsets.
+
+Use the existing query timezone rules to determine the effective query date.
+
+Include the effective query date in cache validity only for views that depend on relative dates.
+
+When the effective query date changes, mark the affected registered views stale.
+
+Start an eager full rebuild even when the database generation stays unchanged.
+
+Do not change the meaning of ~database_id~, ~generation~, or ~changes~.
+
+Do not add general dependency tracking.
+
+Acceptance criteria:
+
+- Relative-date views rebuild when their effective query date changes.
+- Fixed-date views do not rebuild only because the calendar date changes.
+- Date-triggered rebuilds use the configured query timezone rules.
+- Date-triggered rebuilds keep the current database generation unchanged.
+- Existing ~generation~ and ~changes~ semantics remain unchanged.
+- ~make ci~ passes.
+
+* Planning
+
+** Problem summary
+
+A materialized view target currently uses the view definition, ~database_id~, and ~generation~.
+
+A query with ~today~ or an integer day offset can change while those values stay unchanged.
+
+The cache needs one additional validity value for these queries.
+
+** Goals
+
+- Detect relative date operands when Emacs registers a view.
+- Store whether the registered query depends on the effective query date.
+- Add the effective query date to relative-date rebuild targets.
+- Add the effective query date to relative-date cache validity.
+- Start an eager rebuild when that date changes.
+- Keep the database generation unchanged for a date-only refresh.
+- Use the existing query timezone rules.
+
+** Non-goals
+
+- Do not change ~database_id~, ~generation~, or ~changes~.
+- Do not add file dependency tracking.
+- Do not add incremental cache patches.
+- Do not persist view registrations.
+- Do not change the normal ~orgfdb query~ interface.
+
+** Architecture
+
+View registration validates the query and records whether it contains a relative date operand.
+
+Only ~:from~, ~:to~, and ~:on~ operands with ~today~ or integer day offsets create this dependency.
+
+The rebuild target adds an optional effective query date.
+
+Fixed-date views keep this value absent.
+
+The coordinator compares the current effective date with each relative-date target once per second.
+
+A date change replaces the old target even when the database generation is unchanged.
+
+A view read also computes the current target date. It cannot return an old-date cache during the polling interval.
+
+The rebuild worker captures one UTC instant before query execution.
+
+The worker uses that instant with the existing query timezone rules.
+
+The worker checks the effective query date again before cache publication.
+
+The cache envelope stores the effective query date only for relative-date views.
+
+The cache format version increases because the envelope validity metadata changes.
+
+** Execution plan
+
+1. Add query helpers for relative-date dependency detection and effective query date calculation.
+2. Record the derived dependency in registered view definitions.
+3. Add the optional effective query date to rebuild and read targets.
+4. Trigger coordinator refresh when the effective date changes.
+5. Pass the target date to rebuild workers and use one fixed query instant.
+6. Add the target date to cache publication and validation.
+7. Add focused tests for relative and fixed-date views.
+8. Update cache and CLI architecture documentation.
+9. Run ~cargo fmt --all~ and ~make ci~.
+
+** Risks & assumptions
+
+The coordinator already wakes frequently while it manages workers.
+
+A one-second date comparison adds little work for the expected 1 to 10 registered views.
+
+The read path computes its expected date independently. It does not serve stale data during this interval.
+
+A date transition during a rebuild makes that worker obsolete before publication.
+
+The registered query timezone already passed config validation.
+
+** Open questions
+
+None.
+
+** Proposed checks
+
+- ~cargo test query::resolve::tests::detects_relative_date_dependencies_in_validated_queries~
+- ~cargo test presentation_view_cache~
+- ~cargo test presentation_view_rebuild~
+- ~cargo test presentation_view_definition_marks_relative_date_queries~
+- ~cargo fmt --all~
+- ~make ci~
+
+* Results
+
+** Approach
+
+The implementation records a derived relative-date dependency in each registered view definition.
+
+The query layer now exposes the same effective date calculation that query execution already uses.
+
+Relative-date rebuild targets include the effective query date as ~YYYY-MM-DD~.
+
+Fixed-date rebuild targets keep the effective query date absent.
+
+The rebuild coordinator checks relative-date targets once per second.
+
+A changed date queues a new full rebuild without changing the database generation.
+
+The read path computes the current date target before it returns a ready ticket.
+
+The rebuild worker uses one captured UTC instant for query execution.
+
+The worker rejects publication if the effective query date changes before publication.
+
+The cache envelope now validates the optional effective query date.
+
+The cache format version increases from ~1~ to ~2~.
+
+The view control protocol version increases from ~1~ to ~2~ because registered definitions and read tickets gained date metadata.
+
+** Changed files
+
+- ~src/query.rs~
+- ~src/query/resolve.rs~
+- ~src/presentation_view.rs~
+- ~src/presentation_view_cache.rs~
+- ~src/presentation_view_rebuild.rs~
+- ~src/cli.rs~
+- ~docs/architecture.org~
+- ~docs/cli.org~
+- ~docs/presentation-performance.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-20--add-relative-date-refresh-for-cached-presentation-views.org~
+
+** Checks performed
+
+Static review covers date dependency detection, timezone reuse, target replacement, worker publication, cache validation, and CLI reads.
+
+The assistant environment does not provide ~cargo~, ~rustc~, or ~rustfmt~.
+
+Run these checks after applying the patch:
+
+- ~cargo test query::resolve::tests::detects_relative_date_dependencies_in_validated_queries~
+- ~cargo test presentation_view_cache~
+- ~cargo test presentation_view_rebuild~
+- ~cargo test presentation_view_definition_marks_relative_date_queries~
+- ~cargo fmt --all~
+- ~make ci~
+
+** Test results
+
+The new unit tests cover relative-date detection, fixed-date targets, timezone date transitions, refresh detection, and cache date validity.
+
+Runtime test results remain pending until the local Rust checks run.
+
+** Blockers
+
+No design blocker was found.
+
+The task stays in ~BUILD~ until ~make ci~ passes.
+
+** Follow-ups
+
+None for relative-date cache validity.

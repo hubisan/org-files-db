@@ -10,8 +10,10 @@ use std::{
         Arc, Mutex,
     },
     thread::{self, JoinHandle},
-    time::Duration,
+    time::{Duration, Instant},
 };
+
+use chrono::{DateTime, Utc};
 
 use crate::{
     config::Config,
@@ -25,12 +27,14 @@ use crate::{
         presentation_view_cache_root, PresentationViewCachePathError, PresentationViewCacheStore,
     },
     query::{
-        execute_and_shape_query, parse_query, sqlite_query_validation_options, validate_query,
+        effective_query_date, execute_and_shape_query, parse_query,
+        sqlite_query_validation_options, validate_query, QueryDateResolutionOptions,
         QueryExecutionOptions, QueryInclude, QueryOutputMode,
     },
 };
 
 const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(10);
+const RELATIVE_DATE_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const MAX_REBUILD_WORKERS: usize = 3;
 
 pub(crate) fn run_rebuild_worker(
@@ -38,10 +42,13 @@ pub(crate) fn run_rebuild_worker(
     cache_root: &Path,
     expected_database_id: &str,
     expected_generation: i64,
+    expected_effective_query_date: Option<&str>,
     reader: impl Read,
 ) -> Result<(), String> {
     let view: RegisteredPresentationView =
         serde_json::from_reader(reader).map_err(|source| source.to_string())?;
+    let query_now_utc = Utc::now();
+    ensure_worker_effective_query_date(&view, expected_effective_query_date, Some(query_now_utc))?;
     let spec_json = serde_json::to_string(&view.definition.presentation_spec)
         .map_err(|source| source.to_string())?;
     let spec = PresentationSpec::parse_json(&spec_json).map_err(|source| source.to_string())?;
@@ -78,7 +85,7 @@ pub(crate) fn run_rebuild_worker(
         output_mode: query_output_mode(view.definition.output),
         includes: query_includes,
         query_timezone: view.definition.query_timezone.clone(),
-        now_utc: None,
+        now_utc: Some(query_now_utc),
         restricted_file_paths: None,
     };
     let query_response = execute_and_shape_query(&connection, &validated, &options)
@@ -106,9 +113,16 @@ pub(crate) fn run_rebuild_worker(
         expected_database_id,
         expected_generation,
     )?;
+    ensure_worker_effective_query_date(&view, expected_effective_query_date, Some(Utc::now()))?;
 
     PresentationViewCacheStore::in_root(cache_root.to_path_buf(), view.session_id.clone())
-        .publish(&view, expected_database_id, expected_generation, &payload)
+        .publish(
+            &view,
+            expected_database_id,
+            expected_generation,
+            expected_effective_query_date,
+            &payload,
+        )
         .map_err(|source| source.to_string())?;
     Ok(())
 }
@@ -122,6 +136,36 @@ fn ensure_worker_target(
     if actual_database_id != expected_database_id || actual_generation != expected_generation {
         return Err(format!(
             "presentation view rebuild target changed: expected database {expected_database_id} generation {expected_generation}, found database {actual_database_id} generation {actual_generation}"
+        ));
+    }
+    Ok(())
+}
+
+fn effective_query_date_for_view(
+    view: &RegisteredPresentationView,
+    now_utc: Option<DateTime<Utc>>,
+) -> Result<Option<String>, String> {
+    if !view.definition.relative_date_dependent {
+        return Ok(None);
+    }
+    let date = effective_query_date(&QueryDateResolutionOptions {
+        timezone: view.definition.query_timezone.clone(),
+        now_utc,
+    })
+    .map_err(|source| source.to_string())?;
+    Ok(Some(date.to_string()))
+}
+
+fn ensure_worker_effective_query_date(
+    view: &RegisteredPresentationView,
+    expected: Option<&str>,
+    now_utc: Option<DateTime<Utc>>,
+) -> Result<(), String> {
+    let actual = effective_query_date_for_view(view, now_utc)?;
+    if actual.as_deref() != expected {
+        return Err(format!(
+            "presentation view rebuild effective query date changed: expected {expected:?}, found {:?}",
+            actual.as_deref()
         ));
     }
     Ok(())
@@ -152,6 +196,7 @@ pub(crate) struct PresentationViewReadyTarget {
     pub view: RegisteredPresentationView,
     pub database_id: String,
     pub generation: i64,
+    pub effective_query_date: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -166,6 +211,7 @@ struct RebuildTarget {
     view: RegisteredPresentationView,
     database_id: String,
     generation: i64,
+    effective_query_date: Option<String>,
 }
 
 impl RebuildTarget {
@@ -174,6 +220,7 @@ impl RebuildTarget {
             view: self.view.clone(),
             database_id: self.database_id.clone(),
             generation: self.generation,
+            effective_query_date: self.effective_query_date.clone(),
         }
     }
 }
@@ -234,11 +281,13 @@ impl PresentationViewRebuildHandle {
             .map_err(|source| PresentationViewRebuildReadError::Database(source.to_string()))?;
         let index_state = read_index_state(&connection)
             .map_err(|source| PresentationViewRebuildReadError::Database(source.to_string()))?;
-        let expected = RebuildTarget {
+        let expected = rebuild_target_for_view(
             view,
-            database_id: index_state.database_id,
-            generation: index_state.generation,
-        };
+            index_state.database_id,
+            index_state.generation,
+            Some(Utc::now()),
+        )
+        .map_err(PresentationViewRebuildReadError::DateResolution)?;
 
         let state = self
             .shared
@@ -343,6 +392,7 @@ fn run_manager(
 ) {
     let mut workers = BTreeMap::<String, RunningWorker>::new();
     let mut refresh_requested = true;
+    let mut next_relative_date_check = Instant::now() + RELATIVE_DATE_POLL_INTERVAL;
 
     loop {
         match receiver.recv_timeout(WORKER_POLL_INTERVAL) {
@@ -365,6 +415,14 @@ fn run_manager(
                     terminate_all_workers(&mut workers);
                     return;
                 }
+            }
+        }
+
+        let now = Instant::now();
+        if now >= next_relative_date_check {
+            next_relative_date_check = now + RELATIVE_DATE_POLL_INTERVAL;
+            if relative_date_refresh_required(&shared).unwrap_or(true) {
+                refresh_requested = true;
             }
         }
 
@@ -400,18 +458,20 @@ fn refresh_targets(
     let connection =
         open_existing_database_read_only(db_path).map_err(|source| source.to_string())?;
     let index_state = read_index_state(&connection).map_err(|source| source.to_string())?;
+    let now_utc = Utc::now();
     let desired = views
         .into_iter()
         .map(|view| {
             let name = view.definition.name.clone();
-            let target = RebuildTarget {
+            rebuild_target_for_view(
                 view,
-                database_id: index_state.database_id.clone(),
-                generation: index_state.generation,
-            };
-            (name, target)
+                index_state.database_id.clone(),
+                index_state.generation,
+                Some(now_utc),
+            )
+            .map(|target| (name, target))
         })
-        .collect::<BTreeMap<_, _>>();
+        .collect::<Result<BTreeMap<_, _>, _>>()?;
 
     let desired_names = desired.keys().cloned().collect::<BTreeSet<_>>();
     let obsolete_workers = workers
@@ -448,6 +508,44 @@ fn refresh_targets(
         );
     }
     Ok(())
+}
+
+fn rebuild_target_for_view(
+    view: RegisteredPresentationView,
+    database_id: String,
+    generation: i64,
+    now_utc: Option<DateTime<Utc>>,
+) -> Result<RebuildTarget, String> {
+    let effective_query_date = effective_query_date_for_view(&view, now_utc)?;
+    Ok(RebuildTarget {
+        view,
+        database_id,
+        generation,
+        effective_query_date,
+    })
+}
+
+fn relative_date_refresh_required(shared: &Arc<Mutex<SharedState>>) -> Result<bool, String> {
+    relative_date_refresh_required_at(shared, Some(Utc::now()))
+}
+
+fn relative_date_refresh_required_at(
+    shared: &Arc<Mutex<SharedState>>,
+    now_utc: Option<DateTime<Utc>>,
+) -> Result<bool, String> {
+    let state = shared
+        .lock()
+        .map_err(|_| "presentation view rebuild state is unavailable".to_string())?;
+    for current in state.views.values() {
+        if !current.target.view.definition.relative_date_dependent {
+            continue;
+        }
+        let effective_query_date = effective_query_date_for_view(&current.target.view, now_utc)?;
+        if effective_query_date != current.target.effective_query_date {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn spawn_queued_workers(
@@ -497,7 +595,8 @@ fn spawn_worker(
     cache_root: &Path,
     target: &RebuildTarget,
 ) -> Result<RunningWorker, String> {
-    let mut child = Command::new(executable)
+    let mut child_command = Command::new(executable);
+    child_command
         .arg("__presentation-view-rebuild-worker")
         .arg("--db")
         .arg(db_path)
@@ -506,7 +605,13 @@ fn spawn_worker(
         .arg("--database-id")
         .arg(&target.database_id)
         .arg("--generation")
-        .arg(target.generation.to_string())
+        .arg(target.generation.to_string());
+    if let Some(effective_query_date) = target.effective_query_date.as_deref() {
+        child_command
+            .arg("--effective-query-date")
+            .arg(effective_query_date);
+    }
+    let mut child = child_command
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -576,7 +681,12 @@ fn poll_workers(
                 cache_root.to_path_buf(),
                 target.view.session_id.clone(),
             );
-            let result = store.open_valid(&target.view, &target.database_id, target.generation);
+            let result = store.open_valid(
+                &target.view,
+                &target.database_id,
+                target.generation,
+                target.effective_query_date.as_deref(),
+            );
             match result {
                 Ok(_) => set_status_if_target(shared, &name, &target, TargetStatus::Ready),
                 Err(source) => set_status_if_target(
@@ -700,6 +810,7 @@ impl Error for PresentationViewRebuildStartError {
 pub(crate) enum PresentationViewRebuildReadError {
     Registry(PresentationViewRegistryAccessError),
     Database(String),
+    DateResolution(String),
     CoordinatorUnavailable,
 }
 
@@ -710,6 +821,10 @@ impl fmt::Display for PresentationViewRebuildReadError {
             Self::Database(message) => write!(
                 f,
                 "failed to read database state for presentation view cache: {message}"
+            ),
+            Self::DateResolution(message) => write!(
+                f,
+                "failed to resolve effective query date for presentation view cache: {message}"
             ),
             Self::CoordinatorUnavailable => {
                 write!(f, "presentation view rebuild coordinator is unavailable")
@@ -722,7 +837,7 @@ impl Error for PresentationViewRebuildReadError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Registry(source) => Some(source),
-            Self::Database(_) | Self::CoordinatorUnavailable => None,
+            Self::Database(_) | Self::DateResolution(_) | Self::CoordinatorUnavailable => None,
         }
     }
 }
@@ -730,7 +845,8 @@ impl Error for PresentationViewRebuildReadError {
 #[cfg(test)]
 mod tests {
     use super::{
-        rebuild_worker_limit, refresh_targets, run_rebuild_worker, RebuildTarget, RunningWorker,
+        rebuild_target_for_view, rebuild_worker_limit, refresh_targets,
+        relative_date_refresh_required_at, run_rebuild_worker, RebuildTarget, RunningWorker,
         SharedState, TargetStatus, ViewState,
     };
     use crate::{
@@ -747,6 +863,7 @@ mod tests {
         },
         presentation_view_cache::PresentationViewCacheStore,
     };
+    use chrono::{DateTime, Utc};
     use serde_json::json;
     use std::{
         collections::BTreeMap,
@@ -816,6 +933,7 @@ index_body_text = false
             output: PresentationViewOutputMode::Flat,
             includes: Vec::new(),
             query_timezone: None,
+            relative_date_dependent: false,
             presentation_spec: json!({"columns":[{"name":"title"}]}),
         }
     }
@@ -829,7 +947,24 @@ index_body_text = false
             },
             database_id: "database".to_string(),
             generation,
+            effective_query_date: None,
         }
+    }
+
+    fn relative_view(name: &str) -> RegisteredPresentationView {
+        let mut definition = definition(name);
+        definition.query = "(headings (scheduled :on today))".to_string();
+        definition.query_timezone = Some("Europe/Zurich".to_string());
+        definition.relative_date_dependent = true;
+        RegisteredPresentationView {
+            session_id: "session".to_string(),
+            revision: 1,
+            definition,
+        }
+    }
+
+    fn utc(value: &str) -> DateTime<Utc> {
+        value.parse().expect("UTC timestamp should parse")
     }
 
     fn advance_generation(config: &Config) -> i64 {
@@ -851,6 +986,103 @@ index_body_text = false
     fn target_changes_for_generation_or_revision() {
         assert_ne!(target(1, 4), target(1, 5));
         assert_ne!(target(1, 4), target(2, 4));
+    }
+
+    #[test]
+    fn relative_date_changes_target_without_generation_change() {
+        let view = relative_view("agenda");
+        let before = rebuild_target_for_view(
+            view.clone(),
+            "database".to_string(),
+            4,
+            Some(utc("2026-08-20T21:59:59Z")),
+        )
+        .expect("target should resolve");
+        let after = rebuild_target_for_view(
+            view,
+            "database".to_string(),
+            4,
+            Some(utc("2026-08-20T22:00:01Z")),
+        )
+        .expect("target should resolve");
+
+        assert_eq!(before.generation, after.generation);
+        assert_eq!(before.effective_query_date.as_deref(), Some("2026-08-20"));
+        assert_eq!(after.effective_query_date.as_deref(), Some("2026-08-21"));
+        assert_ne!(before, after);
+    }
+
+    #[test]
+    fn fixed_date_target_does_not_change_only_with_calendar_date() {
+        let view = RegisteredPresentationView {
+            session_id: "session".to_string(),
+            revision: 1,
+            definition: definition("agenda"),
+        };
+        let before = rebuild_target_for_view(
+            view.clone(),
+            "database".to_string(),
+            4,
+            Some(utc("2026-08-20T21:59:59Z")),
+        )
+        .expect("target should resolve");
+        let after = rebuild_target_for_view(
+            view,
+            "database".to_string(),
+            4,
+            Some(utc("2026-08-20T22:00:01Z")),
+        )
+        .expect("target should resolve");
+
+        assert_eq!(before, after);
+        assert_eq!(before.effective_query_date, None);
+    }
+
+    #[test]
+    fn date_refresh_is_required_only_after_relative_date_changes() {
+        let target = rebuild_target_for_view(
+            relative_view("agenda"),
+            "database".to_string(),
+            4,
+            Some(utc("2026-08-20T21:59:59Z")),
+        )
+        .expect("target should resolve");
+        let shared = Arc::new(Mutex::new(SharedState {
+            views: BTreeMap::from([(
+                "agenda".to_string(),
+                ViewState {
+                    target,
+                    status: TargetStatus::Ready,
+                },
+            )]),
+        }));
+
+        assert!(
+            !relative_date_refresh_required_at(&shared, Some(utc("2026-08-20T21:59:59Z")),)
+                .expect("date refresh check should succeed")
+        );
+        assert!(
+            relative_date_refresh_required_at(&shared, Some(utc("2026-08-20T22:00:01Z")),)
+                .expect("date refresh check should succeed")
+        );
+    }
+
+    #[test]
+    fn fixed_date_refresh_is_not_required_after_calendar_change() {
+        let shared = Arc::new(Mutex::new(SharedState {
+            views: BTreeMap::from([(
+                "agenda".to_string(),
+                ViewState {
+                    target: target(1, 4),
+                    status: TargetStatus::Ready,
+                },
+            )]),
+        }));
+
+        assert!(
+            !relative_date_refresh_required_at(&shared, Some(utc("2026-08-20T22:00:01Z")),)
+                .expect("date refresh check should succeed")
+        );
     }
 
     #[test]
@@ -941,13 +1173,14 @@ index_body_text = false
             &cache_root,
             &state.database_id,
             state.generation,
+            None,
             Cursor::new(serialized),
         )
         .expect("worker should publish cache");
 
         let store = PresentationViewCacheStore::in_root(cache_root, view.session_id.clone());
         let mut reader = store
-            .open_valid(&view, &state.database_id, state.generation)
+            .open_valid(&view, &state.database_id, state.generation, None)
             .expect("published cache should be valid");
         let mut payload = Vec::new();
         reader

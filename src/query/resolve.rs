@@ -48,7 +48,7 @@ pub fn resolve_relative_dates(
     query: &ValidatedQuery,
     options: &QueryDateResolutionOptions,
 ) -> Result<ValidatedQuery, QueryDateResolutionError> {
-    let today = effective_today(options)?;
+    let today = effective_query_date(options)?;
     Ok(ValidatedQuery {
         target: query.target,
         predicate: query
@@ -487,7 +487,35 @@ pub fn ensure_relative_dates_resolved(
     Ok(())
 }
 
-fn effective_today(
+pub fn query_depends_on_relative_dates(query: &ValidatedQuery) -> bool {
+    query
+        .predicate
+        .as_ref()
+        .is_some_and(expr_depends_on_relative_dates)
+}
+
+fn expr_depends_on_relative_dates(expr: &ValidatedExpr) -> bool {
+    match expr {
+        ValidatedExpr::And(children) | ValidatedExpr::Or(children) => {
+            children.iter().any(expr_depends_on_relative_dates)
+        }
+        ValidatedExpr::Not(child) => expr_depends_on_relative_dates(child),
+        ValidatedExpr::Predicate(predicate) => predicate_depends_on_relative_dates(predicate),
+    }
+}
+
+fn predicate_depends_on_relative_dates(predicate: &ValidatedPredicate) -> bool {
+    predicate.args.iter().any(|arg| match arg {
+        ValidatedArg::Scalar(_) => false,
+        ValidatedArg::NestedQuery(query) => query_depends_on_relative_dates(query),
+    }) || predicate.options.iter().any(|option| {
+        matches!(option.name.as_str(), "from" | "to" | "on")
+            && (matches!(&option.value, QueryValue::Integer(_))
+                || matches!(&option.value, QueryValue::Symbol(symbol) if symbol == "today"))
+    })
+}
+
+pub fn effective_query_date(
     options: &QueryDateResolutionOptions,
 ) -> Result<NaiveDate, QueryDateResolutionError> {
     let now = options.now_utc.unwrap_or_else(Utc::now);
@@ -673,8 +701,8 @@ mod tests {
     use chrono::{DateTime, Utc};
 
     use super::{
-        ensure_relative_dates_resolved, resolve_relative_dates, resolve_temporal_bounds,
-        QueryDateResolutionErrorKind, QueryDateResolutionOptions,
+        ensure_relative_dates_resolved, query_depends_on_relative_dates, resolve_relative_dates,
+        resolve_temporal_bounds, QueryDateResolutionErrorKind, QueryDateResolutionOptions,
     };
     use crate::query::{
         parse_query, validate_query, QueryValidationOptions, QueryValue, ValidatedExpr,
@@ -714,6 +742,25 @@ mod tests {
             .find(|option| option.name == option_name)
             .expect("option should exist")
             .value
+    }
+
+    #[test]
+    fn detects_relative_date_dependencies_in_validated_queries() {
+        assert!(query_depends_on_relative_dates(&validated(
+            r#"(headings (scheduled :on today))"#,
+        )));
+        assert!(query_depends_on_relative_dates(&validated(
+            r#"(headings (scheduled :from -1 :to 7))"#,
+        )));
+        assert!(query_depends_on_relative_dates(&validated(
+            r#"(headings (parent (headings (deadline :on today))))"#,
+        )));
+        assert!(!query_depends_on_relative_dates(&validated(
+            r#"(headings (scheduled :on "2026-08-20"))"#,
+        )));
+        assert!(!query_depends_on_relative_dates(&validated(
+            r#"(headings (level 1))"#,
+        )));
     }
 
     #[test]

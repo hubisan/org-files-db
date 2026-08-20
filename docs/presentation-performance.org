@@ -1014,9 +1014,11 @@ A valid cache entry must match:
 
 Relative dates use the existing query timezone rules.
 
-For a relative-date view, the watcher must start a rebuild when its effective local query date changes.
+For a relative-date view, the watcher starts a rebuild when its effective local query date changes.
 
-This rebuild can use the same database generation.
+The cache target stores that effective date in addition to the unchanged database generation.
+
+Fixed-date views do not get this extra validity value.
 
 This rule keeps ~generation~ and ~changes~ semantics unchanged.
 

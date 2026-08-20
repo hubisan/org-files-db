@@ -16,8 +16,9 @@ pub use ast::{
 pub use error::{QueryParseError, QueryParseErrorKind};
 pub use parser::parse_query;
 pub use resolve::{
-    ensure_relative_dates_resolved, resolve_relative_dates, resolve_temporal_bounds,
-    QueryDateResolutionError, QueryDateResolutionErrorKind, QueryDateResolutionOptions,
+    effective_query_date, ensure_relative_dates_resolved, query_depends_on_relative_dates,
+    resolve_relative_dates, resolve_temporal_bounds, QueryDateResolutionError,
+    QueryDateResolutionErrorKind, QueryDateResolutionOptions,
 };
 pub use result::{
     execute_and_shape_query, shape_matched_heading_nodes, shape_query_results,

@@ -29,7 +29,7 @@ use crate::{
     presentation_view_rebuild::{PresentationViewReadState, PresentationViewRebuildHandle},
 };
 
-const CONTROL_PROTOCOL_VERSION: u32 = 1;
+const CONTROL_PROTOCOL_VERSION: u32 = 2;
 const CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const CONTROL_SOCKET_HASH_BYTES: usize = 16;
 
@@ -60,6 +60,7 @@ pub(crate) struct PresentationViewDefinition {
     pub output: PresentationViewOutputMode,
     pub includes: Vec<PresentationViewInclude>,
     pub query_timezone: Option<String>,
+    pub relative_date_dependent: bool,
     pub presentation_spec: Value,
 }
 
@@ -102,6 +103,7 @@ pub(crate) struct PresentationViewReadTicket {
     pub view: RegisteredPresentationView,
     pub database_id: String,
     pub generation: i64,
+    pub effective_query_date: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -558,6 +560,7 @@ fn parse_and_apply_request(
                         view: target.view,
                         database_id: target.database_id,
                         generation: target.generation,
+                        effective_query_date: target.effective_query_date,
                     }),
                 },
                 Ok(PresentationViewReadState::Failed(message)) => ViewControlResponse::Error {
@@ -1024,6 +1027,7 @@ mod tests {
                 PresentationViewInclude::Path,
             ],
             query_timezone: Some("Europe/Zurich".to_string()),
+            relative_date_dependent: false,
             presentation_spec: json!({
                 "columns": [
                     {

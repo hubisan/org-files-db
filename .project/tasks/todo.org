@@ -925,10 +925,12 @@ Acceptance criteria:
 - A new watcher session starts with an empty view registry.
 - ~make ci~ passes.
 
-* TODO Add relative-date refresh for cached presentation views
+* BUILD Add relative-date refresh for cached presentation views
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
+
+Task file: [[./2026-08-20--add-relative-date-refresh-for-cached-presentation-views.org][Add Relative-Date Refresh for Cached Presentation Views]]
 
 Start this task after eager production view rebuilding works.
 

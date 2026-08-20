@@ -20,7 +20,7 @@ use crate::{
     presentation_view::{PresentationViewDefinition, RegisteredPresentationView},
 };
 
-pub(crate) const PRESENTATION_VIEW_CACHE_FORMAT_VERSION: u32 = 1;
+pub(crate) const PRESENTATION_VIEW_CACHE_FORMAT_VERSION: u32 = 2;
 const CACHE_MAGIC: &[u8; 8] = b"ORGFDBVC";
 const CACHE_HEADER_LENGTH_BYTES: usize = 4;
 const MAX_CACHE_HEADER_BYTES: usize = 64 * 1024;
@@ -36,6 +36,8 @@ struct PresentationViewCacheHeader {
     session_id: String,
     database_id: String,
     generation: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    effective_query_date: Option<String>,
     view_name: String,
     view_revision: u64,
     view_definition_id: String,
@@ -80,6 +82,7 @@ impl PresentationViewCacheStore {
         view: &RegisteredPresentationView,
         database_id: &str,
         generation: i64,
+        effective_query_date: Option<&str>,
         payload: &[u8],
     ) -> Result<PresentationViewCachePublishReport, PresentationViewCacheWriteError> {
         self.validate_view_session(view)?;
@@ -96,6 +99,7 @@ impl PresentationViewCacheStore {
             session_id: self.session_id.clone(),
             database_id: database_id.to_string(),
             generation,
+            effective_query_date: effective_query_date.map(str::to_string),
             view_name: view.definition.name.clone(),
             view_revision: view.revision,
             view_definition_id: view_definition_identity(&view.definition)?,
@@ -139,6 +143,7 @@ impl PresentationViewCacheStore {
         view: &RegisteredPresentationView,
         database_id: &str,
         generation: i64,
+        effective_query_date: Option<&str>,
     ) -> Result<PresentationViewCacheReader, PresentationViewCacheReadError> {
         self.validate_view_session_for_read(view)?;
         let path = self.current_path(&view.definition.name);
@@ -157,6 +162,7 @@ impl PresentationViewCacheStore {
             view,
             database_id,
             generation,
+            effective_query_date,
             &expected_definition_id,
         )?;
 
@@ -364,6 +370,7 @@ fn validate_header(
     view: &RegisteredPresentationView,
     database_id: &str,
     generation: i64,
+    effective_query_date: Option<&str>,
     expected_definition_id: &str,
 ) -> Result<(), PresentationViewCacheReadError> {
     if header.cache_format_version != PRESENTATION_VIEW_CACHE_FORMAT_VERSION {
@@ -394,6 +401,12 @@ fn validate_header(
         return Err(PresentationViewCacheReadError::InvalidGeneration {
             expected: generation,
             actual: header.generation,
+        });
+    }
+    if header.effective_query_date.as_deref() != effective_query_date {
+        return Err(PresentationViewCacheReadError::InvalidEffectiveQueryDate {
+            expected: effective_query_date.map(str::to_string),
+            actual: header.effective_query_date.clone(),
         });
     }
     if header.view_name != view.definition.name {
@@ -694,6 +707,10 @@ pub(crate) enum PresentationViewCacheReadError {
         expected: i64,
         actual: i64,
     },
+    InvalidEffectiveQueryDate {
+        expected: Option<String>,
+        actual: Option<String>,
+    },
     InvalidViewName {
         expected: String,
         actual: String,
@@ -772,6 +789,10 @@ impl fmt::Display for PresentationViewCacheReadError {
                 f,
                 "presentation view cache generation {actual} is not valid. Expected {expected}"
             ),
+            Self::InvalidEffectiveQueryDate { expected, actual } => write!(
+                f,
+                "presentation view cache effective query date {actual:?} is not valid. Expected {expected:?}"
+            ),
             Self::InvalidViewName { expected, actual } => write!(
                 f,
                 "presentation view cache name `{actual}` is not valid. Expected `{expected}`"
@@ -823,6 +844,7 @@ impl Error for PresentationViewCacheReadError {
             | Self::InvalidSession { .. }
             | Self::InvalidDatabase { .. }
             | Self::InvalidGeneration { .. }
+            | Self::InvalidEffectiveQueryDate { .. }
             | Self::InvalidViewName { .. }
             | Self::InvalidViewRevision { .. }
             | Self::InvalidViewDefinition { .. }
@@ -889,6 +911,7 @@ mod tests {
                 output: PresentationViewOutputMode::Flat,
                 includes: Vec::new(),
                 query_timezone: Some("Europe/Zurich".to_string()),
+                relative_date_dependent: false,
                 presentation_spec: json!({
                     "columns": [
                         {
@@ -907,7 +930,7 @@ mod tests {
         database_id: &str,
         generation: i64,
     ) -> Result<Vec<u8>, PresentationViewCacheReadError> {
-        let mut reader = store.open_valid(view, database_id, generation)?;
+        let mut reader = store.open_valid(view, database_id, generation, None)?;
         let mut payload = Vec::new();
         reader.copy_payload_to(&mut payload)?;
         Ok(payload)
@@ -938,7 +961,7 @@ mod tests {
         let registered = view("session-one", 4, 40);
         let payload = br#"{"presentation_version":2,"rows":[]}"#;
         first
-            .publish(&registered, "database-one", 7, payload)
+            .publish(&registered, "database-one", 7, None, payload)
             .expect("cache publish should succeed");
 
         let second =
@@ -955,10 +978,10 @@ mod tests {
             PresentationViewCacheStore::in_root(test_dir.path.clone(), "session-one".to_string());
         let registered = view("session-one", 1, 40);
         store
-            .publish(&registered, "database-one", 1, b"first")
+            .publish(&registered, "database-one", 1, None, b"first")
             .expect("first cache publish should succeed");
         store
-            .publish(&registered, "database-one", 2, b"second")
+            .publish(&registered, "database-one", 2, None, b"second")
             .expect("replacement cache publish should succeed");
 
         let entries = fs::read_dir(&store.session_dir)
@@ -987,7 +1010,7 @@ mod tests {
             PresentationViewCacheStore::in_root(test_dir.path.clone(), "session-one".to_string());
         let registered = view("session-one", 1, 40);
         store
-            .publish(&registered, "database-one", 8, b"payload")
+            .publish(&registered, "database-one", 8, None, b"payload")
             .expect("cache publish should succeed");
 
         let cache_root = store
@@ -1001,28 +1024,55 @@ mod tests {
             PresentationViewCacheStore::in_root(cache_root, "session-two".to_string());
         let other_session_view = view("session-two", 1, 40);
         assert!(matches!(
-            other_session_store.open_valid(&other_session_view, "database-one", 8),
+            other_session_store.open_valid(&other_session_view, "database-one", 8, None),
             Err(PresentationViewCacheReadError::Open { .. })
         ));
         assert!(matches!(
-            store.open_valid(&registered, "database-two", 8),
+            store.open_valid(&registered, "database-two", 8, None),
             Err(PresentationViewCacheReadError::InvalidDatabase { .. })
         ));
         assert!(matches!(
-            store.open_valid(&registered, "database-one", 9),
+            store.open_valid(&registered, "database-one", 9, None),
             Err(PresentationViewCacheReadError::InvalidGeneration { .. })
         ));
 
         let changed_revision = view("session-one", 2, 40);
         assert!(matches!(
-            store.open_valid(&changed_revision, "database-one", 8),
+            store.open_valid(&changed_revision, "database-one", 8, None),
             Err(PresentationViewCacheReadError::InvalidViewRevision { .. })
         ));
 
         let changed_definition = view("session-one", 1, 60);
         assert!(matches!(
-            store.open_valid(&changed_definition, "database-one", 8),
+            store.open_valid(&changed_definition, "database-one", 8, None),
             Err(PresentationViewCacheReadError::InvalidViewDefinition { .. })
+        ));
+    }
+
+    #[test]
+    fn cache_validates_effective_query_date_only_when_present() {
+        let test_dir = TestDir::new("effective-date");
+        let store =
+            PresentationViewCacheStore::in_root(test_dir.path.clone(), "session-one".to_string());
+        let mut registered = view("session-one", 1, 40);
+        registered.definition.relative_date_dependent = true;
+        registered.definition.query = "(headings (scheduled :on today))".to_string();
+        store
+            .publish(
+                &registered,
+                "database-one",
+                8,
+                Some("2026-08-20"),
+                b"payload",
+            )
+            .expect("relative-date cache publish should succeed");
+
+        assert!(store
+            .open_valid(&registered, "database-one", 8, Some("2026-08-20"),)
+            .is_ok());
+        assert!(matches!(
+            store.open_valid(&registered, "database-one", 8, Some("2026-08-21"),),
+            Err(PresentationViewCacheReadError::InvalidEffectiveQueryDate { .. })
         ));
     }
 
@@ -1042,6 +1092,7 @@ mod tests {
             session_id: "session-one".to_string(),
             database_id: "database-one".to_string(),
             generation: 1,
+            effective_query_date: None,
             view_name: "agenda".to_string(),
             view_revision: 1,
             view_definition_id: definition_id.clone(),
@@ -1049,7 +1100,7 @@ mod tests {
         };
         write_test_envelope(&path, &header, b"payload");
         assert!(matches!(
-            store.open_valid(&registered, "database-one", 1),
+            store.open_valid(&registered, "database-one", 1, None),
             Err(PresentationViewCacheReadError::InvalidCacheFormatVersion { .. })
         ));
 
@@ -1057,7 +1108,7 @@ mod tests {
         header.session_id = "session-two".to_string();
         write_test_envelope(&path, &header, b"payload");
         assert!(matches!(
-            store.open_valid(&registered, "database-one", 1),
+            store.open_valid(&registered, "database-one", 1, None),
             Err(PresentationViewCacheReadError::InvalidSession { .. })
         ));
 
@@ -1065,7 +1116,7 @@ mod tests {
         header.presentation_version = PRESENTATION_VERSION + 1;
         write_test_envelope(&path, &header, b"payload");
         assert!(matches!(
-            store.open_valid(&registered, "database-one", 1),
+            store.open_valid(&registered, "database-one", 1, None),
             Err(PresentationViewCacheReadError::InvalidPresentationVersion { .. })
         ));
     }
@@ -1084,6 +1135,7 @@ mod tests {
             session_id: "session-one".to_string(),
             database_id: "database-one".to_string(),
             generation: 1,
+            effective_query_date: None,
             view_name: "agenda".to_string(),
             view_revision: 1,
             view_definition_id: view_definition_identity(&registered.definition)
@@ -1093,7 +1145,7 @@ mod tests {
         write_test_envelope(&path, &header, b"short");
 
         assert!(matches!(
-            store.open_valid(&registered, "database-one", 1),
+            store.open_valid(&registered, "database-one", 1, None),
             Err(PresentationViewCacheReadError::PayloadLengthMismatch { .. })
         ));
     }
@@ -1105,7 +1157,7 @@ mod tests {
             PresentationViewCacheStore::in_root(test_dir.path.clone(), "session-one".to_string());
         let registered = view("session-one", 1, 40);
         store
-            .publish(&registered, "database-one", 1, b"current")
+            .publish(&registered, "database-one", 1, None, b"current")
             .expect("current cache publish should succeed");
 
         let temp_path = store.unique_temp_path("agenda");
@@ -1129,12 +1181,12 @@ mod tests {
         let registered = view("session-one", 1, 40);
         let payload = b"{\n  \"presentation_version\": 2, \"rows\": []\n}\n";
         let report = store
-            .publish(&registered, "database-one", 1, payload)
+            .publish(&registered, "database-one", 1, None, payload)
             .expect("cache publish should succeed");
         assert_eq!(report.payload_bytes, payload.len() as u64);
 
         let mut reader = store
-            .open_valid(&registered, "database-one", 1)
+            .open_valid(&registered, "database-one", 1, None)
             .expect("cache should be valid");
         assert_eq!(reader.payload_bytes(), payload.len() as u64);
         let mut actual = Vec::new();
@@ -1172,7 +1224,7 @@ mod tests {
             PresentationViewCacheStore::in_root(test_dir.path.clone(), "session-one".to_string());
         let registered = view("session-one", 1, 40);
         store
-            .publish(&registered, "database-one", 1, b"not-json-on-purpose")
+            .publish(&registered, "database-one", 1, None, b"not-json-on-purpose")
             .expect("cache publish should succeed");
         let path = store.current_path("agenda");
         let mut file = File::open(&path).expect("cache should open");
@@ -1190,7 +1242,7 @@ mod tests {
             PresentationViewCacheStore::in_root(test_dir.path.clone(), "session-one".to_string());
         let registered = view("session-two", 1, 40);
         assert!(matches!(
-            store.publish(&registered, "database-one", 1, b"payload"),
+            store.publish(&registered, "database-one", 1, None, b"payload"),
             Err(PresentationViewCacheWriteError::SessionMismatch { .. })
         ));
     }
