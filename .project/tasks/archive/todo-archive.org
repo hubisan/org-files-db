@@ -1,2870 +1,847 @@
-#+TITLE: Task Index Archive
+#+TITLE: Task Archive
 #+TODO: TODO(t) NEXT(n) PLAN(p) BUILD(b) REVIEW(r) CONTINUE(C) | DONE(d) CANCEL(c)
 #+STARTUP: showall
 
-* DONE Phase 0: Foundation and parser risks
+This file contains completed and cancelled tasks removed from [[../todo.org][todo.org]].
+
+Detailed task files are grouped by topic in subdirectories of this archive.
+
+The groups are ~core-indexing~, ~query-sqlite~, ~presentation~, ~presentation-performance~, ~presentation-cache~, and ~maintenance-documentation~.
+
+* Phases 0-8
+
+** DONE Phase 0: Foundation and parser risks
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal of this phase:
-Create a stable foundation without getting stuck in full grammar validation before the MVP.
-
-The most important insight is: Orgize is probably good enough for a first end-to-end slice, but not safe enough to couple the project tightly to it.
-
-Therefore, an adapter layer is built first and protected with representative fixtures.
-
-** DONE [2026-06-16 Tue 22:14] Define parser abstraction and internal data model
-
-[[./phase-0--foundation-and-parser-risks/2026-06-16--define-parser-abstraction-and-internal-data-model.org]]
-
-** DONE [2026-06-16 Tue 23:15] Evaluate minimal Orgize adapter
-
-[[./phase-0--foundation-and-parser-risks/2026-06-16--evaluate-minimal-orgize-adapter.org]]
-
-** DONE [2026-06-17 Wed 11:14] Structure test fixtures for parser regressions
-
-[[./phase-0--foundation-and-parser-risks/2026-06-17--structure-parser-regression-fixtures.org]]
-
-** DONE [2026-06-17 Wed 11:46] Create parser risk list
-
-[[./phase-0--foundation-and-parser-risks/2026-06-17--create-parser-risk-list.org]]
-
-* DONE Phase 1: Minimal end-to-end slice
+** DONE Phase 1: Minimal end-to-end slice
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal of this phase:
-Get a runnable system as early as possible without coupling too tightly to Orgize.
-
-One Org file is read through the parser adapter, translated into our own internal model, stored in SQLite, and output as JSON through a ~clap~ CLI.
-
-Pipeline:
-
-#+begin_src text
-config
-  -> find files
-  -> read file
-  -> read/derive TODO keyword config
-  -> run parser backend
-  -> validate / normalize ParsedOrgDocument
-  -> update SQLite
-  -> output CLI JSON
-#+end_src
-
-** DONE [2026-06-17 Wed 12:56] Define minimal config
-
-[[./phase-1--minimal-end-to-end-slice/2026-06-17--define-minimal-config.org]]
-
-** DONE [2026-06-17 Wed 13:24] Define configurable TODO keyword model
-
-[[./phase-1--minimal-end-to-end-slice/2026-06-17--define-configurable-todo-keyword-model.org]]
-
-** DONE [2026-06-17 Wed 13:53] Define minimal `ParsedHeading` / `OrgHeading`
-
-[[./phase-1--minimal-end-to-end-slice/2026-06-17--define-minimal-parsed-heading.org]]
-
-** DONE [2026-06-17 Wed 23:00] Open SQLite and enable WAL
-
-[[./phase-1--minimal-end-to-end-slice/2026-06-17--open-sqlite-and-enable-wal.org]]
-
-** DONE [2026-06-18 Thu 00:10] Review and improve SQLite schema
-
-[[./phase-1--minimal-end-to-end-slice/2026-06-17--review-and-improve-sqlite-schema.org]]
-
-** DONE [2026-06-18 Thu 00:21] Implement minimal DB schema migration
-
-[[./phase-1--minimal-end-to-end-slice/2026-06-18--implement-minimal-db-schema-migration.org]]
-
-** DONE [2026-06-18 Thu 00:36] Implement minimal DB functions
-
-[[./phase-1--minimal-end-to-end-slice/2026-06-18--implement-minimal-db-functions.org]]
-
-** DONE [2026-06-18 Thu 11:28] Implement Orgize adapter for headings and priorities
-
-[[./phase-1--minimal-end-to-end-slice/2026-06-18--implement-orgize-adapter-for-headings-and-priorities.org]]
-
-** DONE [2026-06-18 Thu 11:28] Implement indexer for full rebuild
-
-[[./phase-1--minimal-end-to-end-slice/2026-06-18--implement-indexer-for-full-rebuild.org]]
-
-** DONE [2026-06-18 Thu 16:36] Set up CLI with Clap
-
-[[./phase-1--minimal-end-to-end-slice/2026-06-18--set-up-cli-with-clap.org]]
-
-** DONE [2026-06-18 Thu] Implement a small CLI follow-up for level-0/root heading output./phase-1--minimal-end-to-end-slice
-
-[[./phase-1--minimal-end-to-end-slice/2026-06-18--feat-cli-implement-include-root.org]]
-
-** DONE [2026-06-18 Thu] Expand `~` in config paths
-
-[[./phase-1--minimal-end-to-end-slice/2026-06-18--expand-tilde-in-config-paths.org]]
-
-** DONE [2026-06-18 Thu] Add `--config` support to `headings --json`
-
-[[./phase-1--minimal-end-to-end-slice/2026-06-18--add-config-support-to-headings-json.org]]
-
-** DONE Normalize `title` and preserve `title_raw` for headings
-
-[[./phase-1--minimal-end-to-end-slice/2026-06-18--normalize-title-and-preserve-title-raw-for-headings.org]]
-
-** DONE Respect file-local TODO keyword config in parser/indexer pipeline
-
-[[./phase-1--minimal-end-to-end-slice/2026-06-18--respect-file-local-todo-keyword-config-in-parser-indexer-pipeline.org]]
-
-** DONE Compute inherited tags for `all_tags_json`
-
-[[./phase-1--minimal-end-to-end-slice/2026-06-18--compute-inherited-tags-for-all-tags-json.org]]
-
-** DONE Support simplified file-local TODO keyword lines
-
-[[./phase-1--minimal-end-to-end-slice/2026-06-19--support-simplified-file-local-todo-keyword-lines.org]]
-
-** DONE [2026-06-19 Fri 13:15] Support multiple file-wide `#+TITLE:` keywords
-
-[[./phase-1--minimal-end-to-end-slice/2026-06-19--support-multiple-file-wide-title-keywords.org]]
-
-** DONE [2026-06-19 Fri 14:41] Normalize resolved config paths syntactically
-
-[[./phase-1--minimal-end-to-end-slice/2026-06-19--normalize-resolved-config-paths-syntactically.org]]
-
-** DONE Verify minimal end-to-end slice
-
-[[./phase-1--minimal-end-to-end-slice/2026-06-19--verify-minimal-end-to-end-slice.org]]
-
-* DONE Phase 2: Complete parser data model v0.1
+** DONE Phase 2: Complete parser data model v0.1
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal of this phase:
-Extend the data model enough to represent real Org workflows meaningfully, without already building the full query engine.
+** DONE Phase 3: Org link extractor
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
 
-** DONE [2026-06-19 Fri 16:17] Compute parent-child structure
+** DONE Phase 4: Link resolution
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
 
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-19--compute-parent-child-structure.org]]
+** DONE Phase 5: Query engine and optional full-text search
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
 
-** DONE [2026-06-19 Fri 16:50] Store materialized outline path
+** DONE Phase 6: Robust incremental indexer core
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
 
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-19--store-materialized-outline-path.org]]
+** DONE Phase 7: Watcher-driven incremental updates
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
 
-** DONE [2026-06-23 Tue 00:01] Parse Org timestamps and planning fields
+** DONE Phase 8: Evaluate and optionally implement parallel parsing and preparation
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
 
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-19--parse-planning-lines.org]]
+Deciscion after some tests: this is not needed. Having organized my life with Org for a long time now and still only have 570 small to medium sized files.
 
-** DONE [2026-06-23 Tue 16:37] Parse properties drawer and file-level properties
+* Repository and indexing hardening
 
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-23--parse-properties-drawer-and-file-level-properties.org]]
+** DONE Recover Org links that Orgize misparses
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
 
-** DONE [2026-06-23 Tue 20:17] Fix PROPERTY and CATEGORY normalization to use whole-file keyword scan
+** DONE Expose canonical database path in status
 
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-23--fix-property-and-category-normalization-to-use-whole-file-keyword-scan.org]]
+** DONE Add transactional index generations and cached-view delta refresh
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
 
-Goal: Ensure that normalized property rows created from ~#+PROPERTY~ and ~#+CATEGORY~ are based on keyword lines from the whole Org document, not only on keywords before the first regular heading.
+** DONE Make query result shaping return errors instead of panicking
 
-Context: Org keyword lines can appear later in the buffer and still be recognized by Org-mode. The raw keyword parser/indexer stores keyword rows on the synthetic level 0 heading. Property normalization for ~#+PROPERTY~ and ~#+CATEGORY~ must use the same parsed keyword source, but this task must not change TODO keyword semantics.
+** DONE Add GitHub CI for the existing make ci target
 
-Important regression context: A previous attempt changed the central keyword collection path too broadly and caused ~todo_keywords~ insertion to fail with a uniqueness error. This task must avoid that regression.
+** DONE Reject unknown TOML configuration keys
 
-Do not change:
+** DONE Avoid loading every heading for plain flat queries
 
-- Do not change normalized ~TODO~, ~SEQ_TODO~, or ~TYP_TODO~ behavior.
-- Do not remove existing TODO keyword deduplication or merge logic.
-- Do not change the ~todo_keywords~ schema.
-- Do not change the uniqueness behavior of ~todo_keywords~.
-- Do not modify manual SQLite database files.
-- Do not modify task tracking files such as ~.project/tasks/todo.org~, except for moving this task through the workflow if explicitly required by the project process.
-- Do not implement a second independent raw-text scanner if a parsed keyword list already exists.
-- Do not compute effective or inherited property values in this task.
+** DONE Reject outdated database schemas on read-only query opens
 
-Problem:
+** CANCEL Feature - ignore single file
 
-#+begin_src org
-  ,#+PROPERTY: var before
+Reason for cancelling:
 
-  ,* First heading
+The existing configuration already supports excluding individual files,
+directories and path patterns from the indexed source universe. This
+covers the current need without introducing a second exclusion mechanism
+inside Org files.
 
-  ,#+PROPERTY: var after
-  ,#+CATEGORY: later-category
+A file-level ~#+orgfdb: ignore~ keyword would mainly provide a portable
+exclusion that follows the file when it is moved. There is currently no
+concrete use case that justifies the additional discovery,
+reconciliation and watcher semantics.
 
-  ,* Second heading
-#+end_src
+Allow an Org file to declare that it must not be included in the
+~org-files-db~ index.
 
-Expected parser/indexer behavior:
-
-- Both ~#+PROPERTY~ rows are stored as raw keyword rows.
-- The later ~#+CATEGORY~ row is stored as a raw keyword row.
-- Both ~#+PROPERTY~ rows also create normalized rows in ~properties~ with ~source = property_keyword~.
-- The ~#+CATEGORY~ row also creates a normalized row in ~properties~ with ~source = category_keyword~.
-- All normalized rows are attached to the synthetic level 0 heading.
-- No normalized row is attached directly to ~First heading~ or ~Second heading~.
-
-Scope:
-
-- Reuse the existing parsed keyword collection used for raw keyword insertion, if available.
-- If the existing parser has special whole-buffer keyword logic for ~TODO~, ~SEQ_TODO~, ~TYP_TODO~, ~PROPERTY~, or ~CATEGORY~, preserve it unless a test proves it is wrong.
-- Do not replace the central keyword collector with a broad ~syntax().descendants().filter_map(Keyword::cast)~ implementation unless all existing keyword/TODO tests still pass and no duplicate ~todo_keywords~ rows are produced.
-- Do not limit ~#+PROPERTY~ or ~#+CATEGORY~ normalization to the preamble before the first regular heading.
-- Preserve duplicate raw keyword rows.
-- Preserve duplicate normalized property rows.
-- Preserve source order through ~line_number~ and/or insertion order.
-- Keep keyword rows and property rows separate.
-- Store ~#+PROPERTY~ and ~#+CATEGORY~ twice: once as raw ~keywords~ rows and once as normalized ~properties~ rows.
-- Attach normalized ~property_keyword~ and ~category_keyword~ rows only to the synthetic level 0 heading.
-- Do not attach normalized keyword-derived property rows to surrounding regular headings.
-
-Normalization rules:
-
-- ~#+PROPERTY: key value~ creates a row in ~properties~ with key ~KEY~, value ~value~, source ~property_keyword~, append = 0, and heading_id = synthetic level 0 heading.
-- ~#+PROPERTY: key+ value~ creates a row in ~properties~ with key ~KEY~, value ~value~, source ~property_keyword~, append = 1, and heading_id = synthetic level 0 heading.
-- ~#+CATEGORY: value~ creates a row in ~properties~ with key ~CATEGORY~, value ~value~, source ~category_keyword~, append = 0, and heading_id = synthetic level 0 heading.
-- The trailing ~+~ append marker is not part of the stored key.
-- Property keys are normalized consistently with the existing property implementation.
-
-Required regression fixture:
+Possible syntax:
 
 #+begin_src org
-  ,#+TITLE: Keyword and Property Normalization Fixture
-  ,#+STARTUP: showall
-  ,#+PROPERTY: before_prop before-value
-  ,#+CATEGORY: before-category
-
-  ,* First heading
-  This heading has body text before later keywords.
-
-  ,#+AUTHOR: Later Author
-  ,#+OPTIONS: toc:nil num:t
-  ,#+PROPERTY: after_prop after-value
-  ,#+PROPERTY: repeated_prop first
-  ,#+PROPERTY: repeated_prop second
-  ,#+PROPERTY: appended_prop base
-  ,#+PROPERTY: appended_prop+ extra
-  ,#+CATEGORY: after-category
-
-  ,** Child heading
-  This child should not directly receive keyword or property rows created from later file-level keywords.
-
-  ,#+TITLE: Later Title
-  ,#+EXPORT_FILE_NAME: later-export-name
-
-  ,* Second heading
-  This heading appears after later keywords.
-
-  ,#+PROPERTY: second_after_heading works
-  ,#+CATEGORY: second-category
+  ,#+TITLE: Private Note
+  ,#+ORGFDB: ignore
 #+end_src
 
-Expected normalized property rows on level 0:
+The keyword would mean that the file is outside the indexed source
+universe, even if its path is otherwise included by the configured files
+or directories.
 
-#+begin_src text
-BEFORE_PROP          | before-value    | property_keyword | append = 0
-CATEGORY             | before-category | category_keyword | append = 0
-AFTER_PROP           | after-value     | property_keyword | append = 0
-REPEATED_PROP        | first           | property_keyword | append = 0
-REPEATED_PROP        | second          | property_keyword | append = 0
-APPENDED_PROP        | base            | property_keyword | append = 0
-APPENDED_PROP        | extra           | property_keyword | append = 1
-CATEGORY             | after-category  | category_keyword | append = 0
-SECOND_AFTER_HEADING | works           | property_keyword | append = 0
-CATEGORY             | second-category | category_keyword | append = 0
-#+end_src
+Expected semantics would be:
 
-Expected attachment behavior:
+- detect ~#+orgfdb: ignore~ at file level;
+- do not store the file or any of its headings, properties, keywords or
+  links in the database;
+- if an already indexed file gains ~#+orgfdb: ignore~, remove it during
+  the next rebuild or reconciliation;
+- if the keyword is removed, make the file eligible for indexing again;
+- treat links to an ignored file the same way as links to another file
+  outside the indexed source universe;
+- make watcher/reconciliation behaviour consistent when the keyword is
+  added or removed;
+- use only the exact ~ignore~ value initially; do not introduce boolean
+  aliases or additional ~orgfdb~ options without a separate use case.
 
-- All rows above are attached to the synthetic level 0 heading.
-- No ~property_keyword~ or ~category_keyword~ row is attached to ~First heading~.
-- No ~property_keyword~ or ~category_keyword~ row is attached to ~Child heading~.
-- No ~property_keyword~ or ~category_keyword~ row is attached to ~Second heading~.
+Prefer a file-level keyword over a property such as ~VULPEA_IGNORE~,
+because ignoring the file is source/indexing metadata rather than heading
+metadata.
 
-Required TODO regression fixture:
+* Presentation output
 
-#+begin_src org
-  ,#+TODO: TODO NEXT | DONE
-  ,#+SEQ_TODO: TODO WAIT | DONE CANCELED
+** DONE Overhaul the org-files-db documentation before presentation work
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
 
-  ,* TODO First heading
-  ,* NEXT Second heading
-  ,* DONE Finished heading
-#+end_src
+** DONE Add query-specific presentation output support
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
 
-Expected TODO behavior:
+** DONE Define the Rust PresentationSpec model
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
 
-- Rebuild must not fail with ~UNIQUE constraint failed: todo_keywords.file_id, todo_keywords.keyword~.
-- Raw keyword rows may preserve both TODO-related keyword declarations.
-- Normalized ~todo_keywords~ rows must remain valid for the existing schema.
-- If duplicate normalized TODO keywords occur, keep the existing project behavior for deduplication or conflict handling.
-- Do not change TODO keyword semantics unless an existing test is wrong and the change is explicitly justified.
+** DONE Define the public presentation column registry
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** DONE Define semantic presentation roles
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** DONE Define the presentation results, rows, and cells wire model
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** DONE Implement presentation value extraction and include inference
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** DONE Implement presentation sorting in Rust
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** DONE Implement presentation widths, truncation, and padding
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** DONE Connect query execution to compact presentation-json output
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** DONE Implement presentation row expansion
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** DONE Benchmark uncached Rust-prepared presentation
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Run benchmark like this:
+
+#+BEGIN_SRC shell
+  cargo build --release --bin orgfdb --bin orgfdb-presentation-benchmark
+
+  target/release/orgfdb-presentation-benchmark \
+    --orgfdb target/release/orgfdb \
+    --rows 100,1000,10000,50000 \
+    --warmups 1 \
+    --iterations 3 \
+    --work-dir /tmp/orgfdb-presentation-benchmark-work \
+    --output /tmp/orgfdb-presentation-50000.json
+#+END_SRC
+
+Goal: Measure the complete presentation path before any presentation cache or parallel optimization is added.
+
+Benchmark representative structural queries with approximately:
+
+- 100 rows
+- 1'000 rows
+- 10'000 rows
+- 50'000 rows
+
+Include normal one-row results and representative expanded-row workloads.
+
+Measure these stages when the benchmark harness can isolate them:
+
+- database query execution
+- value extraction
+- row expansion
+- sort-key creation
+- sorting
+- width calculation
+- truncation and padding
+- final row formatting
+- JSON serialization
+- payload size
+- process startup
+- total CLI elapsed time
+
+The Emacs rewrite does not need to exist for this Rust-side benchmark.
+
+Do not add a presentation cache in this task.
+
+Do not add parallel execution in this task.
+
+Record enough data to identify the expensive stages and the main source of total latency.
 
 Acceptance criteria:
 
-- A test proves that ~#+PROPERTY~ after a regular heading creates a ~properties~ row on the level 0 heading.
-- A test proves that ~#+CATEGORY~ after a regular heading creates a ~properties~ row on the level 0 heading.
-- A test proves that raw ~keywords~ rows are still stored for those later keyword lines.
-- A test proves that no ~property_keyword~ or ~category_keyword~ row is attached to the surrounding regular heading.
-- Duplicate ~#+PROPERTY~ rows from different positions are preserved.
-- Append syntax with ~#+PROPERTY: key+ value~ is preserved as ~append = 1~.
-- Existing TODO keyword tests still pass.
-- A regression test proves that rebuild does not fail with duplicate or overlapping TODO declarations.
-- The implementation uses the same keyword source as raw keyword insertion, or clearly documents why that is not possible.
-- The test fails on the old implementation if ~#+PROPERTY~ or ~#+CATEGORY~ is only scanned before the first regular heading.
+- Several result-set sizes are measured.
+- Expanded-row workloads are measured.
+- Presentation stages can be compared with useful timing data.
+- Payload sizes are recorded.
+- Process startup cost is recorded.
+- No cache is added.
+- No parallel optimization is added.
+- Benchmark results are documented.
 
-Validation:
-
-- Run the new parser/indexer tests.
-- Run all existing TODO keyword tests.
-- Run the rebuild command that previously failed, if available:
-  #+begin_src shell
-    cargo run -- rebuild --config ./Config.toml
-  #+end_src
-- Run the project standard validation command if available, for example:
-  #+begin_src shell
-    make ci
-  #+end_src
-
-** DONE [2026-06-23 Tue 20:45] Verify and complete raw keyword parsing contract
-
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-23--verify-and-complete-raw-keyword-parsing-contract.org]]
-
-** DONE [2026-06-23 Tue 21:53] Parse direct heading tags and FILETAGS as normalized tag facts
-
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-23--parse-direct-heading-tags-and-filetags-as-normalized-tag-facts.org]]
-
-** DONE [2026-06-23 Tue 22:02] Simplify tags schema to direct tag facts only
-
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-23--simplify-tags-schema-to-direct-tag-facts-only.org]]
-
-** DONE Store optional body text per heading
-
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-23--store-optional-body-text-per-heading.org]]
-
-** DONE [2026-06-23 Tue 23:24] Refine heading body extraction to exclude structured metadata
-
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-23--refine-heading-body-extraction-to-exclude-structured-metadata.org]]
-
-** DONE [#A] Introduce per-file TODO keyword resolution before external TODO sources
-:PROPERTIES:
-:PRIORITY: High
-:RISK: Medium
-:ARCHITECTURE: Yes
-:END:
-
-[[file:phase-2--complete-parser-data-model-v0.1/2026-06-26--tighten-shared-todo-keyword-parsing.org]]
-
-** DONE [#A] Consider safe parsing of Emacs `.dir-locals.el` for Org TODO keywords
-:PROPERTIES:
-:PRIORITY: High
-:RISK: High
-:BEHAVIOR_API_CHANGE: Yes
-:SECURITY_SENSITIVE: Yes
-:END:
-
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-26--safe-dir-locals-todo-keywords.org]]
-
-** DONE [2026-06-27 Sat 01:13] Reduce noisy warnings for irrelevant ~.dir-locals.el~ forms
-
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-27--reduce-noisy-warnings-for-irrelevant-dir-locals-forms.org]]
-
-** DONE [2026-06-27 Sat 11:33] Roll back .dir-locals.el org-todo-keywords as effective TODO source
-
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-27--rollback-dir-locals-todo-keywords.org]]
-
-** DONE [2026-06-27 Sat 11:33] Ignore .dir-locals.el completely during indexing
-
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-27--ignore-dir-locals-during-indexing.org]]
-
-
-*** DONE [#B] Ignore .dir-locals.el completely during indexing
-
-[[file:phase-2--complete-parser-data-model-v0.1/2026-06-27--rollback-dir-locals-todo-keywords.org][Roll back .dir-locals.el org-todo-keywords as effective TODO source]]
-
-** DONE [2026-06-27 Sat 12:02] Define DB schema versioning
-
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-27--define-db-schema-versioning.org]]
-
-** DONE [2026-06-27 Sat 12:27] Finalize DB schema and JSON API for v0.1
-
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-27--finalize-db-schema-and-json-api-v0-1.org]]
-
-** Repo durch Codex/ChatGPT prüfen lassen
-
-*** DONE [2026-06-27 Sat 22:33] Canonicalize configured paths more robustly
-
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-27--canonicalize-configured-paths-more-robustly.org]]
-
-*** DONE [#B] Clean up stale TODO keyword test names and .dir-locals configuration leftovers
-
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-27--clean-up-stale-todo-keyword-test-names-and-dir-locals-configuration-leftovers.org]]
-
-*** DONE [#B] Refresh README and parser risk docs to match current implementation
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:END:
-
-*** DONE [#B] Narrow the public library surface
-
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-27--narrow-the-public-library-surface.org]]
-
-*** DONE [2026-06-28 Sun 00:45] Guard rebuild against accidental empty input scope
-
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-28--guard-rebuild-against-accidental-empty-input-scope.org]]
-
-*** DONE [2026-06-28 Sun 00:56] Complete atomic schema/migration transaction handling
-
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-28--complete-atomic-schema-migration-transaction-handling.org]]
-
-*** DONE [#B] Document and test DB-level sentinel for synthetic level-0 headings
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Maybe
-:END:
-
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-28--document-and-test-db-level-sentinel-for-synthetic-level-0-headings.org]]
-
-*** DONE [#C] Refresh project docs and package metadata
-:PROPERTIES:
-:PRIORITY: Low
-:RISK: Low
-:DOCS_ONLY: Mostly
-:END:
-
-[[./phase-2--complete-parser-data-model-v0.1/2026-06-28--refresh-project-docs-and-package-metadata.org]]
-
-* DONE Phase 3: Org link extractor
+** DONE Analyze presentation JSON payload size
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-** Goal of this phase
-:PROPERTIES:
-:VISIBILITY: folded
-:END:
+Goal: Identify which parts of ~presentation-json~ cause the large payload size.
 
-Extract Org links as raw source facts and store them in SQLite without depending on Orgize's link support being complete. Link resolution to files, headings, IDs, CUSTOM_IDs, org-id-locations, dedicated targets, or relationship graphs belongs to later phases.
+Use the existing presentation benchmark workloads.
 
-Core rules:
+Analyze at least:
 
-- Store source facts only.
-- Do not resolve link targets in Phase 3.
-- Do not execute action-like links such as ~shell:~ or ~elisp:~.
-- Keep raw link text and byte ranges as the source of truth.
-- Use Orgize for document structure where useful, but do not rely on Orgize as the source of link-token truth.
-- Implement a project-owned raw-text scanner for link tokens.
-- Bracket links and angle links are syntax-driven.
-- Plain links are protocol-list-driven.
-- Bracket links, angle links, and configured plain links are the supported Phase 3 link formats.
-- Radio targets are not supported.
-- Link abbreviations are not supported.
-- Relationship markers in descriptions are not supported.
-- Multi-line bracket and angle links are not supported.
-- Dedicated targets such as ~<<target>>~ are not stored as link facts.
-- Links outside regular headings attach to the synthetic level-0/root heading.
-- Links should always have a ~heading_id~; missing root attachment is an indexing invariant violation.
-- User-facing CLI output must expose enough source location data for editor jumps.
+- response metadata
+- original ~results~
+- row metadata
+- ~row_context~
+- cell structure
+- ~search_text~
+- ~display_text~
+- semantic roles
+- repeated JSON field names
 
-** Phase 3 link extraction contract
-:PROPERTIES:
-:CUSTOM_ID: phase3-link-contract
-:VISIBILITY: folded
-:END:
+Measure these workloads at representative sizes:
 
-This is the contract that implementation, tests, storage, rebuild, and CLI tasks must follow.
+- normal heading rows
+- tag expansion
+- effective-property expansion
+- keyword expansion
 
-*** Source-fact contract
+Record:
 
-- Link extraction is source-fact extraction only.
-- No link target resolution happens in Phase 3.
-- Raw source text and byte ranges are the source of truth.
-- Link targets are never executed, evaluated, shell-expanded, or used as SQL/code.
-- All link fields must be written through parameterized SQL statements.
-- Raw link content must not be interpolated into SQL strings.
+- total payload size
+- bytes used by ~results~
+- bytes used by ~rows~
+- bytes used by row contexts
+- bytes used by cells
+- bytes used by repeated field names where practical
+- average bytes per result
+- average bytes per presentation row
+- average bytes per cell
 
-*** Supported formats
+Identify repeated values between:
 
-Supported ~format~ values:
+- original results and cells
+- ~row_context~ and cells
+- ~search_text~ and ~display_text~
 
-- ~bracket~
-- ~angle~
-- ~plain~
+Do not change the public wire format in this task.
 
-Dedicated targets are not represented as a ~format~ value.
+Do not add compression.
 
-*** Bracket links
+Do not add JSONL or streaming.
 
-Supported:
+Do not add a cache.
 
-- ~[[target]]~
-- ~[[target][description]]~
-
-Rules:
-
-- If bracket syntax is valid, extract the link.
-- Explicit typed targets store the prefix before the first ~:~ as ~link_type~.
-- Unknown explicit types are preserved as their ASCII-lowercase prefix.
-- The target part is stricter than the description part.
-- The description part is permissive.
-- In the description part, arbitrary characters may appear, including unescaped ~[~ and ~]~.
-- Nested-looking bracket sequences in descriptions are allowed.
-- A bracket link closes only at the first valid same-line ~]]~ delimiter.
-- Multi-line bracket links are not supported.
-- If a bracket link would require crossing a newline to close, treat it as not-a-link and continue scanning.
-
-Minimal classification for targets without explicit type:
-
-- ~[[#custom-id]]~ => ~link_type = custom-id~
-- ~[[*Heading]]~ => ~link_type = fuzzy~
-- ~[[dedicated]]~ => ~link_type = fuzzy~
-
-Implicit file bracket links:
-
-- Classify as file-like only when the target starts with:
-  - ~./~
-  - ~../~
-  - ~/~
-  - ~/~ 
-- ~[[notes.org]]~ remains fuzzy, not file.
-
-Examples:
-
-#+begin_src org
-  [[target]]
-  [[target][description]]
-  [[file:notes.org]]
-  [[./notes.org]]
-  [[../notes.org]]
-  [[~/notes.org]]
-  [[/tmp/notes.org]]
-  [[#custom-id]]
-  [[*Heading]]
-  [[dedicated]]
-  [[unknown:foo]]
-  [[shell:ls]]
-#+end_src
-
-*** Angle links
-
-Supported:
-
-- ~<type:path>~
-
-Rules:
-
-- Angle links are syntax-driven.
-- The type is the substring before the first ~:~.
-- The type does not need to be predefined.
-- Unknown explicit types are preserved as their ASCII-lowercase prefix.
-- The closing ~>~ must be on the same line.
-- Spaces inside the path are allowed.
-- If an angle link would require crossing a newline to close, treat it as not-a-link and continue scanning.
-- Angle links are extracted by the project scanner, regardless of whether Orgize exposes them.
-
-Examples:
-
-#+begin_src org
-  <https://example.com/some path with spaces>
-  <file:~/code/main.c::255>
-  <jira:ABC-123>
-  <unknown:foo>
-  <shell:ls *.org>
-#+end_src
-
-*** Plain links
-
-Supported:
-
-- ~type:path~
-
-Rules:
-
-- Plain links are protocol-list-driven.
-- Plain links are extracted only when ~type~ is enabled through the plain-link protocol configuration.
-- Orgize plain-link support is not part of the contract.
-- The project config controls the protocol list; Emacs Org's built-in protocol list is not the project protocol contract.
-- Plain-link boundary and path-end behavior should follow Emacs Org's ~org-link-plain-re~ behavior where feasible.
-- Ambiguous plain-link boundary, quote, delimiter, and trailing-punctuation cases must be checked against Emacs ~org-element-parse-buffer~ before changing scanner behavior.
-- The project scanner remains the implementation contract, but any deliberate deviation from observed Org behavior must be documented explicitly with fixture examples.
-- Plain links do not contain whitespace.
-- Plain links may contain punctuation and balanced delimiter groups only where Org's plain-link grammar accepts them.
-- Deterministic trailing punctuation is not part of the stored link span.
-- The stored ~raw~, ~byte_start~, and ~byte_end~ refer to the final accepted link span.
-
-Plain-link left-boundary policy:
-
-- A plain link may start at the beginning of a line.
-- A plain link may start after whitespace.
-- A plain link may start after punctuation when Org's plain-link grammar accepts a word boundary before the protocol.
-- A plain link must not start in the middle of a word.
-- Single-quoted plain links are treated as not-a-link in Phase 3, matching observed Org behavior.
-- This is a plain-link boundary rule, not an ignored-region rule.
-
-Plain-link path/end policy:
-
-- Plain links stop at whitespace.
-- Plain links may include delimiter-like groups such as ~(...)~, ~[...]~, and ~<...>~ when Org's plain-link grammar accepts them as balanced groups.
-- A plain link may end with a non-punctuation, non-whitespace character.
-- A plain link may end with ~/~.
-- A plain link may end with ~-~.
-- A plain link may end with an Org-accepted balanced delimiter group.
-- Other deterministic trailing punctuation is trimmed from the stored link span.
-
-Trimmed trailing punctuation for plain links:
-
-- ~.~
-- ~,~
-- ~;~
-- ~:~
-- ~!~
-- ~?~
-- ~)~
-- ~]~
-- ~}~
-
-The stored ~raw~, ~byte_start~, and ~byte_end~ refer to the final accepted and trimmed link span.
-
-Examples:
-
-#+begin_src org
-https://example.org
-file:notes.org
-id:abc123
-mailto:person@example.org
-jira:ABC-123
-
-!https://www.example.com
-"https://www.example.com
-$https://www.example.com
-%https://www.example.com
-'https://www.example.com
-xhttps://www.example.com
-
-https://example.org/path with text after whitespace
-https://example.org/path<balanced-suffix>
-https://example.org/path.
-https://example.org/path/
-https://example.org/path-
-#+end_src
-
-Expected plain-link boundary and end behavior:
-
-- ~https://example.org~ stores ~https://example.org~.
-- ~file:notes.org~ stores ~file:notes.org~.
-- ~id:abc123~ stores ~id:abc123~.
-- ~mailto:person@example.org~ stores ~mailto:person@example.org~.
-- ~jira:ABC-123~ stores ~jira:ABC-123~ only when ~jira~ is configured.
-- ~!https://www.example.com~ stores ~https://www.example.com~.
-- ~"https://www.example.com~ stores ~https://www.example.com~.
-- ~$https://www.example.com~ stores no plain link, matching observed Org behavior.
-- ~%https://www.example.com~ stores no plain link, matching observed Org behavior.
-- ~'https://www.example.com~ stores no plain link, matching observed Org behavior.
-- ~xhttps://www.example.com~ stores no plain link because the protocol starts in the middle of a word.
-- ~https://example.org/path with text after whitespace~ stores ~https://example.org/path~.
-- ~https://example.org/path<balanced-suffix>~ stores ~https://example.org/path<balanced-suffix>~, matching Org plain-link behavior.
-- ~https://example.org/path.~ stores ~https://example.org/path~.
-- ~https://example.org/path/~ stores ~https://example.org/path/~.
-- ~https://example.org/path-~ stores ~https://example.org/path-~.
-
-Reference notes:
-
-- Emacs Org parses plain links through ~org-link-plain-re~ in ~org-element-link-parser~.
-- The important boundary component is Org's word-boundary assertion before the configured protocol.
-- The exact set of accepted prefix characters is syntax-table and parser-context dependent, so the contract should not maintain a complete hand-written prefix-character list.
-- Representative examples must be kept in tests and fixtures instead.
-
-*** Link config contract
-
-Final Phase 3 config contract:
-
-#+begin_src toml
-  [links]
-  plain_protocols = [
-      "http",
-      "https",
-      "file",
-      "file+sys",
-      "file+emacs",
-      "ftp",
-      "attachment",
-      "bbdb",
-      "docview",
-      "doi",
-      "gnus",
-      "rmail",
-      "mhe",
-      "help",
-      "id",
-      "info",
-      "irc",
-      "mailto",
-      "news",
-      "shortdoc"
-  ]
-
-  custom_protocols = []
-  parse_property_drawers = true
-  parse_keyword_values = false
-#+end_src
-
-
-Config semantics:
-
-- Missing ~plain_protocols~ uses the default list.
-- ~plain_protocols = []~ disables the default plain-link protocols only.
-- ~custom_protocols~ remains active even when ~plain_protocols = []~.
-- Effective plain-link protocols are ~plain_protocols + custom_protocols~.
-- Protocol matching is ASCII-case-insensitive for extraction.
-- Stored ~link_type~ is ASCII-lowercase.
-- Duplicate protocols after lowercase normalization are ignored.
-- To disable all plain-link extraction, set both:
-  - ~plain_protocols = []~
-  - ~custom_protocols = []~
-- ~custom_protocols~ affects plain-link detection only.
-- ~custom_protocols~ does not affect bracket links.
-- ~custom_protocols~ does not affect angle links.
-- Bracket links and angle links do not require their protocol/type to be listed in config.
-- Bracket links with unknown explicit types are still extracted.
-- Angle links with unknown explicit types are still extracted.
-- This intentionally allows the project scanner to extract more raw source facts than Org/Emacs may visually highlight when a custom link type is not registered.
-- Action-like protocols such as ~shell~ and ~elisp~ are not enabled by default for plain links.
-- Action-like protocols may be enabled for plain-link extraction explicitly through ~plain_protocols~ or ~custom_protocols~.
-- Action-like protocols may still be stored when they occur in bracket or angle syntax.
-- Action-like protocols are never executed.
-
-Default plain-link protocol rationale:
-
-- The default list follows Org's common built-in external link types where plain-link extraction is useful as a raw source fact.
-- ~file+sys~ and ~file+emacs~ are included as file-like variants.
-- ~ftp~ is included for compatibility with Org's plain-link recognition behavior.
-- ~shell~ and ~elisp~ are intentionally excluded from default plain-link extraction because they are action-like.
-- Bracket and angle syntax can still store ~shell~ and ~elisp~ as raw source facts because explicit delimiters make the author's intent clearer.
-
-*** Search option splitting
-
-Split ~path::search_option~ only for file-like links.
-
-File-like links include:
-
-- explicit ~file~
-- explicit ~file+sys~
-- explicit ~file+emacs~
-- implicit file bracket links starting with ~./~, ~../~, ~~/~, or ~/~
-
-Rules:
-
-- Split at the first ~::~.
-- Preserve ~raw~ and ~raw_target~ unchanged.
-- Store ~path~ and ~search_option~ separately.
-- Do not validate the search option.
-- Do not resolve the search option.
-- Do not split search options for ~id~, ~attachment~, ~docview~, or arbitrary custom types in Phase 3.
-
-Examples:
-
-#+begin_src org
-  [[file:~/code/main.c::255]]
-  [[file:~/xx.org::*My Target]]
-  [[file:~/xx.org::#my-custom-id]]
-  [[file:~/xx.org::/regexp/]]
-  [[file:::find me]]
-  [[./org-test-links.org::10]]
-  <file:~/code/main.c::255>
-  file:~/code/main.c::255
-#+end_src
-
-*** Unsupported forms
-
-Not supported in Phase 3:
-
-- Radio targets.
-- Link abbreviations.
-- Multi-line bracket links.
-- Multi-line angle links.
-- Relationship markers in descriptions.
-- Dedicated targets as link facts.
-
-Dedicated target policy:
-
-- ~<<target>>~ is not stored as a link fact.
-- Dedicated target indexing, if needed, belongs to a separate target/source-fact feature.
-- ~[[target]]~ links pointing to dedicated targets are still stored as fuzzy bracket links.
-
-Relationship marker policy:
-
-- Relationship markers in descriptions are not part of the Phase 3 link syntax contract.
-- No relation column or relation table is added in Phase 3.
-- ~raw_description~ is preserved exactly, but no relationship syntax is parsed.
-
-*** Ignored regions
-
-Ignore links inside:
-
-- Verbatim markup.
-- Code markup.
-- Source blocks.
-- Inline source forms where reliably detectable.
-- Example blocks.
-- Colon example lines.
-- Comment blocks.
-- Comment lines.
-- Export blocks.
-- Inline export forms where reliably detectable.
-- File-level keywords, including ~#+PROPERTY~.
-
-Examples of ignored regions:
-
-#+begin_src org
-
-  Inside ~https://orgmode.org~
-  Inside =https://orgmode.org=
-
-  ,#+BEGIN_SRC emacs-lisp
-    [[https://www.example.com][no real link]]
-    https://www.example.com
-  ,#+END_SRC
-
-  src_elisp{"https://orgmode.org"}
-
-  ,#+BEGIN_EXAMPLE
-    [[https://www.example.com][no real link]]
-    https://www.example.com
-  ,#+END_EXAMPLE
-
-  : [[https://www.example.com][no real link]]
-  : https://www.example.com
-
-  ,#+BEGIN_COMMENT
-  [[https://orgmode.org][link in comment block]]
-  ,#+END_COMMENT
-
-  # [[mailto:emacs-orgmode@gnu.org]]
-  # file:src/
-  # [[https://orgmode.org]]
-
-  ,#+BEGIN_EXPORT HTML
-  https://orgmode.org
-  [[https://orgmode.org][link in html block]]
-  ,#+END_EXPORT
-
-  @@html:https://orgmode.org@@
-
-  ,#+TITLE: https://orgmode.org
-  ,#+AUTHOR: https://orgmode.org
-  ,#+PROPERTY: link_to_ignore https://orgmode.org
-#+end_src
-
-*** Parsed regions
-
-Parse links in:
-
-- Headings.
-- Normal paragraphs.
-- Verse blocks.
-- Quote blocks.
-- Center-like blocks.
-- Justify-like blocks.
-- Property drawers.
-- Normal drawers.
-
-Examples of parsed regions:
-
-#+begin_src org
-  ,* Heading with [[file:::10]]
-  ,* Heading with file:::10
-  ,* Heading with <file:::10>
-
-  Paragraph with [[https://orgmode.org][link]].
-
-  ,#+BEGIN_VERSE
-  [[https://orgmode.org][link in verse block]]
-  ,#+END_VERSE
-
-  ,#+BEGIN_QUOTE
-  [[https://orgmode.org][link in quote block]]
-  ,#+END_QUOTE
-
-  ,#+BEGIN_CENTER
-  [[https://orgmode.org][link in center block]]
-  ,#+END_CENTER
-
-  :PROPERTIES:
-  :link_to_parse_1: [[https://orgmode.org][link in property drawer]]
-  :END:
-
-  :A_DRAWER:
-  [[https://orgmode.org][link in a drawer]]
-  :END:
-#+end_src
-
-*** Source context
-
-Every stored link fact has a ~source_context~.
-
-Required values for Phase 3:
-
-- ~normal~
-- ~heading~
-- ~property_drawer~
-- ~drawer~
-- ~verse_block~
-- ~quote_block~
-- ~center_block~
-- ~justify_block~
-
-Rules:
-
-- Links in property drawers are deliberately parsed and stored with ~source_context = property_drawer~.
-- Links in normal drawers are deliberately parsed and stored with ~source_context = drawer~.
-- Phase 3 does not store ~drawer_name~.
-- Phase 3 does not store ~property_name~.
-
-*** Storage/API field decisions
-
-Use:
-
-- ~link_type~, not ~type~.
-- ~raw_description~, not normalized ~description~.
-- ~source_context~ as a required stored field.
-
-Do not use in Phase 3:
-
-- ~description~
-- ~relation~
-- ~drawer_name~
-- ~property_name~
-
-Raw and normalized field rules:
-
-- Preserve raw source text exactly.
-- Normalize ~link_type~ to ASCII lowercase.
-- Store unknown explicit types as their lowercase prefix.
-- Store ~path~ as the part after the first ~:~ for explicit typed links.
-- Store ~raw_target~ unchanged.
-
-Suggested stored source fields:
-
-- ~id~
-- ~file_id~
-- ~heading_id~
-- ~byte_start~
-- ~byte_end~
-- ~line~
-- ~source_context~
-- ~format~
-- ~raw~
-- ~raw_target~
-- ~raw_description~
-- ~link_type~
-- ~path~
-- ~search_option~
-
-Suggested later/resolution fields:
-
-- ~path_absolute~
-- ~target_file_id~
-- ~target_heading_id~
-- ~target_custom_id~
-- ~target_id~
-
-*** Byte and line semantics
-
-- ~byte_start~ and ~byte_end~ are zero-based half-open byte ranges: ~[byte_start, byte_end)~.
-- ~line~ is 1-based for editor jumps.
-- No column field is required in Phase 3.
-
-*** Heading/root behavior
-
-- Links are attached to the containing heading.
-- Links before the first regular heading attach to the synthetic level-0/root heading.
-- Links should always have a ~heading_id~.
-- Root links are always included in CLI/API output.
-- Root links use ~heading_level = 0~.
-- Root links use an empty ~heading_path~, following the existing heading JSON convention.
-- If a link cannot be attached to any heading including root, that is an indexing invariant violation.
-
-*** CLI/API contract for links --json
-
-Command:
-
-#+begin_src shell
-  orgfdb links --json
-#+end_src
-
-Minimum output fields:
-
-- ~file_id~
-- ~file_path~
-- ~heading_id~
-- ~heading_path~
-- ~heading_level~
-- ~source_context~
-- ~format~
-- ~link_type~
-- ~raw~
-- ~raw_target~
-- ~raw_description~
-- ~path~
-- ~search_option~
-- ~byte_start~
-- ~byte_end~
-- ~line~
-
-Rules:
-
-- Output stored source facts only.
-- Do not resolve targets.
-- Root links are always included.
-- Do not add ~--no-root~ behavior for links.
-- Output ordering is deterministic:
-  - ~file_path~
-  - ~byte_start~
-  - ~id~
-
-*** Orgize dependency boundary
-
-- Orgize is used for structural context where reliable:
-  - headings
-  - sections
-  - drawers
-  - blocks
-  - ignored ranges
-- Orgize link nodes are optional cross-checks.
-- Orgize link nodes are not the project contract.
-- If Orgize detects a link that the scanner intentionally does not support, the scanner contract wins.
-- If the scanner detects a supported link that Orgize misses, the scanner contract wins.
-- Code should avoid depending directly on unstable Orgize internals.
-- Use a local adapter around Orgize-derived structure.
-
-Known Orgize mismatch policy:
-
-- Plain links may appear as plain text in Orgize because plain-link recognition depends on known link types.
-- Angle-link support may be incomplete or absent.
-- Property drawer links may not appear as link nodes even though they work as links in Org usage.
-- Multi-line and permissive-description edge cases may differ from Org behavior.
-- These cases should not block Phase 3.
-- The project scanner handles supported link syntax directly.
-
-Relevant Orgize issues to reference in project notes:
-
-- https://github.com/PoiScript/orgize/issues/88
-- https://github.com/PoiScript/orgize/issues/91
-
-Upstream policy:
-
-- Report general Orgize parser correctness issues upstream with minimal reproducible examples.
-- Do not report project-specific indexing policy as Orgize bugs.
-- Do not block Phase 3 on upstream fixes.
-- Keep local scanner/adapter behavior documented and tested.
-
-Friendly-fork policy:
-
-- A friendly fork is a last resort only.
-- Fork only if:
-  - the fix belongs generally in Orgize,
-  - the patch is small and well-tested,
-  - a reasonable upstream attempt was made,
-  - upstream remains inactive,
-  - maintaining a fork is cheaper than keeping the behavior isolated locally.
-- Do not fork or vendor Orgize changes as part of Phase 3 unless a separate task explicitly accepts that cost.
-
-** DONE Define supported Org link syntax and Orgize fallback policy
-:PROPERTIES:
-:PRIORITY: High
-:RISK: High
-:DB_SCHEMA_CHANGE: Maybe
-:API_CONTRACT_CHANGE: Yes
-:END:
-
-Resolved in [[#phase3-link-contract][Phase 3 link extraction contract]].
-
-Decision:
-
-- Link extraction is source-fact extraction only.
-- Bracket links and angle links are syntax-driven.
-- Plain links are protocol-list-driven.
-- Link-token extraction is owned by the project scanner.
-- Orgize is used for structural context where reliable.
-- Orgize link nodes are optional cross-checks, not the contract.
-- No link target resolution happens in Phase 3.
+Do not add parallel execution.
 
 Acceptance criteria:
 
-- A support matrix lists supported, ignored, and unsupported link forms.
-- Default and custom plain-link protocols are documented.
-- Config behavior for empty ~plain_protocols~ and ~custom_protocols~ is documented.
-- Ignored and parsed regions are documented.
-- Property drawer and normal drawer links are deliberately parsed and source-context-marked.
-- File-level keywords, including ~#+PROPERTY~, are deliberately ignored.
-- Multi-line links are documented as unsupported.
-- Relationship markers are removed from the Phase 3 contract.
-- Dedicated targets are documented as not being link facts.
-- Orgize dependency boundaries are documented.
-- Known Orgize mismatches are listed with minimal examples.
-- Upstream/friendly-fork policy is documented.
-- No link resolution is implemented.
-
-** DONE Define Orgize upstream and friendly-fork policy
-:PROPERTIES:
-:PRIORITY: High
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: No
-:END:
-
-Resolved in [[#phase3-link-contract][Phase 3 link extraction contract]].
-
-Decision:
-
-- Orgize is used for structural context where reliable.
-- Link-token extraction is owned by the project scanner.
-- Orgize link nodes are optional cross-checks, not the contract.
-- Phase 3 does not block on upstream Orgize fixes.
-- General Orgize parser correctness issues may be reported upstream with minimal reproducible examples.
-- Project-specific indexing behavior stays local.
-- A friendly fork is a last resort only.
-
-Relevant Orgize issues to reference in project notes:
-
-- https://github.com/PoiScript/orgize/issues/88
-- https://github.com/PoiScript/orgize/issues/91
-
-Acceptance criteria:
-
-- Orgize mismatch policy is documented.
-- Fork criteria are documented.
-- Phase 3 can proceed without upstream changes.
-- Existing Orgize issues relevant to links are referenced in project notes.
-- A minimal-repro style for future upstream reports is documented.
-
-** DONE Define links config contract
-:PROPERTIES:
-:PRIORITY: High
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Yes
-:END:
-
-Resolved in [[#phase3-link-contract][Phase 3 link extraction contract]].
-
-Decision:
-
-- Link config controls plain-link extraction only.
-- Bracket links are syntax-driven and are not disabled by plain-link config.
-- Angle links are syntax-driven and are not disabled by plain-link config.
-- Bracket and angle link types do not need to be listed in config.
-- Plain links are extracted only when their protocol is enabled through config.
-- Custom protocols affect plain-link detection only.
-- Property drawer links are parsed as deliberate project behavior.
-- File-level keywords, including ~#+PROPERTY~, are ignored.
-- Multi-line bracket links are not supported in Phase 3 and are not configurable.
-- Action-like protocols such as ~shell~ and ~elisp~ are never executed.
-
-Final config contract:
-
-#+begin_src toml
-[links]
-plain_protocols = [
-  "http",
-  "https",
-  "file",
-  "file+sys",
-  "file+emacs",
-  "ftp",
-  "attachment",
-  "bbdb",
-  "docview",
-  "doi",
-  "gnus",
-  "rmail",
-  "mhe",
-  "help",
-  "id",
-  "info",
-  "irc",
-  "mailto",
-  "news",
-  "shortdoc",
-]
-
-custom_protocols = []
-parse_property_drawers = true
-parse_keyword_values = false
-#+end_src
-
-Acceptance criteria:
-
-- Config keys and defaults are documented.
-- Empty ~plain_protocols~ behavior is documented.
-- Custom protocol behavior is documented.
-- Plain-link extraction can be disabled without disabling bracket or angle links.
-- Bracket and angle links are documented as syntax-driven.
-- Dangerous/action protocol behavior is documented.
-- Property drawer and keyword behavior is documented.
-- Multi-line bracket links are documented as unsupported, not configurable.
-- Tests are planned for:
-  - default plain protocols
-  - empty ~plain_protocols~
-  - custom protocols
-  - all plain-link extraction disabled
-  - bracket links unaffected by plain-link config
-  - angle links unaffected by plain-link config
-  - action-like protocols never being executed
-
-** DONE Decide relationship syntax in link descriptions
-:PROPERTIES:
-:PRIORITY: Low
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: No
-:END:
-
-Resolved in [[#phase3-link-contract][Phase 3 link extraction contract]].
-
-Decision:
-
-- Relationship markers in descriptions are not supported.
-- Relationship markers are removed from the Phase 3 link syntax contract.
-- No relationship syntax is parsed from descriptions.
-- No relation column is added to the ~links~ table.
-- No relationship table is added in Phase 3.
-- ~raw_description~ is preserved exactly.
-- Normal Org link descriptions remain available unchanged as raw source facts.
-
-Example that remains a normal described link only:
-
-#+begin_src org
-[[https://www.example.com][Example (->Owner)]]
-#+end_src
-
-Acceptance criteria:
-
-- Decision is documented as not supported.
-- Phase 3 preserves descriptions exactly.
-- No relationship extraction is implemented.
-- No relationship storage is added.
-- Normal Org link descriptions remain available unchanged.
-
-** DONE Decide multiline bracket-link support
-:PROPERTIES:
-:PRIORITY: Low
-:RISK: High
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: No
-:END:
-
-Resolved in [[#phase3-link-contract][Phase 3 link extraction contract]].
-
-Decision:
-
-- Multi-line bracket links are not supported.
-- Multi-line angle links are not supported.
-- This is not just default-off; it is outside the Phase 3 contract.
-- Do not add ~parse_multiline_bracket_links~ in Phase 3.
-- If a bracket or angle link would require crossing a newline to close, treat it as not-a-link and continue scanning.
-- Document this as a deliberate known deviation from broader Org behavior.
-
-Acceptance criteria:
-
-- Single-line-only Phase 3 behavior is documented.
-- Multi-line examples are marked unsupported in fixtures.
-- Scanner tests confirm multi-line candidates are ignored.
-- No future BUILD task is created from this decision unless the project deliberately reopens the scope later.
-
-** DONE Create links DB table and storage functions
-:PROPERTIES:
-:PRIORITY: High
-:RISK: Medium
-:DB_SCHEMA_CHANGE: Yes
-:API_CONTRACT_CHANGE: Maybe
-:END:
-
-Task file: [[./phase-3--org-link-extractor/2026-06-30--create-links-db-table-and-storage-functions.org]]
-
-** DONE Implement project-owned link scanner skeleton
-
-[[./phase-3--org-link-extractor/2026-06-30--implement-project-owned-link-scanner-skeleton.org]]
-
-** DONE Extract bracket links as raw source facts
-
-[[./phase-3--org-link-extractor/2026-06-30--extract-bracket-links-as-raw-source-facts.org]]
-
-** DONE Handle bracket-link escaping and weird delimiter cases
-
-[[./phase-3--org-link-extractor/2026-06-30--handle-bracket-link-escaping-and-weird-delimiter-cases.org]]
-
-** DONE Extract angle links
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Yes
-:END:
-
-[[./phase-3--org-link-extractor/2026-06-30--extract-angle-links.org]]
-
-** DONE Align default plain-link protocols with Phase 3 config contract
-
-[[./phase-3--org-link-extractor/2026-06-30--align-default-plain-link-protocols-with-phase-3-config-contract.org]]
-
-** DONE Extract plain links with configurable protocols
-
-[[./phase-3--org-link-extractor/2026-06-30--extract-plain-links-with-configurable-protocols.org]]
-
-** DONE Split search options for file-like link source facts
-
-[[./phase-3--org-link-extractor/2026-06-30--split-search-options-for-file-like-link-source-facts.org]]
-
-** DONE Implement ignored-region filtering for links
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: High
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Maybe
-:END:
-
-[[./phase-3--org-link-extractor/2026-06-30--implement-ignored-region-filtering-for-links.org]]
-
-** DONE Implement read-only CLI JSON output for stored links 
-
-[[./phase-3--org-link-extractor/2026-07-01--implement-read-only-cli-json-output-for-stored-links.org]]
-
-** DONE VALIDATE: Compare scanner behavior with Orgize and org-element
-
-[[./phase-3--org-link-extractor/2026-07-01--compare-scanner-behavior-with-orgize-and-org-element.org]]
-
-** DONE DOCS: Add minimal project documentation for CLI and link indexing
-
-[[./phase-3--org-link-extractor/2026-07-01--add-minimal-project-documentation-for-cli-and-link-indexing.org]]
-
-** DONE Remove obsolete .dir-locals.el support
-
-[[./phase-3--org-link-extractor/2026-07-01--remove-obsolete-dir-locals-support.org]]
-
-** DONE Replace global recursive discovery with per-directory recursion
-
-[[./phase-3--org-link-extractor/2026-07-01--replace-global-recursive-discovery-with-per-directory-recursion.org]]
-
-* DONE Phase 4: Link resolution
-:PROPERTIES:
-:VISIBILITY: folded
-:END:
-Goal of this phase: Resolve stored raw link source facts to known files, file-scoped CUSTOM_ID targets, and indexed Org ID targets.
-
-General rules:
-
-- Resolution never destroys raw link facts.
-- Resolution fields stay clearly separated from raw source fields.
-- Broken, ambiguous, unresolved, and unsupported targets are represented explicitly.
-- Target deletion must not delete source link rows.
-- Resolution must not execute link targets.
-- Resolution must be deterministic and repeatable.
-- Resolution runs after all files, headings, properties, outline paths, and raw links for the rebuild are stored.
-- Do not resolve links on demand in read-only CLI commands.
-- Do not introduce parallel ~resolved_file_id~ / ~resolved_heading_id~ columns unless the schema contract is deliberately renamed first.
-
-Existing target-ish fields:
-
-- ~path_absolute~
-- ~target_file_id~
-- ~target_heading_id~
-- ~target_custom_id~
-- ~target_id~
-
-Recommended resolution state fields:
-
-- ~resolution_status~
-- ~resolution_diagnostic~
-
-Recommended ~resolution_status~ values:
-
-- ~unresolved~
-- ~resolved~
-- ~broken~
-- ~ambiguous~
-- ~unsupported~
-
-Status semantics:
-
-- is ~NULL~ means not attempted
-- ~unresolved~ means resolution was attempted but the available universe is not known to be complete.
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Low
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: No
-:END:
-- ~broken~ means the target is missing inside a known complete context.
-- ~ambiguous~ means more than one valid target exists in the applicable context.
-- ~unsupported~ means the link form is intentionally not resolved yet.
-- ~resolved~ means target fields point to the selected target.
-
-Important distinction:
-
-- ~CUSTOM_ID~ resolution is file-scoped.
-- ~id:~ resolution is global in Org semantics and should not be marked broken merely because the ID is absent from the indexed files.
-- A missing ~CUSTOM_ID~ can be broken when the target file context is known.
-- A missing ~id:~ should be ~unresolved~ unless a complete Org ID location universe is available.
-
-** DONE [2026-07-01 Wed] Define Phase 4 link resolution DB contract
-
-Task file: [[./phase-4--link-resolution/2026-07-01--define-phase-4-link-resolution-db-contract.org]]
-
-** DONE Implement deterministic link resolution pass after rebuild
-
-Task file: [[./phase-4--link-resolution/2026-07-01--implement-deterministic-link-resolution-pass-after-rebuild.org]]
-
-** DONE [#A] Resolve file links to known indexed files
-
-Task file: [[./phase-4--link-resolution/2026-07-01--resolve-file-links-to-known-indexed-files.org][2026-07-01--resolve-file-links-to-known-indexed-files.org]]
-
-** DONE [#B] Resolve file links with heading-title search options
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Maybe
-:END:
-
-Task file: [[./2026-07-02--resolve-file-links-with-heading-title-search-options.org][2026-07-02--resolve-file-links-with-heading-title-search-options.org]]
-
-** DONE [#B] Resolve same-file fuzzy star heading links
-
-Task file: [[./phase-4--link-resolution/2026-07-02--resolve-same-file-fuzzy-star-heading-links.org][2026-07-02--resolve-same-file-fuzzy-star-heading-links.org]]
-
-** DONE [#C] Reduce resolver diagnostics
-
-Task file: [[./phase-4--link-resolution/2026-07-02--reduce-resolver-diagnostics.org]]
-
-** DONE [#B] Normalize star heading-title matching
-
-Task file: [[./phase-4--link-resolution/2026-07-03--normalize-star-heading-title-matching.org]]
-
-** DONE [#C] Use Unicode lowercase for star heading-title matching
-
-Task file: [[./phase-4--link-resolution/2026-07-03--use-unicode-lowercase-for-star-heading-title-matching.org]]
-
-** DONE [#B] Resolve CUSTOM_ID and ID links
+- The main payload contributors are measured.
+- Normal and expanded workloads are compared.
+- Repeated values are identified.
+- Structural JSON overhead is estimated.
+- The results identify concrete wire-format optimization targets.
+- The analysis is documented.
+
+* Query performance and SQLite
+
+** DONE Optimize query enrichment SQL for large result sets
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Depends on:
-
-- [[*Implement deterministic link resolution pass after rebuild][Implement deterministic link resolution pass after rebuild]]
-- [[*Resolve file links to known indexed files][Resolve file links to known indexed files]]
-- [[*Resolve file links with heading-title search options][Resolve file links with heading-title search options]]
-- [[*Resolve same-file fuzzy star heading links][Resolve same-file fuzzy star heading links]]
-- [[*Normalize star heading-title matching][Normalize star heading-title matching]]
-
-Goal:
-
-- Resolve Org links that target ~CUSTOM_ID~ and ~ID~ properties.
-- Resolve bracket same-file ~CUSTOM_ID~ links.
-- Resolve file-context ~CUSTOM_ID~ search options.
-- Resolve ~ID~ links within the indexed ID universe.
-- Match ~CUSTOM_ID~ and ~ID~ lookup values using Org-compatible normalization:
-  - trim leading and trailing whitespace
-  - compare case-insensitively
-- Whenever a target resolves to a heading, set both ~target_file_id~ and ~target_heading_id~.
-- Preserve raw link source fields.
-
-Scope:
-
-- Same-file ~CUSTOM_ID~ links:
-  - ~[[#foo]]~
-  - ~[[#foo][Description]]~
-- File-context ~CUSTOM_ID~ links:
-  - ~[[file:other.org::#foo]]~
-  - ~[[file:other.org::#foo][Description]]~
-  - ~[[./other.org::#foo]]~
-  - ~[[../other.org::#foo]]~
-  - ~<file:other.org::#foo>~
-  - plain ~file:other.org::#foo~ when extracted by configured plain-link protocols
-- Org ID links:
-  - ~id:foo~
-  - ~[[id:foo]]~
-  - ~[[id:foo][Description]]~
-  - ~<id:foo>~
-  - plain ~id:foo~ when extracted by configured plain-link protocols
-
-Important parser model:
-
-- Same-file ~[[#foo]]~ may be classified as ~link_type = fuzzy~.
-- It is still a ~CUSTOM_ID~ target when:
-  - ~link_type = fuzzy~
-  - ~path~ starts with exactly one leading ~#~
-- This is analogous to same-file star heading links:
-  - ~[[*foo]]~ resolves by heading title in the source file.
-  - ~[[#foo]]~ resolves by ~CUSTOM_ID~ in the source file.
-- File-context ~CUSTOM_ID~ links are file links with:
-  - ~link_type = file~
-  - ~search_option~ beginning with exactly one leading ~#~
-- Bare angle or plain ~#foo~ is not a supported CUSTOM_ID link form.
-- Angle and plain CUSTOM_ID links require an explicit ~file:...::#foo~ form.
-
-Shared lookup rules:
-
-- Match against indexed heading properties:
-  - ~properties.key~
-  - ~properties.value~
-- Match property keys exactly:
-  - ~CUSTOM_ID~
-  - ~ID~
-- Normalize property target values before lookup.
-- Compare property values case-insensitively.
-- Do not fuzzy-match property values.
-- Do not normalize internal whitespace.
-- Exclude synthetic root headings from property-target lookup.
-- Do not rely on unspecified SQL row order.
-- Define document order using stored heading order, such as ~byte_start~ or the existing heading-order field.
-- Raw link source fields must remain unchanged.
-
-Property target normalization:
-
-- Apply only to ~CUSTOM_ID~ and ~ID~ lookup values.
-- For ~CUSTOM_ID~:
-  - remove exactly one leading ~#~
-  - trim leading and trailing whitespace from the remaining value
-  - use the normalized value for property lookup
-  - store the normalized value in ~target_custom_id~
-  - compare case-insensitively against stored ~CUSTOM_ID~ property values
-- For ~ID~:
-  - use the parsed ID target value from the existing link fields
-  - trim leading and trailing whitespace from the value
-  - use the normalized value for property lookup
-  - store the normalized value in ~target_id~
-  - compare case-insensitively against stored ~ID~ property values
-- Do not lowercase the stored raw link fields.
-- Do not mutate:
-  - ~raw~
-  - ~raw_target~
-  - ~raw_description~
-  - ~path~
-  - ~search_option~
-- Do not normalize internal whitespace:
-  - ~" Foo Bar "~ becomes ~"Foo Bar"~
-  - ~"Foo  Bar"~ remains ~"Foo  Bar"~
-
-Duplicate target policy:
-
-- Duplicate ~CUSTOM_ID~ targets follow observed Org behavior.
-- If multiple matching ~CUSTOM_ID~ properties exist in the active search scope:
-  - select the first matching heading in document order
-  - set ~target_file_id~ to the matched heading's file
-  - set ~target_heading_id~ to the first matching heading
-  - set ~resolution_status = resolved~
-  - set ~resolution_diagnostic = NULL~
-- Duplicate ~ID~ targets are data errors.
-- If multiple indexed headings have the same ~ID~ after case-insensitive matching:
-  - do not choose a target
-  - set ~target_file_id = NULL~
-  - set ~target_heading_id = NULL~
-  - set ~target_id~ to the normalized requested ID
-  - set ~resolution_status = ambiguous~
-  - set ~resolution_diagnostic = duplicate id~
-
-Diagnostics policy:
-
-- Successful resolutions use:
-  - ~resolution_diagnostic = NULL~
-- Missing same-file or file-context ~CUSTOM_ID~ uses:
-  - ~resolution_status = broken~
-  - ~resolution_diagnostic = custom id not found~
-- Missing ~ID~ uses:
-  - ~resolution_status = unresolved~
-  - ~resolution_diagnostic = id not found~
-- Duplicate ~ID~ uses:
-  - ~resolution_status = ambiguous~
-  - ~resolution_diagnostic = duplicate id~
-
-Out of scope:
-
-- Do not support bare angle ~<#foo>~ as a CUSTOM_ID link.
-- Do not support bare plain ~#foo~ as a CUSTOM_ID link.
-- Do not resolve ~attachment:~ links.
-- Do not resolve regexp search options.
-- Do not resolve line-number search options.
-- Do not resolve dedicated targets.
-- Do not resolve non-star and non-~#~ fuzzy links.
-- Do not change file heading-title search option behavior.
-- Do not change same-file star fuzzy heading resolution.
-- Do not change file-only synthetic root heading behavior.
-- Do not scan files outside the indexed DB.
-- Do not use Emacs ~org-id-locations~.
-- Do not add a DB schema migration.
-
-Implementation notes:
-
-- Prefer a shared helper for property target normalization.
-- Keep property key matching exact.
-- Implement case-insensitive value comparison deterministically.
-- Either:
-  - query candidate properties in scope ordered by heading document order and compare normalized values in Rust
-  - or use deterministic SQL case-insensitive comparison with explicit ~ORDER BY headings.byte_start, headings.id~
-- Preserve deterministic first-match behavior for ~CUSTOM_ID~.
-- Preserve strict ambiguous behavior for duplicate ~ID~.
-- Keep raw DB link fields unchanged.
-
-*** DONE Resolve bracket same-file CUSTOM_ID links
-
-Task file: [[./phase-4--link-resolution/2026-07-03--resolve-bracket-same-file-custom-id-links.org]]
-
-*** DONE Resolve file-context CUSTOM_ID links
-
-Task file: [[./phase-4--link-resolution/2026-07-03--resolve-file-context-custom-id-links.org]]
-
-*** DONE Resolve Org ID links within indexed ID universe
-
-Task file: [[./phase-4--link-resolution/2026-07-03--resolve-org-id-links-within-indexed-id-universe.org]]
-#+begin_src org
-#+begin_src org
-
-*** DONE Preserve whitespace in CUSTOM_ID and Org ID matching
-
-Task file: [[./phase-4--link-resolution/2026-07-03--preserve-whitespace-in-custom-id-and-org-id-matching.org]]
-
-** DONE [#C] Resolve file-only links to synthetic root headings
-:PROPERTIES:
-:PRIORITY: Low
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Maybe
-:END:
-
-Task file: [[./phase-4--link-resolution/2026-07-03--resolve-file-only-links-to-synthetic-root-headings.org]]
-
-** DONE [#B] Expose resolution fields in ~links --json~
-
-Task file: [[./phase-4--link-resolution/2026-07-05--expose-resolution-fields-in-links-json.org]]
-
-** DONE Decision: not implementing external Org ID location support
-
-[[file:archive/2026-07-05--not-implementing-external-org-id-location-support.org]]
-
-** DONE Decision: Not supporting other link search options
-
-[[file:archive/2026-07-05--not-supporting-other-link-search-options.org]]
-
-** DONE Add Link Resolving to the Documentation
-
-Task file: [[./phase-4--link-resolution/2026-07-05--add-link-resolving-to-the-documentation.org]]
-
-* DONE Phase 5: Query engine and optional full-text search
+** DONE Optimize query SQL round 2 with SQLite result relations
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal of this phase:
+** DONE Benchmark Rust vs SQLite query result processing
 
-- Build a small, safe query layer for indexed Org graph data.
-- Implement the Query Model v0 contract defined in [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]].
-- Keep the query model independent from CLI and SQL.
-- Support headings, links, and files as explicit query targets.
-- Keep full-text search optional and separate from the core query model.
-- Return stable JSON that is useful for Emacs/editor integrations.
+** DONE Benchmark heading path with smaller SQLite variable limits
 
-General rules:
+** DONE Replace recursive heading path loading with Rust-driven bulk ancestors
 
-- Query AST/model is independent of CLI and SQL.
-- SQL generation must use bound parameters.
-- Query execution uses the persisted database, not parser re-analysis.
-- Query target is explicit through ~(headings ...)~, ~(links ...)~, and ~(files ...)~.
-- Bare predicates are shorthand for heading queries only at the top level.
-- Nested relation queries must use explicit target wrappers.
-- Query output mode must not change match semantics.
-- Include options may enrich results but must not change which objects match.
-- Direct parsed facts and effective/derived semantics must stay clearly separated.
-- Query results must include enough location data for editor jumps.
-- Body text search must fail clearly when body text is unavailable.
-- FTS5 is optional and must only be required for FTS-specific functionality.
-- Mutation and repair operations are out of scope for Query Model v0.
+** DONE Rebenchmark production heading path after Rust ancestor loading
 
-** DONE Implement query AST and parser
+** DONE Optimize production heading path Rust construction and shaping
 
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-07--implement-query-ast-and-parser.org]]
+** DONE Benchmark predicate-driven SQL for direct metadata filters
 
-** DONE Implement query semantic validation and normalization
+** DONE Validate and implement predicate-driven metadata filters end to end
 
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-07--implement-query-semantic-validation-and-normalization.org]]
+** DONE Use shared TEMP matched relations for expensive query reuse
 
-** DONE Implement safe SQL translation and core metadata query execution
+** DONE Investigate final Rust result shaping cost
 
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-08--implement-safe-sql-translation-and-core-metadata-query-execution.org]]
+** DONE Standardize and record the bundled SQLite runtime
 
-** DONE Implement effective root, tag, property, and keyword semantics for queries
+** DONE Review and update direct Rust dependencies
 
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-08--implement-effective-root-tag-property-and-keyword-semantics-for-queries.org]]
+** DONE Investigate SQLite-side aggregation for enrichment rows
 
-** DONE Implement hierarchy and graph relation predicates [2026-07-09 Thu]
+** DONE Investigate SQLite planner statistics for production queries
 
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-08--implement-hierarchy-and-graph-relation-predicates.org]]
+Task file: [[./query-sqlite/2026-08-18--investigate-sqlite-planner-statistics.org][Investigate SQLite Planner Statistics]]
 
-** DONE [#B] Implement query result shaping and JSON output model [2026-07-09 Thu]
+* Presentation performance decisions
 
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-09--implement-query-result-shaping-and-json-output-model.org]]
-
-** DONE [#B] Implement CLI command ~query~
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:API_CONTRACT_CHANGE: Yes
-:END:
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-09--implement-cli-command-query.org]]
-
-** DONE [#B] Parse priorities correctly with configured TODO keywords
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-11--parse-priorities-correctly-with-configured-todo-keywords.org]]
-
-** DONE [#B] Normalize heading titles and title-query matching
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:API_CONTRACT_CHANGE: Yes
-:END:
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-11--normalize-heading-titles-and-title-query-matching.org]]
-
-** DONE [#B] Include TODO keywords in ~title_raw~
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-12--include-todo-keywords-in-title-raw.org]]
-
-** DONE [#B] Distinguish source titles from fallback file titles
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-12--distinguish-source-titles-from-fallback-file-titles.org]]
-
-** DONE [#B] Replace ~:with-root~ with ~:without-root~
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:API_CONTRACT_CHANGE: Yes
-:END:
-
-- Task file: [[file:2026-07-12--replace-with-root-with-without-root.org]]
-
-** DONE [#B] Align ~title~ with root/file matching semantics
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:API_CONTRACT_CHANGE: Yes
-:END:
-
-- Task file: [[file:2026-07-12--align-title-with-root-file-matching-semantics.org]]
-
-** DONE [#B] Add configurable query timezone and deterministic relative-date resolution
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-12--add-configurable-query-timezone-and-deterministic-relative-date-resolution.org]]
-
-** DONE [#B] Complete date-only and datetime query-bound semantics
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-13--complete-date-only-and-datetime-query-bound-semantics.org]]
-
-** DONE [#B] Persist explicit-time metadata for indexed Org timestamps
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-13--persist-explicit-time-metadata-for-indexed-org-timestamps.org]]
-
-** DONE [#B] Implement ~:with-time~ timestamp filtering in the SQLite metadata backend
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-14--implement-with-time-timestamp-filtering-in-the-sqlite-metadata-backend.org]]
-
-** DONE [#C] Persist heading body text for query execution
-:PROPERTIES:
-:PRIORITY: Low
-:RISK: Medium
-:DB_SCHEMA_CHANGE: Yes
-:API_CONTRACT_CHANGE: Yes
-:END:
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-16--persist-heading-body-text-for-query-execution.org]]
-
-** DONE [#C] Implement ~(has-text ...)~ in the SQLite metadata backend
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-16--implement-has-text-in-the-sqlite-metadata-backend.org]]
-
-** DONE [#C] Enable optional contentless SQLite FTS5 for full-text search
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-16--enable-optional-contentless-sqlite-fts5-for-full-text-search.org]]
-
-** DONE [#C] Provide CLI command ~search~
-
-- Task file: [[file:2026-07-16--provide-cli-command-search.org]]
-
-** DONE [#A] Repair dependent tables after ~headings~ schema migration
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-16--repair-dependent-tables-after-headings-schema-migration.org]]
-
-** DONE [#B] Make ~docs/cli.org~ the complete public reference for ~orgfdb query~
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-16--make-docs-cli-org-the-complete-public-reference-for-orgfdb-query.org]]
-
-** DONE [#B] Make bare ~(headings)~ include file/root results
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-16--make-bare-headings-include-file-root-results.org]]
-
-** DONE [#B] Include matching file/root objects for file predicates in heading queries
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-16--include-matching-file-root-objects-for-file-predicates-in-heading-queries.org]]
-
-** DONE Make file/root participation consistent across all heading predicates
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-17--make-file-root-participation-consistent-across-all-heading-predicates.org]]
-
-** DONE [#B] Resolve effective property values for query matching
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-17--resolve-effective-property-values-for-query-matching.org]]
-
-** DONE [#B] Match Org property append ordering semantics
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-17--match-org-property-append-ordering-semantics.org]]
-
-** DONE [#C] Document uniform property resolution and Org incompatibility
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-17--document-uniform-property-resolution-and-org-incompatibility.org]]
-
-** DONE [#B] Index empty property values in property drawers
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-17--index-empty-property-values-in-property-drawers.org]]
-
-** DONE [#B] Implement outline predicates in the SQLite query backend
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-17--implement-outline-predicates-in-the-sqlite-query-backend.org]]
-
-** DONE [#B] Implement regexp matching for remaining SQLite metadata predicates
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-17--implement-regexp-matching-for-remaining-sqlite-metadata-predicates.org]]
-
-** DONE [#C] Align documented ~level~ comparators with Query Model v0
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-19--align-level-comparators-with-query-model-v0.org]]
-
-** DONE [#B] Implement semantic ~priority~ comparison with query-time normalisation
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-19--implement-semantic-priority-comparison-with-query-time-normalisation.org]]
-
-** DONE [#B] Add ~:inherit~ control to heading ~keyword~ queries
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-19--add-inherit-control-to-heading-keyword-queries.org]]
-
-** DONE [#B] Expand leading ~~ in ~file-path~ query values
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-19--expand-leading-tilde-in-file-path-query-values.org]]
-
-** DONE [#B] Expand leading ~~ in ~file-dir~ query values
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-19--expand-leading-tilde-in-file-dir-query-values.org]]
-
-** DONE [#A] Apply ~query.timezone~ to temporal query boundaries
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-19--apply-query-timezone-to-temporal-query-boundaries.org]]
-
-** DONE [#B] Remove ~:with-time~ from temporal predicates
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-19--remove-with-time-from-temporal-predicates.org]]
-
-** DONE [#B] Extend inclusive temporal ranges to minute and second precision
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-20--extend-inclusive-temporal-ranges-to-minute-and-second-precision.org]]
-
-** DONE [#B] Include the synthetic file root in outline path predicates
-
-Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-20--include-synthetic-file-root-in-outline-path-predicates.org][Include the synthetic file root in outline path predicates]]
-
-** DONE Allow synthetic roots in nested heading relation queries
-
-Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-21--allow-synthetic-roots-in-nested-heading-relation-queries.org][Allow Synthetic Roots in Nested Heading Relation Queries]]
-
-** DONE Improve hierarchy predicate documentation with direct and transitive examples
-
-Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-21--improve-hierarchy-predicate-documentation.org][Improve Hierarchy Predicate Documentation]]
-
-** DONE Correct link predicate target documentation
-
-Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-21--correct-link-predicate-target-documentation.org][Correct Link Predicate Target Documentation]]
-
-** DONE Document link resolution statuses
-
-Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-21--document-link-resolution-statuses.org][Document Link Resolution Statuses]]
-
-** DONE Correct ~source~ and ~target~ any-value syntax in documentation
-
-Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-21--correct-source-target-any-syntax-documentation.org][Correct Source and Target Any Syntax Documentation]]
-
-** DONE Include level-0 roots in nested heading relation queries
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-21--include-level-zero-roots-in-nested-heading-relation-queries.org][Include Level-0 Roots in Nested Heading Relation Queries]]
-
-** DONE [#A] Include level-0 file roots in the FTS heading index
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-22--include-level-zero-file-roots-in-the-fts-heading-index.org][Include Level-Zero File Roots in the FTS Heading Index]]
-
-** DONE [#A] Rename public root result kind from ~file~ to ~root~
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-22--rename-public-root-result-kind.org][Rename Public Root Result Kind]]
-
-** DONE Manual Test the Implementation
-
-*** Query
-
-**** DONE Properties
-
-**** DONE Todo Keywords
-
-**** DONE File Local Todo Keywords
-
-**** DONE Heading Predicates
-:PROPERTIES:
-:VISIBILITY: folded
-:END:
-***** DONE todo
-***** DONE done
-***** DONE title
-***** DONE has-text
-***** DONE property
-***** DONE level
-***** DONE priority
-***** DONE tags
-***** DONE tags-all
-***** DONE keyword
-***** DONE file-name
-***** DONE file-path
-***** DONE file-title
-***** DONE file-modified
-***** DONE outline-contains
-***** DONE outline-sequence
-***** DONE ts
-***** DONE ts-active
-***** DONE ts-inactive
-***** DONE deadline
-***** DONE scheduled
-***** DONE closed
-***** DONE planning
-***** DONE parent
-***** DONE children
-***** DONE ancestors
-***** DONE descendants
-***** DONE has-link
-***** DONE links-to
-***** DONE linked-from
-
-**** DONE Link Predicates
-
-**** DONE File Predicates
-
-**** DONE Output Modes
-
-**** DONE Includes
-
-*** DONE Search
-
-** DONE Align ~search~ output with canonical heading serialization
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-23--align-search-output-with-canonical-heading-serialization.org]]
-
-** DONE [#B] Index FTS title from ~title_raw~
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-23--index-fts-title-from-title-raw.org]]
-
-** DONE [#B] Make JSON the default CLI output format
-
-- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-23--make-json-the-default-cli-output-format.org]]
-
-* DONE Phase 6: Robust incremental indexer core
+** DONE Reduce presentation JSON payload size
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal of this phase:
+Task file: [[./presentation-performance/2026-08-19--reduce-presentation-json-payload-size.org][Reduce Presentation JSON Payload Size]]
 
-- Turn the current all-or-nothing rebuild into a deterministic indexing core that can discover, classify, prepare, replace, and remove files without requiring a watcher.
-- Keep full rebuild as a complete recovery path while making the same per-file preparation and DB write primitives reusable by later incremental entry points.
-- Leave Phase 7 responsible for filesystem events and Phase 8 responsible for parallel execution rather than duplicating indexing semantics there.
-
-Existing groundwork:
-
-- ~discover_org_files~ already supports explicit files, per-directory recursive or non-recursive discovery, canonical-path deduplication, and deterministic ordering.
-- The current rebuild reads and parses every discovered file before opening one all-or-nothing DB transaction.
-- The ~files~ table already stores ~mtime_ns~, ~size~, optional ~content_hash~, and ~indexed_at~.
-- ~DbWriter::rebuild_file~ and ~DbWriter::delete_file_data~ exist only as test scaffolding and do not yet maintain production FTS or link-resolution state.
-- The current FTS maintenance and ~LinkResolver::resolve_all~ operations are global. Phase 6 may keep them global initially, but they must run at the correct transaction boundary.
-
-General rules:
-
-- File reading, hashing, TODO keyword resolution, parsing, and normalization happen outside DB write transactions.
-- DB mutation and all required derived-state reconciliation happen inside controlled transactions.
-- Discovery policy, file eligibility, and indexed-universe semantics must be reusable by Phase 7.
-- Full rebuild and incremental reconciliation must use the same normalized per-file write path.
-- A successful indexing operation must not expose stale ~outline_path~, trusted ~heading_fts~, search metadata, or link-resolution snapshots.
-- Full rebuild and incremental reconciliation over the same final source set must produce semantically equivalent stored facts. Any exclusions such as ~indexed_at~ or surrogate row IDs must be explicit and documented.
-- Changes to parser/indexer semantics or parse-affecting configuration must invalidate change-detection decisions safely; unchanged file bytes alone are not sufficient.
-- Targeted link resolution and incremental FTS optimization may be deferred, but correctness may not be deferred. A global reconciliation pass is acceptable initially.
-- Watcher integration, debounce, and parallel parsing remain out of scope for this phase.
-
-** DONE Define file identity and harden reusable discovery
-
-- Task file: [[file:phase-6--robust-incremental-indexer-core/2026-07-23--define-file-identity-and-harden-reusable-discovery.org]]
-
-** DONE Add configured file and directory exclusions
-
-- Task file: [[file:phase-6--robust-incremental-indexer-core/2026-07-23--add-configured-file-and-directory-exclusions.org]]
-
-** DONE Extract stable per-file preparation
-
-- Task file: [[file:phase-6--robust-incremental-indexer-core/2026-07-23--extract-stable-per-file-preparation.org]]
-
-** DONE Persist indexing context and define invalidation rules
-
-- Task file: [[file:phase-6--robust-incremental-indexer-core/2026-07-23--persist-indexing-context-and-define-invalidation-rules.org]]
-
-** DONE Add deterministic change planning
-
-- Task file: [[file:phase-6--robust-incremental-indexer-core/2026-07-23--add-deterministic-change-planning.org]]
-
-** DONE Implement transactional change application and prove rebuild equivalence
-
-- Task file: [[file:phase-6--robust-incremental-indexer-core/2026-07-24--implement-transactional-change-application-and-prove-rebuild-equivalence.org]]
-
-** DONE Establish SQLite query-performance baseline
-
-- Task file: [[file:phase-6--robust-incremental-indexer-core/2026-07-24--establish-sqlite-query-performance-baseline.org]]
-
-** DONE Tune SQLite indexes from measured query plans
-
-Task file: [[file:phase-6--robust-incremental-indexer-core/2026-07-24--tune-sqlite-indexes-from-measured-query-plans.org][Tune SQLite Indexes from Measured Query Plans]]
-
-** DONE [#B] Materialize ~effective_properties~ in schema version 10
-
-Task file: [[file:phase-6--robust-incremental-indexer-core/2026-07-25--materialize-effective-properties-schema-10.org][Materialize effective properties in schema version 10]]
-
-** DONE [#B] Replace ~all_tags_json~ with normalized ~effective_tags~
+** DONE Evaluate presentation pipeline parallelism
 :PROPERTIES:
-:PRIORITY: High
-:RISK:     High
-:DB_SCHEMA_CHANGE: Yes
-:API_CONTRACT_CHANGE: No
+:VISIBILITY: folded
 :END:
 
-Task file: [[file:2026-07-25--replace-all-tags-json-with-normalized-effective-tags.org][Replace all_tags_json with normalized effective tags]]
+Task file: [[./presentation-performance/2026-08-19--evaluate-presentation-pipeline-parallelism.org][Evaluate Presentation Pipeline Parallelism]]
 
-Goal:
+* Presentation view cache
 
-- Keep ~tags~ as canonical direct tag facts and store inherited tag membership in the mandatory ~effective_tags~ projection.
-- Remove ~headings.all_tags_json~ so query matching and public output use one normalized effective-tag source.
-- Preserve the existing public query syntax, tag case behaviour, inheritance semantics, and deterministic JSON order.
+** DONE Validate eager caching for registered presentation views
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
 
-Final design:
+Task file: [[./presentation-cache/2026-08-20--validate-eager-presentation-view-cache.org][Validate Eager Presentation View Cache]]
 
-- ~tags~ stores only direct tags, including ~FILETAGS~ on the synthetic root heading.
-- ~effective_tags~ stores one row per visible heading/tag pair with:
-  - ~heading_id~;
-  - ~file_id~;
-  - ~tag~;
-  - zero-based ~position~.
-- The primary key is ~(heading_id, tag)~.
-- ~(heading_id, position)~ is unique.
-- ~idx_effective_tags_tag_heading~ supports inherited membership queries.
-- ~idx_effective_tags_file~ supports file-scoped maintenance and validation.
-- The root always participates in inherited tag semantics. There is no ~:without-root~ option or root-excluding projection.
+Start this task after payload and parallelism decisions are complete.
 
-Semantics:
+Use the final optimized presentation pipeline as the baseline.
 
-- ~(tags ... )~ and ~(tags ... :inherit t)~ use ~effective_tags~.
-- ~(tags ... :inherit nil)~ uses direct rows from ~tags~.
-- Effective order is root to leaf; inherited tags keep their position, new local tags are appended, and the first occurrence wins when a tag appears at multiple levels.
-- Tag matching remains case-sensitive.
-- Inheritance never crosses file boundaries.
+Goal: validate the selected cache model before production implementation.
 
-Migration and maintenance:
+Proceed toward implementation unless measurements or correctness constraints reveal a significant design problem.
 
-- Schema version 10 migrates transactionally to version 11.
-- The migration preserves the existing public tag order from ~all_tags_json~, validates it against canonical direct tags, backfills ~effective_tags~, rebuilds ~headings~ without ~all_tags_json~, and advances the schema version only on commit.
-- Fresh rebuilds and created or modified files derive ~effective_tags~ from the prepared heading tree in the same transaction as canonical tags.
-- Metadata-only changes do not regenerate effective tags.
-- Replacement and deletion remove stale effective rows through the controlled transaction and foreign-key cascades.
+Do not implement the production cache in this task.
 
-Query and output:
+Use this cache model:
 
-- Inherited tag predicates use ~effective_tags~ and no longer reconstruct heading ancestry recursively.
-- Local tag predicates continue to use ~tags~.
-- Flat, outline, hierarchy, relation, CLI, and included result objects load ~all_tags~ from ~effective_tags~ ordered by ~position~.
-- The public JSON field remains ~all_tags~; the internal ~all_tags_json~ column is removed.
+- Emacs registers a small set of named presentation views through the CLI.
+- View registration is valid only for the current Emacs and watcher session.
+- View registrations do not persist across watcher restarts.
+- A view contains a fixed query and presentation specification.
+- The specification includes columns, sorting, row layout, and other presentation inputs.
+- A view produces the presentation output that Emacs needs.
+- The cache stores the complete materialized presentation output.
+- The cache uses persistent local storage across separate ~orgfdb~ query processes.
+- Each registered view has only one current cache.
+- The normal unrestricted ~orgfdb query~ interface remains unchanged.
+- Add a separate ~orgfdb view~ interface in a later implementation task.
 
-Tests and benchmark evidence:
+The expected lifecycle is:
 
-- Cover root, parent, local, duplicate, case-sensitive, any/all, alias, regexp, migration-order, rollback, replacement, deletion, and semantic-equivalence behaviour.
-- Assert that inherited tag SQL uses ~effective_tags~ and its lookup index without the old recursive lineage SQL.
-- The benchmark records separate direct and effective tag workloads and includes ~effective_tags~ in semantic snapshots.
+- Emacs registers a cache-enabled view.
+- Registration starts the initial full cache build.
+- The watcher keeps the registered view current.
+- Each successful database change makes the current view cache stale.
+- The watcher starts a full rebuild after the database update.
+- The watcher does not wait for view rebuilds before it processes more file changes.
+- Rebuild different registered views in parallel.
+- Do not patch cached views from individual changed files.
+- Do not reuse cached results across database generations.
+- Do not keep historical cache generations.
+
+Handle consecutive database changes as one current target.
+
+If a newer database generation appears during a rebuild, stop or discard the obsolete rebuild.
+
+Start a new rebuild for the newest generation.
+
+Do not publish an obsolete intermediate generation.
+
+A view request must return data for the current valid generation.
+
+If its cache is rebuilding, block the request until the current cache is ready.
+
+Do not return the previous stale cache while a rebuild runs.
+
+If the current rebuild fails, return an error for that view.
+
+A view request must never start a rebuild.
+
+Registration, database changes, and view definition changes can start rebuilds.
+
+Treat a changed view definition as a full cache invalidation.
+
+The view definition includes all inputs that can change the presentation result.
+
+Use ~database_id~ and ~generation~ as part of cache validity.
+
+Also include enough view identity to reject a cache from an old view definition.
+
+Include the presentation wire format in cache validity.
+
+Determine whether a separate cache format or producer version is necessary.
+
+Keep the existing meanings of:
+
+- ~database_id~
+- ~generation~
+- ~changes~
+
+Do not turn ~changes~ into a view-cache invalidation protocol.
+
+Keep view-cache invalidation separate from file-level change reporting.
+
+Investigate time-dependent queries such as queries that use ~today~.
+
+A cached view must not become stale only because the effective query date changes.
+
+Find the simplest validity rule for these views.
+
+Do not add general dependency tracking to solve this case.
+
+Keep the cache design intentionally narrow.
+
+Do not add:
+
+- automatic caching of arbitrary queries
+- automatic selection of cache candidates
+- incremental per-file cache updates
+- LRU caching of arbitrary presentation requests
+- cross-generation result reuse
+- dependency tracking between files and cached results
+- persistent view registration
+- historical cache generations
+
+Assume that Emacs explicitly selects which views use caching.
+
+Target a small number of expensive views.
+
+Use 1 to 10 registered views as the expected operating range.
+
+Do not add a hard cache-size limit.
+
+Measure large cache files and record their sizes.
+
+Evaluate a warning for a single cache file near or above ~250 MB~.
+
+Use an XDG cache location as the default storage model.
+
+Prefer a location below ~${XDG_CACHE_HOME:-~/.cache}/orgfdb~.
+
+Determine the exact directory layout in a later implementation task.
+
+Do not add a configurable cache directory unless the validation finds a clear need.
+
+Define simple session cleanup behavior.
+
+A clean watcher shutdown can remove session-local view caches.
+
+Old files from an abnormal shutdown must never become valid without a matching active view registration.
+
+Determine the simplest safe cleanup and recovery behavior.
+
+Use the existing presentation benchmarks for costs that are already measured.
+
+Reuse measurements for:
+
+- database query execution
+- row expansion
+- sort-key creation
+- sorting
+- value extraction
+- width calculation
+- truncation and padding
+- row formatting
+- presentation total
+- JSON serialization
+- internal total
+- process startup
+- full CLI elapsed time
+- payload size
+
+Add only benchmarks that answer open cache questions.
+
+Measure representative large presentation views.
+
+Measure at least:
+
+- a normal uncached presentation request
+- an initial full view build
+- a full rebuild after a database generation change
+- persistence of the completed cache
+- a valid cache hit
+- reading the cached payload through the normal CLI output path
+- a view request that waits for an active rebuild
+- several view rebuilds in parallel
+- rapid consecutive database changes during active rebuilds
+
+Test parallel rebuilds with realistic view counts.
+
+Include at least 1, 3, 5, and 10 registered views where practical.
+
+Measure CPU load, elapsed time, and peak memory where these values affect the design.
+
+Check whether parallel rebuilds cause harmful SQLite, CPU, memory, or I/O contention.
+
+Compare parallel rebuilds with sequential rebuilds when this comparison helps the decision.
+
+Test obsolete rebuild cancellation or discard behavior.
+
+Use a workload where a newer generation appears before the previous rebuild completes.
+
+Confirm that only the newest required generation becomes visible.
+
+Measure the cost that eager rebuilding adds after each database change.
+
+Use realistic change patterns.
+
+Include:
+
+- many view reads between database changes
+- one database change followed by an immediate view request
+- several rapid database changes
+- several changes before any view request
+- several registered views after one database change
+
+A cache hit already removes database query and presentation work from the read path.
+
+Do not spend this task proving that basic property.
+
+Measure the cache-hit cost to quantify the saved work.
+
+Focus the validation on rebuild cost, concurrency, cancellation, storage, memory, and synchronization.
+
+Evaluate whether the watcher can coordinate rebuilds directly.
+
+Compare this with separate rebuild worker processes if cancellation is difficult inside the watcher process.
+
+Prefer the simpler design that keeps the watcher responsive.
+
+Do not select a worker architecture before measurements and code analysis support it.
+
+The main validation question is:
+
+Can eager full rebuilds keep a small set of expensive presentation views current without unacceptable update cost or complexity?
+
+Also answer:
+
+- How expensive is one full rebuild?
+- How much does a valid cache hit cost?
+- How much extra disk I/O does each rebuild add?
+- How large are representative cache files?
+- How much memory do parallel rebuilds require?
+- How many large views can rebuild in parallel without harmful contention?
+- How quickly can a newer generation replace obsolete rebuild work?
+- How long can a view request block after an immediate database change?
+- What lifecycle rules are necessary for session-local registrations?
+- What validity rule is necessary for time-dependent queries?
+
+Use measured values where possible.
+
+Label estimates separately from measured values.
+
+Record the final evidence in ~docs/presentation-performance.org~.
+
+If the design remains practical, create separate focused implementation TODOs.
+
+At minimum, separate later work for:
+
+- view registration and CLI access
+- cache storage and validity
+- watcher rebuild coordination
+- rebuild cancellation or obsolete-generation handling
+- concurrent view rebuilds
+- session cleanup and recovery
+- time-dependent view validity, if required
+
+Do not implement these TODOs in this validation task.
+
+If the investigation finds a significant design problem, document it before changing the cache model.
+
+Do not broaden the design automatically.
+
+Create a separate TODO if a different cache architecture needs investigation.
 
 Acceptance criteria:
 
-- Fresh databases use schema version 11.
-- Version-10 databases migrate atomically to version 11 without reparsing Org files.
-- ~effective_tags~ is the only stored effective-tag representation.
-- ~headings.all_tags_json~ is absent from the current schema and runtime SQL.
-- Direct and inherited tag query results remain compatible.
-- Public ~all_tags~ output remains deterministic and compatible.
-- Rebuild, incremental replacement, migration, rollback, and semantic-equivalence checks include the projection.
+- Measurements use the final optimized presentation pipeline.
+- Existing benchmark evidence is reused where it already answers a question.
+- The tested model uses explicit session-local view registration from Emacs.
+- The tested cache stores complete materialized presentation output.
+- Database changes start eager full rebuilds.
+- View requests never start rebuilds.
+- The watcher remains responsive while view rebuilds run.
+- Different registered views can rebuild concurrently.
+- A newer database generation makes obsolete rebuild work disposable.
+- Obsolete intermediate generations are never published as current.
+- A view request blocks while its current cache rebuilds.
+- A stale cache is never returned as the current view.
+- A failed rebuild produces an error for the affected view.
+- Only one current cache exists for each registered view.
+- View definition changes cause a full rebuild.
+- Time-dependent query validity has a defined safe rule.
+- The decision records cache-hit and full-rebuild costs.
+- The decision records query wait time during rebuilds.
+- The decision records representative cache file sizes.
+- The decision records relevant memory and concurrency costs.
+- The decision evaluates 1 to 10 registered views where practical.
+- The decision evaluates rapid consecutive database changes.
+- Existing ~database_id~, ~generation~, and ~changes~ semantics remain unchanged.
+- The design does not require incremental per-file cache maintenance.
+- The design does not require persistent view registration.
+- The normal ~orgfdb query~ interface remains unchanged.
+- Performance documentation records the measurements and design conclusions.
+- A practical design creates separate focused implementation TODOs.
+- A discovered blocker is documented before any alternative cache design starts.
+  
+** DONE Implement session-local presentation view registry and CLI
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Task file: [[./presentation-cache/2026-08-20--implement-session-local-presentation-view-registry-cli.org][Implement Session-local Presentation View Registry and CLI]]
+
+Start this task after the eager presentation view cache validation is approved.
+
+Add a session-local registry for named presentation views.
+
+The running watcher owns the registry.
+
+Emacs registers views through the CLI after it starts its cache-enabled integration.
+
+A registered view contains all inputs that affect its presentation output.
+
+At minimum, include:
+
+- view name
+- query
+- query output mode
+- explicit query includes
+- presentation specification
+
+Add a local control path between separate ~orgfdb~ CLI processes and the running watcher.
+
+Add public commands for:
+
+- registering or replacing a view
+- reading a registered view
+- removing a registered view
+
+Use the ~orgfdb view~ command group.
+
+Registration starts the initial cache build through the later rebuild coordinator.
+
+Reading a view never starts a rebuild.
+
+Keep the existing ~orgfdb query~ interface unchanged.
+
+Do not persist view registrations across watcher sessions.
+
+Acceptance criteria:
+
+- Emacs can register a named view through ~orgfdb view~.
+- Re-registering a changed definition replaces the old definition.
+- Emacs can request and remove a registered view.
+- View registrations belong only to the active watcher session.
+- The watcher owns the authoritative registry state.
+- The normal ~orgfdb query~ behavior remains unchanged.
+- CLI documentation describes the new commands.
 - ~make ci~ passes.
 
-* DONE Phase 7: Watcher-driven incremental updates
+** DONE Implement persistent presentation view cache storage and validity
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal of this phase:
+Task file: [[./presentation-cache/2026-08-20--implement-persistent-presentation-view-cache-storage-validity.org][Implement Persistent Presentation View Cache Storage and Validity]]
 
-- Translate filesystem changes into bounded Phase 6 reconciliation without duplicating indexing semantics.
-- Keep filesystem observation, event normalization, reconciliation policy, and Phase 6 execution as separate testable layers.
-- Ensure watcher-driven updates converge to the same committed DB state as a normal Phase 6 reconciliation.
+Start this task after the session-local view registry exists.
 
-General rules:
+Store one current materialized presentation payload for each registered cache-enabled view.
 
-- The watcher produces normalized candidate paths and reconciliation requests only.
-- Phase 6 discovery, classification, change planning, preparation, transactional application, and committed-state validation remain the single source of indexing semantics.
-- Raw filesystem event kinds are hints. They must never directly select DB replacement, metadata update, or deletion operations.
-- Filesystem event handling must remain separate from parsing and DB mutation logic.
-- The watcher must not maintain core or derived DB state itself.
-- Watcher-triggered updates inherit the complete Phase 6 source-universe, indexing-context, FTS, link-resolution, trust-metadata, stale-plan, zero-input-safety, and rollback contract.
-- Phase 6 source roots, explicit files, directory exclusions, file exclusions, canonical identity, missing-path identity, and deterministic ordering must be reused.
-- Do not introduce a second discovery, exclusion, canonicalization, or indexed-file identity model.
-- Temporary source-root unavailability must not silently become mass deletion.
-- Backend uncertainty must request full Phase 6 reconciliation rather than guessing individual mutations.
-- DB writes remain serialized. Parallel parsing or event processing belongs to Phase 8 only if later required.
-- The project-wide platform contract applies: Linux and Unix-like systems, including macOS where supported by the selected backend, are supported. Windows is not supported.
-- Do not add Windows-specific watcher backends, path conversion, rename handling, tests, or compatibility abstractions.
-- Preserve the byte-oriented Unix path identity and symlink semantics established by Phase 6.
-- Each implementation task must leave the repository in a complete and testable state before being marked DONE.
-- Documentation must describe the implementation that actually exists. Do not document speculative behavior as completed.
+Use ~${XDG_CACHE_HOME}/orgfdb~ when ~XDG_CACHE_HOME~ is set.
 
-** DONE [#A] Audit and expose the Phase 6 watcher handoff
-:PROPERTIES:
-:PRIORITY: High
-:RISK: High
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Internal
-:END:
+Otherwise use ~$HOME/.cache/orgfdb~ as the default cache location.
 
-Task file: [[./phase-7--watcher-driven-incremental-udpates/2026-07-25--phase-6-watcher-handoff.org]]
+Keep each watcher session in a separate cache namespace.
 
-Goal:
+Write new payloads to temporary files and publish them with an atomic rename.
 
-- Establish the exact Phase 6 entry points that Phase 7 will call for startup reconciliation and bounded candidate-path updates.
-- Remove any need for watcher-owned classification, parsing, or DB mutation.
+Do not require ~fsync~ for disposable session cache data.
 
-Implementation requirements:
+Use a cache envelope with an independent cache format version.
 
-- Inspect the completed Phase 6 implementation and identify the production APIs for:
-  - full configured-source reconciliation;
-  - bounded reconciliation for normalized candidate paths;
-  - indexed identity lookup for paths that no longer exist;
-  - stale-plan validation and transactional application.
-- Add or minimally refactor internal Phase 6 APIs only where the watcher cannot otherwise reuse the existing semantics.
-- Keep full rebuild and watcher execution on the same preparation and DB-write primitives.
-- Do not add ~notify~, watcher threads, debounce logic, or a CLI command in this task.
-- Do not duplicate Phase 6 discovery, exclusions, hashing, parsing, FTS, link resolution, or deletion logic.
-- Record the ownership boundary in code comments only where it is not already clear from types and module structure.
+Cache validity must include:
+
+- active watcher session identity
+- ~database_id~
+- ~generation~
+- view-definition identity
+- cache format version
+- presentation wire version
+
+Keep only one current cache for each registered view.
+
+Do not keep historical generation payloads.
+
+Do not add a hard cache-size limit.
+
+Emit a soft warning when one materialized view reaches about ~250 MB~.
 
 Acceptance criteria:
 
-- A caller can request full configured-source reconciliation through one documented internal entry point.
-- A caller can submit a deterministic set of candidate paths through one documented internal entry point.
-- Missing candidate paths can be matched against already indexed identities without requiring filesystem canonicalization to succeed.
-- Candidate processing still produces ordinary Phase 6 classifications such as unchanged, metadata-only, created, modified, deleted, and failed.
-- Failed and stale plans retain the Phase 6 rejection and rollback behavior.
-- No watcher-specific DB mutation primitive exists.
-- Existing Phase 6 rebuild and incremental tests continue to pass.
-- New focused tests cover any newly exposed handoff API.
-- Repository inspection confirms that no Phase 6 indexing semantics were copied into a watcher module.
+- A valid cache can survive separate ~orgfdb~ CLI processes in one watcher session.
+- A cache from another database, generation, view definition, or session is rejected.
+- Readers never observe a partially written payload.
+- Only one current cache exists for each registered view.
+- The cache format has an explicit version independent of the presentation wire version.
+- The default path follows the XDG cache convention.
+- ~make ci~ passes.
 
-** DONE [#A] Implement normalized watcher events and deterministic batching
+** DONE Integrate eager presentation view rebuild coordination with the watcher
 :PROPERTIES:
-:PRIORITY: High
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Internal
+:VISIBILITY: folded
 :END:
 
-Task file: [[./phase-7--watcher-driven-incremental-udpates/2026-07-25--normalized-watcher-events.org]]
+Task file: [[./presentation-cache/2026-08-20--integrate-eager-presentation-view-rebuild-coordination.org][Integrate Eager Presentation View Rebuild Coordination]]
 
-Goal:
+Start this task after view registration and cache storage are available.
 
-- Convert backend-specific filesystem event bursts into deterministic candidate-path batches and explicit reconciliation requests without using a live watcher.
+Keep registered cache-enabled views current after database changes.
 
-Implementation requirements:
+After each successful database generation change, mark all registered view caches stale.
 
-- Introduce an internal backend-independent watcher input model.
-- Its output must contain only:
-  - normalized candidate paths;
-  - or a request for full Phase 6 reconciliation.
-- Treat create, modify, remove, rename, metadata, and other raw event kinds only as path hints.
-- Preserve both old and new paths for rename-style events when the backend provides both.
-- Support deleted and renamed-away paths without requiring them to exist.
-- Reuse Phase 6 path and indexed-identity rules where applicable.
-- Coalesce duplicate and redundant paths.
-- Produce deterministic ordering independent of raw event order where the final candidate set is equivalent.
-- A reconciliation request supersedes path-specific candidates in the same batch.
-- Ignore irrelevant paths through Phase 6-compatible source-universe and exclusion classification.
-- Do not add ~notify~, sleeping, threads, channels, filesystem polling, or CLI behavior in this task.
+Start full rebuilds without waiting for a view request.
+
+Keep the normal watcher input loop responsive while rebuilds run.
+
+Use separate rebuild worker processes.
+
+Run different view rebuilds concurrently with a bounded active-worker count.
+
+Queue excess registered views instead of starting every large rebuild at once.
+
+Use the validation results as the initial concurrency evidence.
+
+On the measured 8-CPU host, 3 concurrent large workers are comfortable and 5 remain practical.
+
+Do not use 10 concurrent large workers as the default target.
+
+If a newer generation appears, terminate or discard obsolete worker output.
+
+Coalesce skipped intermediate generations into the newest required generation.
+
+A view request for a stale or rebuilding view waits until the current cache is ready.
+
+If the current rebuild fails, return an error for that view.
+
+Never return the stale payload as the current view.
 
 Acceptance criteria:
 
-- Repeated events for one logical path produce one candidate.
-- Create followed by modify produces one candidate.
-- Modify followed by remove retains the path as a candidate for Phase 6 classification.
-- Remove followed by create retains the path as a candidate for Phase 6 classification.
-- Rename with both paths produces old-path and new-path candidates.
-- Rename with incomplete information requests reconciliation when bounded correctness cannot be guaranteed.
-- Backend overflow, dropped-event, rescan, or equivalent uncertainty maps to reconciliation.
-- Candidate ordering is deterministic.
-- Excluded or unrelated paths do not reach Phase 6 execution.
-- Empty batches perform no DB work and cannot bypass Phase 6 safeguards.
+- Database changes start eager rebuilds without a view request.
+- The watcher continues to process file changes while rebuild workers run.
+- Different views rebuild concurrently with bounded worker concurrency.
+- New generations make old rebuild work disposable.
+- Obsolete payloads never become current.
+- Intermediate generations can be skipped.
+- A view request waits for the current generation when necessary.
+- A failed current rebuild produces a view error.
+- ~make ci~ passes.
 
-Required tests:
-
-- repeated modify events;
-- create plus modify;
-- modify plus remove;
-- remove plus create;
-- rename with old and new paths;
-- incomplete rename;
-- duplicate paths;
-- excluded paths;
-- unrelated paths;
-- reconciliation superseding path candidates;
-- deterministic output under permuted raw event order;
-- non-UTF-8 Unix paths where supported by the test platform.
-
-** DONE [#A] Implement debounce and watcher execution controller
+** DONE Add presentation view session cleanup and cache recovery
 :PROPERTIES:
-:PRIORITY: High
-:RISK: High
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Internal
+:VISIBILITY: folded
 :END:
 
-Task file: [[./phase-7--watcher-driven-incremental-udpates/2026-07-25--watcher-execution-controller.org]]
+Task file: [[./presentation-cache/2026-08-21--add-presentation-view-session-cleanup-cache-recovery.org][Add Presentation View Session Cleanup and Cache Recovery]]
 
-Goal:
-
-- Collect normalized watcher inputs into bounded batches and execute the appropriate Phase 6 reconciliation path serially.
-
-Implementation requirements:
-
-- Add a controller that accepts backend-independent watcher inputs.
-- Collect quick event bursts during a documented debounce interval.
-- Make the debounce interval configurable through an internal setting or one clearly defined constant suitable for later CLI exposure.
-- Convert each completed batch into either:
-  - bounded Phase 6 candidate reconciliation;
-  - or full configured-source Phase 6 reconciliation.
-- Ensure only one Phase 6 apply operation is active at a time.
-- Events arriving during an active reconciliation must be retained for the next batch or safely collapsed into a pending full reconciliation.
-- Do not lose events after a failed reconciliation.
-- A failed batch must report actionable context and leave the last committed DB state intact.
-- Do not introduce parallel parsing or concurrent DB writes.
-- Use controllable time or an injected batching boundary for deterministic tests.
-- Avoid tests that depend on arbitrary sleeps.
-
-Acceptance criteria:
-
-- Bursts are coalesced into one bounded execution.
-- Events separated by the batching boundary produce separate executions.
-- A pending reconciliation request supersedes pending bounded candidates.
-- Events received while Phase 6 is running are handled in a later execution.
-- Failed execution does not silently discard pending later events.
-- Shutdown can stop intake and deterministically finish or reject the current pending batch according to one documented policy.
-- Tests do not rely on platform watcher timing.
-
-Required tests:
-
-- one event burst produces one Phase 6 call;
-- separate bursts produce separate calls;
-- reconciliation supersedes candidates;
-- events arriving during execution are retained;
-- failed Phase 6 execution preserves later pending work;
-- deterministic shutdown with an empty queue;
-- deterministic shutdown with a pending batch.
-
-** DONE [#A] Integrate ~notify~ as the filesystem event source
+** DONE Add relative-date refresh for cached presentation views
 :PROPERTIES:
-:PRIORITY: High
-:RISK: High
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Internal
+:VISIBILITY: folded
 :END:
 
-Task file: [[./phase-7--watcher-driven-incremental-udpates/2026-07-25--notify-event-source.org]]
+Task file: [[./presentation-cache/2026-08-20--add-relative-date-refresh-for-cached-presentation-views.org][Add Relative-Date Refresh for Cached Presentation Views]]
 
-Goal:
+* Presentation maintenance and documentation
 
-- Use ~notify~ as a thin event-source adapter for configured Phase 6 inputs.
-
-Implementation requirements:
-
-- Add a compatible ~notify~ dependency version.
-- Watch configured directory roots and explicit-file inputs sufficiently to observe relevant changes on supported Unix platforms.
-- Translate ~notify~ events and errors into the backend-independent event model.
-- Keep source-universe classification and exclusions outside the ~notify~ adapter.
-- Do not let raw ~notify~ event kinds directly choose Phase 6 operations.
-- Handle explicit files whose parent directory must be watched because the file may be replaced atomically.
-- Detect and report inaccessible watch roots.
-- Translate backend rescan, overflow, dropped-event, or equivalent uncertainty into a full reconciliation request.
-- Avoid feedback loops from the configured DB path and its SQLite sidecar files through the normal Phase 6-compatible ignore path.
-- Do not add Windows-specific branches or abstractions.
-
-Acceptance criteria:
-
-- Changes to configured Org files reach the normalized event layer.
-- Newly created candidate Org files below configured recursive roots can reach Phase 6 discovery.
-- Removed files produce usable candidate paths even though they no longer exist.
-- Rename and atomic-save sequences provide all available paths without watcher-side mutation decisions.
-- Explicit files remain observable after editor-style replacement.
-- Events outside configured inputs are filtered before Phase 6 execution.
-- Excluded paths remain excluded according to Phase 6 rules.
-- Backend uncertainty requests full reconciliation.
-- Watch registration failures identify the affected root or explicit-file parent.
-- Unit tests use synthetic ~notify~ events where possible.
-- A small supported-platform integration test verifies the adapter without depending on exact event counts or ordering.
-
-** DONE [#A] Implement watcher startup and recovery reconciliation
+** DONE Review and prune presentation benchmark infrastructure
 :PROPERTIES:
-:PRIORITY: High
-:RISK: High
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Internal
+:VISIBILITY: folded
 :END:
 
-- Task file: [[./phase-7--watcher-driven-incremental-udpates/2026-07-25--watcher-startup-recovery.org][2026-07-25--watcher-startup-recovery.org]]
+Task file: [[./presentation-performance/2026-08-21--review-prune-presentation-benchmark-infrastructure.org][Review and Prune Presentation Benchmark Infrastructure]]
 
-Goal:
-
-- Cover changes that happened while the watcher was stopped or while filesystem events may have been lost.
-
-Implementation requirements:
-
-- Run full Phase 6 configured-source reconciliation before steady-state event processing.
-- Establish watches early enough that changes during startup cannot be silently lost:
-  - register watches before startup reconciliation and retain events for a following batch;
-  - or use another implementation with equivalent demonstrated correctness.
-- Treat event overflow, dropped events, relevant root replacement, and equivalent uncertainty as reconciliation requests.
-- Distinguish source-root absence or inaccessibility from an authoritative empty source universe.
-- Temporary root unavailability must not become mass deletion unless the Phase 6 configuration and safety contract explicitly establish that deletion is authoritative.
-- Recovery must call the normal Phase 6 planner and application path.
-- Reconciliation failures must preserve the last committed DB state and leave the watcher in a clearly reported retryable or terminated state.
-- Define whether reconciliation requests are retried automatically or cause watcher termination.
-- Keep the policy simple and testable.
-
-Acceptance criteria:
-
-- Startup detects file changes made while the watcher was not running.
-- A no-change startup uses the Phase 6 cheap unchanged path.
-- Events occurring during startup are processed after startup reconciliation or covered by a subsequent reconciliation.
-- Lost-event uncertainty causes full reconciliation.
-- Repeated uncertainty collapses into bounded reconciliation work rather than an unbounded queue.
-- Temporary root unavailability does not silently delete indexed content.
-- Recovery converges to the same DB state as an explicit Phase 6 reconciliation.
-- Failed recovery leaves the previous committed state intact and reports relevant path context.
-
-Required tests:
-
-- changed file before watcher startup;
-- deleted file before watcher startup;
-- file created during startup;
-- event received during startup reconciliation;
-- overflow or rescan request;
-- repeated reconciliation requests;
-- temporarily inaccessible root;
-- reconciliation failure and rollback.
-
-** DONE [#A] Add the watcher CLI and process lifecycle
-[[./phase-7--watcher-driven-incremental-udpates/2026-07-25--watcher-cli-lifecycle.org][Task file]]
+** DONE Finalize presentation architecture documentation
 :PROPERTIES:
-:PRIORITY: High
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Yes
+:VISIBILITY: folded
 :END:
 
-Goal:
-
-- Expose watcher-driven indexing as a long-running CLI command with clear startup, failure, and shutdown behavior.
-
-Implementation requirements:
-
-- Add one documented watcher command consistent with the existing CLI structure.
-- Load the same indexing configuration used by Phase 6.
-- Start the watcher, perform startup reconciliation, and then enter steady-state handling.
-- Handle ~SIGINT~ and ~SIGTERM~ on supported Unix platforms.
-- Stop accepting new events during shutdown.
-- Apply the documented pending-batch shutdown policy from the controller task.
-- Report startup reconciliation failures, watch registration failures, backend failures, and Phase 6 apply failures with actionable context.
-- Keep normal machine-readable output conventions where applicable, but do not emit an unbounded stream of incompatible ad hoc JSON.
-- Decide and document whether routine watcher activity is silent, logged to stderr, or emitted as structured events.
-- Do not add daemonization, service installation, background process management, or Windows service support.
-
-Acceptance criteria:
-
-- The command performs startup reconciliation before reporting steady-state readiness.
-- ~Ctrl-C~ exits cleanly without corrupting committed DB state.
-- Termination during an idle period is immediate and deterministic.
-- Termination with pending work follows the documented controller policy.
-- Fatal watcher errors return a non-zero exit status.
-- User-facing errors identify affected paths where available.
-- Existing CLI commands and JSON contracts remain unchanged unless explicitly required.
-- CLI help documents the supported platform scope and high-level behavior.
-
-Required tests:
-
-- CLI argument parsing;
-- startup failure exit status;
-- watch registration failure exit status;
-- clean shutdown;
-- fatal controller failure;
-- unchanged behavior of existing commands.
-
-** DONE [#A] Add end-to-end watcher integration tests
-:PROPERTIES:
-:PRIORITY: High
-:RISK: High
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: No
-:END:
-
-[[./phase-7--watcher-driven-incremental-udpates/2026-07-25--watcher-e2e-integration-tests.org][Task file]]
-
-Goal:
-
-- Verify that real filesystem activity converges to the same indexed state as normal Phase 6 reconciliation.
-
-Implementation requirements:
-
-- Use temporary directories and the real supported-platform watcher backend.
-- Assert eventual DB state rather than exact raw event count, type, or order.
-- Use bounded polling with explicit failure diagnostics instead of fixed sleeps as the primary synchronization mechanism.
-- Keep backend-independent batching and recovery behavior covered mainly by deterministic unit tests.
-- Compare watcher-produced state with state produced by a normal Phase 6 reconciliation where practical.
-- Mark or gate tests only where the backend genuinely cannot run in the test environment.
-- Do not weaken assertions merely to avoid timing failures.
-
-Required scenarios:
-
-- initial no-change startup;
-- create an Org file;
-- modify indexed content;
-- metadata-only filesystem change where reliably reproducible;
-- delete an indexed file;
-- rename an indexed file;
-- replace a file through an atomic editor-style save;
-- several quick writes to one file;
-- several quick writes to multiple files;
-- explicit-file input replacement;
-- recursive directory discovery;
-- non-recursive directory behavior;
-- directory exclusion;
-- file exclusion;
-- unrelated file event;
-- DB and SQLite sidecar activity;
-- invalid or unreadable Org input;
-- watcher restart after offline changes;
-- temporary source-root disruption where safely testable;
-- final state comparison with full Phase 6 reconciliation.
-
-Acceptance criteria:
-
-- Every supported scenario reaches the expected committed DB state within a bounded timeout.
-- No test relies on receiving one particular ~notify~ event sequence.
-- Duplicate, redundant, and out-of-order backend events do not produce duplicate indexed state.
-- Derived FTS and link-resolution state is valid after watcher updates.
-- Failed file preparation or application does not partially commit the batch.
-- Watcher restart repairs missed offline changes.
-- Tests provide useful diagnostics showing the expected and observed DB state on failure.
-
-** DONE [#A] Audit Phase 7 completeness and remove unfinished paths
-:PROPERTIES:
-:PRIORITY: High
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: No
-:END:
-
-Task file: [[./phase-7--watcher-driven-incremental-udpates/2026-07-26--phase-7-completeness-audit.org][2026-07-26--phase-7-completeness-audit.org]]
-
-Goal:
-
-- Verify that Phase 7 is complete, internally consistent, and contains no placeholder or duplicate implementation paths.
-
-Implementation requirements:
-
-- Review the complete Phase 7 diff against every phase rule and acceptance criterion.
-- Search for and resolve:
-  - ~TODO~ and ~FIXME~ markers introduced by Phase 7;
-  - ~todo!()~, ~unimplemented!()~, panic-based normal error handling, and dead compatibility code;
-  - ignored, flaky, or overly weak watcher tests;
-  - duplicated Phase 6 discovery, exclusion, canonicalization, parsing, or DB mutation logic;
-  - raw event kinds directly selecting DB operations;
-  - Windows-specific watcher code;
-  - uncontrolled sleeps in deterministic unit tests;
-  - event-loss paths;
-  - unbounded queues;
-  - stale FTS or link-resolution state;
-  - temporary-root mass-deletion risks.
-- Verify that watcher execution converges to a normal Phase 6 reconciliation result.
-- Update task, CLI, and architecture documentation to match only the completed implementation.
-- Move completed Phase 7 tasks to the archive according to the repository workflow only after all checks pass.
-
-Acceptance criteria:
-
-- All Phase 7 tasks and acceptance criteria are either implemented and verified or explicitly removed from the completed scope.
-- No watcher-owned indexing semantics remain.
-- No known event-loss or silent mass-deletion path remains.
-- No placeholder implementation is presented as production behavior.
-- All supported-platform tests pass repeatedly.
-- Existing rebuild and non-watcher incremental behavior remains unchanged.
-- Phase 8 parallelization has not been implemented implicitly.
-- The repository documentation accurately describes startup, steady-state updates, recovery, failure handling, shutdown, and platform support.
-
-Local final verification:
-
-- Run ~git diff --check~.
-- Run ~cargo fmt --all --check~.
-- Run ~cargo test~.
-- Run ~cargo test~ a second time to expose watcher-test instability.
-- Run ~cargo clippy --all-targets --all-features -- -D warnings~.
-- Search for ~TODO|FIXME|todo!\(|unimplemented!\(|cfg\(any\(\)\)~ in the Phase 7 implementation.
-- Review the complete diff from the last pre-Phase-7 commit.
-- Run a manual Unix smoke test covering startup, modify, create, rename, delete, and clean shutdown.
-
-** DONE [#A] Persist and validate configured source-root identity
-:PROPERTIES:
-:PRIORITY: High
-:RISK: High
-:DB_SCHEMA_CHANGE: Metadata
-:API_CONTRACT_CHANGE: Yes
-:END:
-
-Task file: [[./phase-7--watcher-driven-incremental-updates/2026-07-26--source-root-identity.org][2026-07-26--source-root-identity.org]]
-
-Goal:
-
-- Prevent an automatically started full reconciliation from treating a replaced configured directory root as the authoritative continuation of the previously indexed root.
-
-Scope:
-
-- Apply only to configured directory roots.
-- Explicit-file inputs remain unchanged.
-- Individual files and discovered subdirectories do not receive persistent filesystem identities.
-- The watcher must reuse this Phase 6 safety contract and must not persist or validate root identity independently.
-
-Implementation requirements:
-
-- Introduce one Phase 6 root-evidence model for configured directory roots.
-- For every configured directory root, record:
-  - the configured logical path using the existing native Unix path representation;
-  - the canonical root path where available;
-  - the native root identity required to detect replacement;
-  - the configured recursive or non-recursive mode.
-- Reuse existing Phase 6 or Unix filesystem-identity primitives where possible.
-- Do not introduce a second watcher-specific root-identity model.
-- Persist the complete deterministic root-evidence set as part of the committed Phase 6 indexing state.
-- Prefer the existing metadata infrastructure unless repository inspection proves that a separate schema object is required.
-
-Reconciliation contract:
-
-- At the beginning of a full reconciliation:
-  - capture current evidence for all configured directory roots;
-  - compare it with the evidence from the last successful commit.
-- Reject automatic reconciliation when a previously recorded root:
-  - is missing;
-  - is inaccessible;
-  - resolves to a different canonical root;
-  - has a different native root identity;
-  - or no longer has the expected directory type.
-- Carry the captured root evidence in the Phase 6 reconciliation plan.
-- Capture the evidence again after discovery and during stale-plan validation.
-- Capture it once more immediately before committing the transaction.
-- Reject the plan as stale if the evidence differs at any validation point.
-- A rejected plan must leave all previously committed DB and metadata state unchanged.
-- Persist updated evidence in the same transaction as the successfully applied reconciliation.
-
-Initialisation and migration:
-
-- When the database contains no indexed files, initialise root evidence automatically on the first successful reconciliation.
-- When indexed files exist but committed root evidence is missing, automatic watcher reconciliation must refuse to proceed.
-- Existing indexed state without evidence may be adopted only through the explicit manual acceptance path.
-
-Intentional root replacement:
-
-- Add an explicit manual option for accepting changed configured root identities.
-- The option must be available only through the normal manual rebuild or reconciliation command, not enabled automatically by the watcher.
-- Acceptance permits replacement of the previously persisted identity but does not disable stability checks during the current reconciliation.
-- Acceptance of a new root identity must not imply ~allow-empty~.
-- Existing zero-input safety remains independent and unchanged.
-- The new evidence becomes authoritative only after a successful commit.
-
-Acceptance criteria:
-
-- An unchanged configured root continues through normal no-change reconciliation.
-- A root replaced at the same logical path while the watcher was stopped is rejected before indexed data can be removed.
-- A partially populated replacement root is also rejected.
-- A same-device root inode replacement is detected where supported by the existing Unix identity contract.
-- A root changed between initial capture and discovery is rejected as stale.
-- A root changed after planning but before commit causes transaction rollback.
-- Failure for one configured root rejects the complete reconciliation.
-- Normal creation, modification, rename, and deletion of files within an unchanged root continue to work.
-- Legitimate deletion of all files within the same unchanged root remains possible under the existing zero-input rules.
-- Intentional root replacement succeeds only through the explicit manual acceptance option.
-- The watcher never accepts changed root identity automatically.
-- Rejection preserves files, headings, bodies, links, FTS state, indexing context, trust metadata, and prior root evidence.
-- No Phase 8 parallelism is introduced.
-
-Required tests:
-
-- first reconciliation initialises evidence for an empty database;
-- unchanged-root startup uses the normal unchanged path;
-- reachable but empty replacement root before startup is rejected;
-- partially populated replacement root before startup is rejected;
-- same-path and same-device root replacement is rejected;
-- one replaced root among multiple configured roots rejects the complete plan;
-- root replacement during discovery is rejected;
-- root replacement immediately before commit rolls back all DB changes;
-- indexed database without root evidence requires explicit adoption;
-- explicit acceptance commits the new root evidence;
-- explicit acceptance without ~allow-empty~ still respects zero-input safety;
-- normal deletion inside an unchanged root continues to work;
-- watcher startup reports the root-identity error without modifying the database.
-
-** DONE [#B] Make watcher language phase-neutral
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Low
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Internal
-:END:
-
-Task file: [[./phase-7--watcher-driven-incremental-udpates/2026-07-27--phase-neutral-watcher-language.org][2026-07-27--phase-neutral-watcher-language.org]]
-
-Goal:
-
-- Replace temporary phase-number terminology in watcher code and maintained user-facing documentation with stable indexing and reconciliation language.
-- Report a missing configured directory as an actionable watcher startup error rather than exposing internal source-universe derivation details.
-
-Scope:
-
-- Production Rust identifiers, comments, help text, runtime errors, tests, README, CLI documentation, and incremental-indexing design documentation.
-- Historical task files and roadmap phase descriptions remain unchanged.
-
-* DONE Phase 8: Evaluate parallel parsing and preparation
-
-Goal of this phase:
-
-- Determine whether parallel parsing and preparation of independent changed Org files would materially improve realistic rebuild and reconciliation workloads.
-- Implement parallel execution only if the measured end-to-end benefit justifies the additional scheduling, memory, testing, and maintenance complexity.
-- Preserve the Phase 6 indexing semantics and the Phase 7 watcher execution model unchanged.
-
-Decision:
-
-- Keep parsing and preparation sequential.
-- Do not add a thread pool, Rayon dependency, worker scheduler, worker-count configuration, or automatic activation threshold.
-- Do not change the existing rebuild, reconciliation, or watcher pipeline.
-- Retain the measurement experiment only in project history or a separate archive branch.
-- Continue production development from the completed Phase 7 implementation.
-
-Reason:
-
-- Parsing and per-file model preparation account for only approximately 10–12% of full rebuild time in the measured corpora.
-- Approximately 80% of rebuild time is spent in the serial ordered application stage, including SQLite writes, FTS maintenance, link resolution, effective-state refresh, indexing metadata, and transaction commit.
-- Only parsing and preparation were candidates for parallel execution. The dominant ordered application stage would remain serial.
-- Even ideal parallel parsing therefore has a low end-to-end speed-up ceiling.
-- Realistic gains are too small to justify the required concurrency architecture and its permanent maintenance burden.
-- Incremental operations and watcher-like small change sets contain almost no parallelizable parsing work.
-
-** DONE Establish the Phase 8 measurement baseline
-
-Approach:
-
-- Extended the benchmark experiment to distinguish:
-  - discovery and change planning
-  - file metadata inspection, reading, hashing, and decoding
-  - parsing and per-file model preparation
-  - ordered DB and derived-state application
-  - unclassified measurement overhead
-  - complete end-to-end rebuild time
-- Used the existing deterministic corpus generator, production rebuild path, baseline schema profile, FTS modes, canonical paths, and semantic-equivalence checks.
-- Kept all measured stages sequential.
-- Used a fresh isolated database for each measured rebuild.
-- Captured best-effort Linux process CPU counters and high-water RSS evidence.
-- Verified internal timing sums, percentile ordering, positive path-query results, and incremental semantic equivalence.
-- ~make ci~ passed after correcting the measurement implementation.
-
-Environment:
-
-- Release build
-- Linux x86-64
-- 8 available CPUs
-- SQLite 3.40.1
-- Identical corpus seed ~1~
-
-*** 50-file result
-
-Protocol:
-
-- 5 warm-up iterations
-- 30 measured iterations
-- 292 expected headings
-- 55 expected links
-
-Median full-rebuild results:
-
-| Mode      | Total     | Parse and prepare | Parse share | Ordered application |
-|-----------+-----------+-------------------+-------------+---------------------|
-| no FTS    | 32.83 ms  | 3.90 ms           | 11.87%      | 27.31 ms            |
-| FTS title | 34.84 ms  | 3.98 ms           | 11.43%      | 29.32 ms            |
-| FTS body  | 35.55 ms  | 4.03 ms           | 11.34%      | 29.95 ms            |
-
-Interpretation:
-
-- The measurement was stable enough for the decision.
-- Parsing represented only around one ninth of total rebuild time.
-- The serial ordered application stage already dominated at this collection size.
-- The small incremental operations contained only negligible parse work.
-
-*** 1,000-file result
-
-Protocol:
-
-- 3 warm-up iterations
-- 10 measured iterations
-- 5,675 expected headings
-- 1,091 expected links
-
-Median full-rebuild results:
-
-| Mode      | Total   | Parse and prepare | Parse share | Ordered application |
-|-----------+---------+-------------------+-------------+---------------------|
-| no FTS    | 0.802 s | 0.086 s           | 10.78%      | 0.641 s             |
-| FTS title | 0.797 s | 0.084 s           | 10.50%      | 0.641 s             |
-| FTS body  | 0.817 s | 0.084 s           | 10.25%      | 0.659 s             |
-
-Interpretation:
-
-- The parse share did not increase with the larger collection.
-- It decreased slightly from approximately 11–12% to approximately 10–11%.
-- Parsing scaled approximately linearly.
-- Discovery, planning, and especially serial DB and derived-state application remained the dominant costs.
-- One ~no-fts~ outlier occurred entirely in ordered application and did not indicate parser instability.
-- All incremental benchmark sequences remained semantically equivalent to a fresh rebuild.
-
-*** Incremental and watcher-like workloads
-
-Measured examples included:
-
-- metadata-only update
-- one modified file
-- one created file
-- one deleted file
-- mixed create, modify, and delete change set
-
-Results:
-
-- Metadata-only and delete operations contained no parse work.
-- Single-file create and modify operations spent far below 1% of their end-to-end time in parsing.
-- The mixed three-file change set also spent far below 1% in parsing.
-- Discovery, planning, SQLite application, and derived-state maintenance dominated these operations.
-- Starting or coordinating parser workers for these batches would likely cost more than the parsing work being parallelized.
-
-Conclusion:
-
-- Watcher execution must remain sequential.
-- Small reconciliation batches must remain sequential.
-- Parallel parsing would provide no meaningful benefit for normal incremental operation.
-
-** DONE Decide whether parallel parsing and preparation are justified
-
-Decision:
-
-- Parallel parsing and preparation are not justified by the measurements.
-- The sequential Phase 6 path remains the production implementation.
-- Phase 8 closes without adding parallel execution.
-
-Theoretical upper bound:
-
-- At 1,000 files, only approximately ~0.084–0.086 s~ of an approximately ~0.80 s~ rebuild is parallelizable.
-- With eight perfectly utilized workers and zero scheduling overhead, the mathematical maximum saving would be approximately ~0.073–0.076 s~.
-- This corresponds to an ideal end-to-end improvement of only approximately ~9%~.
-- Unlimited perfect parallelism could not remove more than the measured parse share of approximately ~10–11%~.
-
-Realistic expectation:
-
-- Worker scheduling, result collection, deterministic reordering, synchronization, memory allocation, and uneven file sizes would reduce the theoretical benefit.
-- A realistic 1,000-file saving was estimated at approximately ~0.04–0.065 s~.
-- The rebuild would likely improve only from approximately ~0.80 s~ to approximately ~0.74–0.76 s~.
-- This difference is measurable but not operationally significant.
-
-10,000-file projection:
-
-- No 10,000-file benchmark was executed.
-- A projection from the measured corpora suggests a complete rebuild of approximately ~8–9.5 s~ for files of similar average size and structure.
-- The parallelizable parse portion would be approximately ~0.8–0.9 s~.
-- A realistic eight-worker saving would likely be approximately ~0.4–0.65 s~.
-- This projection is not treated as measured acceptance evidence.
-- Even at this scale, the expected saving does not justify adding permanent concurrency complexity before a real user workload demonstrates a higher parse share or unacceptable rebuild latency.
-
-Complexity considered:
-
-- Define complete owned parse-job inputs.
-- Define complete owned preparation-result values.
-- Ensure parser configuration and all worker inputs are immutable and ~Send~ compatible.
-- Add a bounded worker scheduler or dependency.
-- Restore results to deterministic change-plan order.
-- Preserve deterministic error ordering regardless of worker completion order.
-- Aggregate worker failures without allowing partial application.
-- Bound queued prepared data and resulting memory growth.
-- Preserve a sequential fallback.
-- Define worker-count and activation-threshold configuration.
-- Test worker counts, completion-order variations, cancellation, rollback, error ordering, FTS state, link state, indexing metadata, and source-universe fingerprints.
-- Maintain concurrency-specific code indefinitely despite the small expected gain.
-
-Final rationale:
-
-- The likely benefit is a few percent of end-to-end rebuild time.
-- The dominant stage cannot be parallelized within the accepted Phase 8 scope.
-- Normal watcher and incremental workloads would not benefit.
-- The implementation would add substantially more complexity than the user-visible performance improvement warrants.
-- Avoiding the feature keeps the indexer simpler, deterministic, easier to test, and easier to maintain.
-
-** DONE Define owned parse jobs and preparation results
-
-Outcome:
-
-- Not performed.
-- This task was conditional on accepting parallel parsing and preparation.
-- The decision task rejected parallel execution, so introducing worker-specific job and result abstractions would add unused architecture.
-- The existing sequential preparation boundary remains unchanged.
-
-** DONE Implement bounded parallel parsing and preparation
-
-Outcome:
-
-- Not performed.
-- No thread pool, scheduler, worker channel, work queue, result reordering layer, or parallel configuration was introduced.
-- SQLite writes, FTS maintenance, link resolution, effective-state maintenance, metadata updates, transaction handling, and watcher execution remain sequential.
-- The Phase 6 and Phase 7 semantic and lifecycle contracts remain unchanged.
-
-** DONE Measure the accepted implementation and choose defaults
-
-Outcome:
-
-- Not performed because no parallel implementation was accepted.
-- No worker-count default or activation threshold is required.
-- Parallel execution does not need a disable switch because it is not present.
-- The sequential implementation remains the only production path.
-
-** Reconsideration criteria
-
-Reopen parallel parsing only if at least one of the following becomes true:
-
-- Measurements from a real production corpus show that ~parse_and_prepare~ is a substantially larger share of end-to-end rebuild time.
-- Full rebuild latency becomes operationally disruptive.
-- Individual Org files become substantially larger or more parser-heavy than the benchmark corpus.
-- A future architecture change removes or significantly reduces the serial ordered-application bottleneck.
-- A simpler concurrency implementation becomes available without compromising deterministic ordering, rollback, memory bounds, or maintainability.
-
-Until then, the measured sequential implementation is considered sufficient.
+Task file: [[./presentation/2026-08-21--finalize-presentation-architecture-documentation.org][Finalize Presentation Architecture Documentation]]

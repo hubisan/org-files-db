@@ -1,0 +1,3 @@
+#+TITLE: 2026-08-16--query-enrichment-sql-optimization.org
+
+Self: [[./2026-08-16--query-enrichment-sql-optimization.org][Self]]

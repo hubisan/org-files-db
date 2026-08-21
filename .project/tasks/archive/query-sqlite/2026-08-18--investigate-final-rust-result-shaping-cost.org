@@ -1,0 +1,3 @@
+#+TITLE: 2026-08-18--investigate-final-rust-result-shaping-cost.org
+
+Self: [[./2026-08-18--investigate-final-rust-result-shaping-cost.org][Self]]

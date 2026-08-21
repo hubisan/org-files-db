@@ -1,0 +1,3 @@
+#+TITLE: 2026-08-05--transactional-index-generations-cached-view-delta-refresh.org
+
+Self: [[./2026-08-05--transactional-index-generations-cached-view-delta-refresh.org][Self]]

@@ -1,0 +1,3 @@
+#+TITLE: 2026-08-15--presentation-spec-model.org
+
+Self: [[./2026-08-15--presentation-spec-model.org][Self]]

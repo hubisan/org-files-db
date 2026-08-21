@@ -1,0 +1,3 @@
+#+TITLE: 2026-08-17--predicate-driven-metadata-filters-end-to-end.org
+
+Self: [[./2026-08-17--predicate-driven-metadata-filters-end-to-end.org][Self]]

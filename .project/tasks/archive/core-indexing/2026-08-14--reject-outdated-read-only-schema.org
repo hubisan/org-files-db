@@ -1,0 +1,3 @@
+#+TITLE: 2026-08-14--reject-outdated-read-only-schema.org
+
+Self: [[./2026-08-14--reject-outdated-read-only-schema.org][Self]]

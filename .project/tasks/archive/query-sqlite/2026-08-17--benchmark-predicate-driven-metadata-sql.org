@@ -1,0 +1,3 @@
+#+TITLE: 2026-08-17--benchmark-predicate-driven-metadata-sql.org
+
+Self: [[./2026-08-17--benchmark-predicate-driven-metadata-sql.org][Self]]

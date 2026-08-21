@@ -1,0 +1,3 @@
+#+TITLE: 2026-08-17--optimize-production-heading-path-rust-shaping.org
+
+Self: [[./2026-08-17--optimize-production-heading-path-rust-shaping.org][Self]]

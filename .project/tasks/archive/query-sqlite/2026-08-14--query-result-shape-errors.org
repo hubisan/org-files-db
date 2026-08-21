@@ -1,0 +1,3 @@
+#+TITLE: 2026-08-14--query-result-shape-errors.org
+
+Self: [[./2026-08-14--query-result-shape-errors.org][Self]]

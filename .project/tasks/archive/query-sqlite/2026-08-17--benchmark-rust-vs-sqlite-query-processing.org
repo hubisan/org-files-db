@@ -1,0 +1,3 @@
+#+TITLE: 2026-08-17--benchmark-rust-vs-sqlite-query-processing.org
+
+Self: [[./2026-08-17--benchmark-rust-vs-sqlite-query-processing.org][Self]]
