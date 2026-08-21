@@ -72,11 +72,13 @@ The rebuild target adds an optional effective query date.
 
 Fixed-date views keep this value absent.
 
-The coordinator compares the current effective date with each relative-date target once per second.
+The coordinator calculates the next effective-date boundary for each relative-date view.
+
+It waits for the earliest boundary or another coordinator message.
 
 A date change replaces the old target even when the database generation is unchanged.
 
-A view read also computes the current target date. It cannot return an old-date cache during the polling interval.
+A view read also computes the current target date. It never starts a rebuild.
 
 The rebuild worker captures one UTC instant before query execution.
 
@@ -93,7 +95,7 @@ The cache format version increases because the envelope validity metadata change
 1. Add query helpers for relative-date dependency detection and effective query date calculation.
 2. Record the derived dependency in registered view definitions.
 3. Add the optional effective query date to rebuild and read targets.
-4. Trigger coordinator refresh when the effective date changes.
+4. Schedule the next coordinator wake-up for the earliest effective-date boundary.
 5. Pass the target date to rebuild workers and use one fixed query instant.
 6. Add the target date to cache publication and validation.
 7. Add focused tests for relative and fixed-date views.
@@ -102,11 +104,11 @@ The cache format version increases because the envelope validity metadata change
 
 ** Risks & assumptions
 
-The coordinator already wakes frequently while it manages workers.
+The coordinator must stay idle when no worker or other coordinator event needs attention.
 
-A one-second date comparison adds little work for the expected 1 to 10 registered views.
+The next date boundary must use the effective query timezone. Do not calculate it as ~now + 24 hours~.
 
-The read path computes its expected date independently. It does not serve stale data during this interval.
+The read path computes its expected date independently. It waits if the scheduled rebuild has not completed.
 
 A date transition during a rebuild makes that worker obsolete before publication.
 
@@ -137,11 +139,13 @@ Relative-date rebuild targets include the effective query date as ~YYYY-MM-DD~.
 
 Fixed-date rebuild targets keep the effective query date absent.
 
-The rebuild coordinator checks relative-date targets once per second.
+The rebuild coordinator calculates the next effective-date boundary for every relative-date view.
+
+It waits for the earliest boundary or another coordinator message instead of polling once per second.
 
 A changed date queues a new full rebuild without changing the database generation.
 
-The read path computes the current date target before it returns a ready ticket.
+The read path computes the current date target before it returns a ready ticket. It never requests a rebuild.
 
 The rebuild worker uses one captured UTC instant for query execution.
 
@@ -171,19 +175,23 @@ The view control protocol version increases from ~1~ to ~2~ because registered d
 
 Static review covers date dependency detection, timezone reuse, target replacement, worker publication, cache validation, and CLI reads.
 
-The user reported that ~make ci~ passes with the implementation.
+The original relative-date implementation passed ~make ci~.
+
+A review follow-up replaces one-second polling and removes the read-triggered refresh path.
+
+The follow-up still requires ~make ci~.
 
 ** Test results
 
-The new unit tests cover relative-date detection, fixed-date targets, timezone date transitions, refresh detection, and cache date validity.
+The tests cover relative-date detection, fixed-date targets, timezone date transitions, cache date validity, and scheduled date boundaries.
 
-The full local CI suite passes.
+A regression test also verifies that a pending view read does not request a rebuild.
 
 ** Blockers
 
 No design blocker was found.
 
-The task is ready for review.
+The task is reopened for the deadline-scheduling review follow-up.
 
 ** Follow-ups
 

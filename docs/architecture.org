@@ -162,13 +162,19 @@ A registered view also records whether its validated query contains relative dat
 
 Relative-date rebuild targets include the effective query date from the registered query timezone. Fixed-date targets do not include a date value.
 
-The coordinator checks relative-date targets while the watcher runs. A changed effective date queues a full rebuild without changing the database generation.
+The coordinator calculates the next effective-date boundary for each relative-date view. It waits for the earliest boundary or another coordinator message.
+
+The boundary uses the registered query timezone. The coordinator does not assume that the next boundary is exactly 24 hours later.
+
+When the boundary arrives, the coordinator queues a full rebuild without changing the database generation. It does not use fixed one-second date polling.
 
 The rebuild worker captures one UTC instant for query execution. It checks the effective query date again before it publishes the cache.
 
 ~orgfdb view read~ waits through the control path while the current target is queued or rebuilding. It reports a current rebuild error instead of returning stale data.
 
 The read target also contains the effective query date for relative-date views. A read never accepts a cache from the previous effective date.
+
+A view read never starts a rebuild. Registration, database changes, view changes, and scheduled date boundaries start eager rebuilds.
 
 * Generations and changes
 

@@ -1018,7 +1018,9 @@ A valid cache entry must match:
 
 Relative dates use the existing query timezone rules.
 
-For a relative-date view, the watcher starts a rebuild when its effective local query date changes.
+For a relative-date view, the watcher schedules the next effective local query-date boundary and starts a rebuild at that boundary.
+
+The scheduler uses the registered query timezone and does not assume a fixed 24-hour interval. A view read does not trigger this rebuild.
 
 The cache target stores that effective date in addition to the unchanged database generation.
 

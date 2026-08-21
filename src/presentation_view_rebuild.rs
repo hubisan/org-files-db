@@ -10,10 +10,10 @@ use std::{
         Arc, Mutex,
     },
     thread::{self, JoinHandle},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 
 use crate::{
     config::Config,
@@ -34,7 +34,8 @@ use crate::{
 };
 
 const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(10);
-const RELATIVE_DATE_POLL_INTERVAL: Duration = Duration::from_secs(1);
+const RELATIVE_DATE_BOUNDARY_SEARCH_STEP_HOURS: i64 = 6;
+const RELATIVE_DATE_BOUNDARY_SEARCH_STEPS: usize = 8;
 const MAX_REBUILD_WORKERS: usize = 3;
 
 pub(crate) fn run_rebuild_worker(
@@ -263,12 +264,6 @@ impl PresentationViewRebuildHandle {
         let _ = self.sender.send(ManagerMessage::Refresh);
     }
 
-    fn require_refresh(&self) -> Result<(), PresentationViewRebuildReadError> {
-        self.sender
-            .send(ManagerMessage::Refresh)
-            .map_err(|_| PresentationViewRebuildReadError::CoordinatorUnavailable)
-    }
-
     pub(crate) fn read_state(
         &self,
         name: &str,
@@ -305,10 +300,6 @@ impl PresentationViewRebuildHandle {
             _ => PresentationViewReadState::Pending,
         };
         drop(state);
-
-        if matches!(&result, PresentationViewReadState::Pending) {
-            self.require_refresh()?;
-        }
         Ok(result)
     }
 }
@@ -392,10 +383,21 @@ fn run_manager(
 ) {
     let mut workers = BTreeMap::<String, RunningWorker>::new();
     let mut refresh_requested = true;
-    let mut next_relative_date_check = Instant::now() + RELATIVE_DATE_POLL_INTERVAL;
+    let mut next_relative_date_deadline = None;
 
     loop {
-        match receiver.recv_timeout(WORKER_POLL_INTERVAL) {
+        let now_utc = Utc::now();
+        let wait_timeout = manager_wait_timeout(
+            refresh_requested,
+            !workers.is_empty(),
+            next_relative_date_deadline.as_ref(),
+            &now_utc,
+        );
+        let received = match wait_timeout {
+            Some(timeout) => receiver.recv_timeout(timeout),
+            None => receiver.recv().map_err(|_| RecvTimeoutError::Disconnected),
+        };
+        match received {
             Ok(ManagerMessage::Refresh) => refresh_requested = true,
             Ok(ManagerMessage::Shutdown) => {
                 terminate_all_workers(&mut workers);
@@ -418,19 +420,29 @@ fn run_manager(
             }
         }
 
-        let now = Instant::now();
-        if now >= next_relative_date_check {
-            next_relative_date_check = now + RELATIVE_DATE_POLL_INTERVAL;
-            if relative_date_refresh_required(&shared).unwrap_or(true) {
-                refresh_requested = true;
-            }
+        if next_relative_date_deadline
+            .as_ref()
+            .is_some_and(|deadline| Utc::now() >= *deadline)
+        {
+            refresh_requested = true;
         }
 
         if refresh_requested {
             refresh_requested = false;
             if refresh_targets(&shared, &registry, &db_path, &mut workers).is_err() {
                 refresh_requested = true;
+                next_relative_date_deadline = None;
+                thread::sleep(WORKER_POLL_INTERVAL);
                 continue;
+            }
+            match next_relative_date_deadline_at(&shared, Utc::now()) {
+                Ok(deadline) => next_relative_date_deadline = deadline,
+                Err(_) => {
+                    refresh_requested = true;
+                    next_relative_date_deadline = None;
+                    thread::sleep(WORKER_POLL_INTERVAL);
+                    continue;
+                }
             }
         }
 
@@ -525,27 +537,103 @@ fn rebuild_target_for_view(
     })
 }
 
-fn relative_date_refresh_required(shared: &Arc<Mutex<SharedState>>) -> Result<bool, String> {
-    relative_date_refresh_required_at(shared, Some(Utc::now()))
-}
-
-fn relative_date_refresh_required_at(
+fn next_relative_date_deadline_at(
     shared: &Arc<Mutex<SharedState>>,
-    now_utc: Option<DateTime<Utc>>,
-) -> Result<bool, String> {
+    now_utc: DateTime<Utc>,
+) -> Result<Option<DateTime<Utc>>, String> {
     let state = shared
         .lock()
         .map_err(|_| "presentation view rebuild state is unavailable".to_string())?;
+    let mut earliest: Option<DateTime<Utc>> = None;
     for current in state.views.values() {
-        if !current.target.view.definition.relative_date_dependent {
+        let Some(deadline) =
+            next_effective_query_date_change_for_view(&current.target.view, now_utc)?
+        else {
             continue;
-        }
-        let effective_query_date = effective_query_date_for_view(&current.target.view, now_utc)?;
-        if effective_query_date != current.target.effective_query_date {
-            return Ok(true);
+        };
+        earliest = Some(match earliest {
+            Some(existing) => existing.min(deadline),
+            None => deadline,
+        });
+    }
+    Ok(earliest)
+}
+
+fn next_effective_query_date_change_for_view(
+    view: &RegisteredPresentationView,
+    now_utc: DateTime<Utc>,
+) -> Result<Option<DateTime<Utc>>, String> {
+    if !view.definition.relative_date_dependent {
+        return Ok(None);
+    }
+
+    let current_date = effective_query_date_for_view(view, Some(now_utc))?
+        .ok_or_else(|| "relative-date presentation view has no effective query date".to_string())?;
+    let mut upper = now_utc;
+    let mut found = false;
+    for _ in 0..RELATIVE_DATE_BOUNDARY_SEARCH_STEPS {
+        upper = upper
+            .checked_add_signed(ChronoDuration::hours(
+                RELATIVE_DATE_BOUNDARY_SEARCH_STEP_HOURS,
+            ))
+            .ok_or_else(|| {
+                "relative-date presentation view deadline is out of range".to_string()
+            })?;
+        let upper_date = effective_query_date_for_view(view, Some(upper))?;
+        if upper_date.as_deref() != Some(current_date.as_str()) {
+            found = true;
+            break;
         }
     }
-    Ok(false)
+    if !found {
+        return Err(
+            "failed to locate the next effective query date change within 48 hours".to_string(),
+        );
+    }
+
+    let mut lower_millis = now_utc.timestamp_millis();
+    let mut upper_millis = upper.timestamp_millis();
+    while upper_millis - lower_millis > 1 {
+        let middle_millis = lower_millis + (upper_millis - lower_millis) / 2;
+        let middle = DateTime::<Utc>::from_timestamp_millis(middle_millis).ok_or_else(|| {
+            "relative-date presentation view deadline is out of range".to_string()
+        })?;
+        let middle_date = effective_query_date_for_view(view, Some(middle))?;
+        if middle_date.as_deref() == Some(current_date.as_str()) {
+            lower_millis = middle_millis;
+        } else {
+            upper_millis = middle_millis;
+        }
+    }
+
+    DateTime::<Utc>::from_timestamp_millis(upper_millis)
+        .map(Some)
+        .ok_or_else(|| "relative-date presentation view deadline is out of range".to_string())
+}
+
+fn manager_wait_timeout(
+    refresh_requested: bool,
+    has_workers: bool,
+    relative_date_deadline: Option<&DateTime<Utc>>,
+    now_utc: &DateTime<Utc>,
+) -> Option<Duration> {
+    if refresh_requested {
+        return Some(Duration::ZERO);
+    }
+
+    let worker_timeout = has_workers.then_some(WORKER_POLL_INTERVAL);
+    let date_timeout = relative_date_deadline.map(|deadline| {
+        deadline
+            .signed_duration_since(*now_utc)
+            .to_std()
+            .unwrap_or(Duration::ZERO)
+    });
+    match (worker_timeout, date_timeout) {
+        (Some(worker), Some(date)) => Some(worker.min(date)),
+        (Some(worker), None) => Some(worker),
+        (None, Some(date)) => Some(date),
+        (None, None) => None,
+    }
 }
 
 fn spawn_queued_workers(
@@ -845,9 +933,11 @@ impl Error for PresentationViewRebuildReadError {
 #[cfg(test)]
 mod tests {
     use super::{
-        rebuild_target_for_view, rebuild_worker_limit, refresh_targets,
-        relative_date_refresh_required_at, run_rebuild_worker, RebuildTarget, RunningWorker,
-        SharedState, TargetStatus, ViewState,
+        manager_wait_timeout, next_effective_query_date_change_for_view,
+        next_relative_date_deadline_at, rebuild_target_for_view, rebuild_worker_limit,
+        refresh_targets, run_rebuild_worker, PresentationViewReadState,
+        PresentationViewRebuildHandle, RebuildTarget, RunningWorker, SharedState, TargetStatus,
+        ViewState, WORKER_POLL_INTERVAL,
     };
     use crate::{
         config::Config,
@@ -871,8 +961,8 @@ mod tests {
         io::Cursor,
         path::PathBuf,
         process::{Command, Stdio},
-        sync::{Arc, Mutex},
-        time::{SystemTime, UNIX_EPOCH},
+        sync::{mpsc, Arc, Mutex},
+        time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
     struct TestDir {
@@ -1039,50 +1129,128 @@ index_body_text = false
     }
 
     #[test]
-    fn date_refresh_is_required_only_after_relative_date_changes() {
-        let target = rebuild_target_for_view(
-            relative_view("agenda"),
-            "database".to_string(),
-            4,
-            Some(utc("2026-08-20T21:59:59Z")),
-        )
-        .expect("target should resolve");
-        let shared = Arc::new(Mutex::new(SharedState {
-            views: BTreeMap::from([(
-                "agenda".to_string(),
-                ViewState {
-                    target,
-                    status: TargetStatus::Ready,
-                },
-            )]),
-        }));
+    fn relative_date_deadline_matches_next_local_midnight() {
+        let view = relative_view("agenda");
+        let deadline =
+            next_effective_query_date_change_for_view(&view, utc("2026-08-20T21:59:59Z"))
+                .expect("date deadline should resolve");
 
-        assert!(
-            !relative_date_refresh_required_at(&shared, Some(utc("2026-08-20T21:59:59Z")),)
-                .expect("date refresh check should succeed")
-        );
-        assert!(
-            relative_date_refresh_required_at(&shared, Some(utc("2026-08-20T22:00:01Z")),)
-                .expect("date refresh check should succeed")
+        assert_eq!(deadline, Some(utc("2026-08-20T22:00:00Z")));
+    }
+
+    #[test]
+    fn relative_date_deadline_handles_dst_without_adding_24_hours() {
+        let view = relative_view("agenda");
+        let deadline =
+            next_effective_query_date_change_for_view(&view, utc("2026-10-24T22:00:01Z"))
+                .expect("date deadline should resolve");
+
+        assert_eq!(deadline, Some(utc("2026-10-25T23:00:00Z")));
+    }
+
+    #[test]
+    fn fixed_date_view_has_no_relative_date_deadline() {
+        let view = RegisteredPresentationView {
+            session_id: "session".to_string(),
+            revision: 1,
+            definition: definition("agenda"),
+        };
+
+        assert_eq!(
+            next_effective_query_date_change_for_view(&view, utc("2026-08-20T21:59:59Z"),)
+                .expect("date deadline should resolve"),
+            None
         );
     }
 
     #[test]
-    fn fixed_date_refresh_is_not_required_after_calendar_change() {
+    fn shared_deadline_uses_the_earliest_relative_view_boundary() {
+        let zurich_target = rebuild_target_for_view(
+            relative_view("zurich"),
+            "database".to_string(),
+            4,
+            Some(utc("2026-08-20T20:00:00Z")),
+        )
+        .expect("target should resolve");
+        let mut los_angeles_view = relative_view("los-angeles");
+        los_angeles_view.definition.query_timezone = Some("America/Los_Angeles".to_string());
+        let los_angeles_target = rebuild_target_for_view(
+            los_angeles_view,
+            "database".to_string(),
+            4,
+            Some(utc("2026-08-20T20:00:00Z")),
+        )
+        .expect("target should resolve");
         let shared = Arc::new(Mutex::new(SharedState {
-            views: BTreeMap::from([(
-                "agenda".to_string(),
-                ViewState {
-                    target: target(1, 4),
-                    status: TargetStatus::Ready,
-                },
-            )]),
+            views: BTreeMap::from([
+                (
+                    "zurich".to_string(),
+                    ViewState {
+                        target: zurich_target,
+                        status: TargetStatus::Ready,
+                    },
+                ),
+                (
+                    "los-angeles".to_string(),
+                    ViewState {
+                        target: los_angeles_target,
+                        status: TargetStatus::Ready,
+                    },
+                ),
+            ]),
         }));
 
-        assert!(
-            !relative_date_refresh_required_at(&shared, Some(utc("2026-08-20T22:00:01Z")),)
-                .expect("date refresh check should succeed")
+        assert_eq!(
+            next_relative_date_deadline_at(&shared, utc("2026-08-20T20:00:00Z"))
+                .expect("shared deadline should resolve"),
+            Some(utc("2026-08-20T22:00:00Z"))
         );
+    }
+
+    #[test]
+    fn manager_waits_for_messages_when_no_worker_or_date_deadline_exists() {
+        let now = utc("2026-08-20T20:00:00Z");
+        assert_eq!(manager_wait_timeout(false, false, None, &now), None);
+        assert_eq!(
+            manager_wait_timeout(false, false, Some(&utc("2026-08-20T20:00:05Z")), &now,),
+            Some(Duration::from_secs(5))
+        );
+        assert_eq!(
+            manager_wait_timeout(true, false, None, &now),
+            Some(Duration::ZERO)
+        );
+        assert_eq!(
+            manager_wait_timeout(false, true, Some(&utc("2026-08-20T21:00:00Z")), &now,),
+            Some(WORKER_POLL_INTERVAL)
+        );
+    }
+
+    #[test]
+    fn pending_read_does_not_request_a_rebuild() {
+        let test_dir = TestDir::new("read-does-not-refresh");
+        let config = write_fixture(&test_dir);
+        let registry = PresentationViewRegistryHandle::for_watcher(&config);
+        registry
+            .register(definition("agenda"))
+            .expect("view should register");
+        let (sender, receiver) = mpsc::channel();
+        let handle = PresentationViewRebuildHandle {
+            registry,
+            db_path: config.db_path.clone(),
+            sender,
+            shared: Arc::new(Mutex::new(SharedState::default())),
+        };
+
+        assert_eq!(
+            handle
+                .read_state("agenda")
+                .expect("read state should resolve"),
+            PresentationViewReadState::Pending
+        );
+        assert!(matches!(
+            receiver.try_recv(),
+            Err(mpsc::TryRecvError::Empty)
+        ));
     }
 
     #[test]

@@ -208,6 +208,8 @@ A new or changed registration starts an eager full cache rebuild.
 
 Queries with ~today~ or integer day offsets also rebuild when their effective query date changes. The configured query timezone determines that date.
 
+The watcher schedules the next effective-date boundary for these views. It does not use fixed one-second date polling.
+
 A date-only refresh keeps the current database generation unchanged. Fixed-date views do not rebuild only because the calendar date changes.
 
 A changed definition returns ~replaced~ and receives a new revision.
@@ -238,9 +240,9 @@ orgfdb view read \
 
 ~read~ waits until the registered view cache matches the current database generation and view revision.
 
-For relative-date views, the cache must also match the current effective query date.
+For relative-date views, the cache must also match the current effective query date. A read waits for the scheduled eager rebuild and never starts one.
 
-The command does not start a rebuild. Registration and watcher database changes start rebuilds eagerly.
+The command does not start a rebuild. Registration, watcher database changes, and scheduled relative-date boundaries start rebuilds eagerly.
 
 If a rebuild is active, ~read~ waits for the current target. If that rebuild fails, ~read~ returns an error.
 
