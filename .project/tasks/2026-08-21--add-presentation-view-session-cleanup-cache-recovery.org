@@ -29,6 +29,35 @@ Acceptance criteria:
 - A new watcher session starts with an empty view registry.
 - ~make ci~ passes.
 
+** DONE Add presentation view session cleanup and cache recovery
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Task file: [[./2026-08-21--add-presentation-view-session-cleanup-cache-recovery.org][Add Presentation View Session Cleanup and Cache Recovery]]
+
+Start this task after production view caching works.
+
+Keep cache lifetime aligned with the non-persistent watcher view registry.
+
+On clean watcher shutdown, remove cache data for the current watcher session.
+
+On watcher startup, do not accept cache data from an old watcher session.
+
+Remove abandoned session cache directories when it is safe to do so.
+
+A new Emacs session must register its views again before any cached view becomes available.
+
+Do not add persistent view registration.
+
+Acceptance criteria:
+
+- Clean shutdown removes the current session cache data.
+- Abnormal shutdown files cannot become valid in a later watcher session.
+- Startup can clean abandoned cache namespaces safely.
+- A new watcher session starts with an empty view registry.
+- ~make ci~ passes.
+
 * Planning
 
 ** Problem summary

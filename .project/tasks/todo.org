@@ -898,79 +898,114 @@ Acceptance criteria:
 - A failed current rebuild produces a view error.
 - ~make ci~ passes.
 
-* BUILD Add presentation view session cleanup and cache recovery
+* DONE Add presentation view session cleanup and cache recovery
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
 Task file: [[./2026-08-21--add-presentation-view-session-cleanup-cache-recovery.org][Add Presentation View Session Cleanup and Cache Recovery]]
 
-Start this task after production view caching works.
-
-Keep cache lifetime aligned with the non-persistent watcher view registry.
-
-On clean watcher shutdown, remove cache data for the current watcher session.
-
-On watcher startup, do not accept cache data from an old watcher session.
-
-Remove abandoned session cache directories when it is safe to do so.
-
-A new Emacs session must register its views again before any cached view becomes available.
-
-Do not add persistent view registration.
-
-Acceptance criteria:
-
-- Clean shutdown removes the current session cache data.
-- Abnormal shutdown files cannot become valid in a later watcher session.
-- Startup can clean abandoned cache namespaces safely.
-- A new watcher session starts with an empty view registry.
-- ~make ci~ passes.
-
-* BUILD Add relative-date refresh for cached presentation views
+* DONE Add relative-date refresh for cached presentation views
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
 Task file: [[./2026-08-20--add-relative-date-refresh-for-cached-presentation-views.org][Add Relative-Date Refresh for Cached Presentation Views]]
 
-Start this task after eager production view rebuilding works.
+* TODO Review and prune presentation benchmark infrastructure
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
 
-Support cached views whose queries contain relative date operands such as ~today~ or integer day offsets.
+Start this task after all presentation performance and cache implementation tasks are complete.
 
-Use the existing query timezone rules to determine the effective query date.
+Complete this task before the final presentation architecture documentation.
 
-Include the effective query date in cache validity only for views that depend on relative dates.
+Goal: keep useful long-term performance coverage and remove benchmark code that only supported completed design decisions.
 
-When the effective query date changes, mark the affected registered views stale.
+Use the final production implementation as the baseline.
 
-Calculate the next effective query-date boundary for each relative-date view.
+Review all presentation-related benchmark code, binaries, feature flags, fixtures, output schemas, scripts, and documentation.
 
-Wait for the earliest boundary or another coordinator event. Do not use fixed one-second date polling.
+Classify each benchmark component as one of:
 
-Start an eager full rebuild even when the database generation stays unchanged.
+- keep as a long-term regression benchmark
+- keep as a reusable diagnostic benchmark
+- remove because it only supports a completed A/B decision
+- simplify because the production implementation no longer needs both comparison paths
 
-A view read never starts a date-triggered rebuild. It waits for the eager coordinator path.
+Keep benchmarks that protect important production behavior.
 
-Do not change the meaning of ~database_id~, ~generation~, or ~changes~.
+Examples include benchmarks that can detect regressions in:
 
-Do not add general dependency tracking.
+- database query execution
+- presentation processing
+- sorting
+- row expansion
+- JSON serialization
+- full CLI latency
+- presentation cache rebuild cost
+- presentation cache hit cost
+
+Do not keep obsolete A/B implementations only to preserve historical comparisons.
+
+Remove comparison paths when all of these conditions apply:
+
+- the production strategy is final
+- the alternative strategy is rejected
+- the comparison is already documented
+- the alternative has no expected future diagnostic value
+
+Keep historical benchmark results in documentation when they explain an implemented decision.
+
+Do not require executable benchmark code only to reproduce every historical comparison.
+
+Review feature-gated benchmark modules carefully.
+
+Remove benchmark-only production hooks when no retained benchmark needs them.
+
+Do not change production behavior as part of this task.
+
+Do not make unrelated benchmark or architecture changes.
+
+Keep benchmark commands clear and reproducible.
+
+For each retained benchmark, document:
+
+- what it measures
+- why it remains useful
+- which production behavior it protects
+- the main command to run it
+- whether its results can be compared across machines
+
+Remove obsolete benchmark documentation together with obsolete benchmark code.
+
+Update ~docs/presentation-performance.org~ so that it distinguishes:
+
+- retained regression benchmarks
+- retained diagnostic benchmarks
+- historical measurements from completed design decisions
+
+Do not present removed A/B paths as current benchmark strategies.
+
+Run the retained presentation benchmarks if code changes can affect their operation.
+
+A full new performance study is not required unless cleanup changes benchmark behavior.
 
 Acceptance criteria:
 
-- Relative-date views rebuild when their effective query date changes.
-- Fixed-date views do not rebuild only because the calendar date changes.
-- Date-triggered rebuilds use the configured query timezone rules.
-- Date-triggered rebuilds keep the current database generation unchanged.
-- The coordinator waits for the next effective query-date boundary instead of fixed interval polling.
-- A view read never starts a rebuild.
-- Existing ~generation~ and ~changes~ semantics remain unchanged.
+- Every presentation benchmark has a clear long-term purpose.
+- Obsolete one-time A/B benchmark paths are removed.
+- Rejected production alternatives do not remain only for historical benchmarking.
+- Useful regression benchmarks remain available.
+- Useful diagnostic benchmarks remain available.
+- Historical performance evidence remains documented where it explains current architecture.
+- Benchmark-only production hooks remain only when a retained benchmark needs them.
+- Retained benchmark commands are documented and reproducible.
+- Production presentation and cache behavior stays unchanged.
+- ~docs/presentation-performance.org~ matches the retained benchmark infrastructure.
 - ~make ci~ passes.
-
-* TODO Benchmark-Sachen entfernen?
-
-Muss man nicht mehr notwendige Benchmark-Sachen entfernen. Oder A/B-Vergleiche?
-
+  
 * TODO Finalize presentation architecture documentation
 :PROPERTIES:
 :VISIBILITY: folded

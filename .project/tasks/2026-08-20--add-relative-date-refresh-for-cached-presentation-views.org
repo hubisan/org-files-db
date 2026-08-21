@@ -34,6 +34,46 @@ Acceptance criteria:
 - Existing ~generation~ and ~changes~ semantics remain unchanged.
 - ~make ci~ passes.
 
+** DONE Add relative-date refresh for cached presentation views
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Task file: [[./2026-08-20--add-relative-date-refresh-for-cached-presentation-views.org][Add Relative-Date Refresh for Cached Presentation Views]]
+
+Start this task after eager production view rebuilding works.
+
+Support cached views whose queries contain relative date operands such as ~today~ or integer day offsets.
+
+Use the existing query timezone rules to determine the effective query date.
+
+Include the effective query date in cache validity only for views that depend on relative dates.
+
+When the effective query date changes, mark the affected registered views stale.
+
+Calculate the next effective query-date boundary for each relative-date view.
+
+Wait for the earliest boundary or another coordinator event. Do not use fixed one-second date polling.
+
+Start an eager full rebuild even when the database generation stays unchanged.
+
+A view read never starts a date-triggered rebuild. It waits for the eager coordinator path.
+
+Do not change the meaning of ~database_id~, ~generation~, or ~changes~.
+
+Do not add general dependency tracking.
+
+Acceptance criteria:
+
+- Relative-date views rebuild when their effective query date changes.
+- Fixed-date views do not rebuild only because the calendar date changes.
+- Date-triggered rebuilds use the configured query timezone rules.
+- Date-triggered rebuilds keep the current database generation unchanged.
+- The coordinator waits for the next effective query-date boundary instead of fixed interval polling.
+- A view read never starts a rebuild.
+- Existing ~generation~ and ~changes~ semantics remain unchanged.
+- ~make ci~ passes.
+
 * Planning
 
 ** Problem summary
