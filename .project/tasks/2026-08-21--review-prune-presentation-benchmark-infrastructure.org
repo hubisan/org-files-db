@@ -1,0 +1,343 @@
+#+TITLE: Review and Prune Presentation Benchmark Infrastructure
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-21 Fri 15:34]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Start this task after all presentation performance and cache implementation tasks are complete.
+
+Complete this task before the final presentation architecture documentation.
+
+Goal: keep useful long-term performance coverage and remove benchmark code that only supported completed design decisions.
+
+Use the final production implementation as the baseline.
+
+Review all presentation-related benchmark code, binaries, feature flags, fixtures, output schemas, scripts, and documentation.
+
+Classify each benchmark component as one of:
+
+- keep as a long-term regression benchmark
+- keep as a reusable diagnostic benchmark
+- remove because it only supports a completed A/B decision
+- simplify because the production implementation no longer needs both comparison paths
+
+Keep benchmarks that protect important production behavior.
+
+Examples include benchmarks that can detect regressions in:
+
+- database query execution
+- presentation processing
+- sorting
+- row expansion
+- JSON serialization
+- full CLI latency
+- presentation cache rebuild cost
+- presentation cache hit cost
+
+Do not keep obsolete A/B implementations only to preserve historical comparisons.
+
+Remove comparison paths when all of these conditions apply:
+
+- the production strategy is final
+- the alternative strategy is rejected
+- the comparison is already documented
+- the alternative has no expected future diagnostic value
+
+Keep historical benchmark results in documentation when they explain an implemented decision.
+
+Do not require executable benchmark code only to reproduce every historical comparison.
+
+Review feature-gated benchmark modules carefully.
+
+Remove benchmark-only production hooks when no retained benchmark needs them.
+
+Do not change production behavior as part of this task.
+
+Do not make unrelated benchmark or architecture changes.
+
+Keep benchmark commands clear and reproducible.
+
+For each retained benchmark, document:
+
+- what it measures
+- why it remains useful
+- which production behavior it protects
+- the main command to run it
+- whether its results can be compared across machines
+
+Remove obsolete benchmark documentation together with obsolete benchmark code.
+
+Update ~docs/presentation-performance.org~ so that it distinguishes:
+
+- retained regression benchmarks
+- retained diagnostic benchmarks
+- historical measurements from completed design decisions
+
+Do not present removed A/B paths as current benchmark strategies.
+
+Run the retained presentation benchmarks if code changes can affect their operation.
+
+A full new performance study is not required unless cleanup changes benchmark behavior.
+
+Acceptance criteria:
+
+- Every presentation benchmark has a clear long-term purpose.
+- Obsolete one-time A/B benchmark paths are removed.
+- Rejected production alternatives do not remain only for historical benchmarking.
+- Useful regression benchmarks remain available.
+- Useful diagnostic benchmarks remain available.
+- Historical performance evidence remains documented where it explains current architecture.
+- Benchmark-only production hooks remain only when a retained benchmark needs them.
+- Retained benchmark commands are documented and reproducible.
+- Production presentation and cache behavior stays unchanged.
+- ~docs/presentation-performance.org~ matches the retained benchmark infrastructure.
+- ~make ci~ passes.
+
+** DONE Review and prune presentation benchmark infrastructure
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Task file: [[./2026-08-21--review-prune-presentation-benchmark-infrastructure.org][Review and Prune Presentation Benchmark Infrastructure]]
+
+Start this task after all presentation performance and cache implementation tasks are complete.
+
+Complete this task before the final presentation architecture documentation.
+
+Goal: keep useful long-term performance coverage and remove benchmark code that only supported completed design decisions.
+
+Use the final production implementation as the baseline.
+
+Review all presentation-related benchmark code, binaries, feature flags, fixtures, output schemas, scripts, and documentation.
+
+Classify each benchmark component as one of:
+
+- keep as a long-term regression benchmark
+- keep as a reusable diagnostic benchmark
+- remove because it only supports a completed A/B decision
+- simplify because the production implementation no longer needs both comparison paths
+
+Keep benchmarks that protect important production behavior.
+
+Examples include benchmarks that can detect regressions in:
+
+- database query execution
+- presentation processing
+- sorting
+- row expansion
+- JSON serialization
+- full CLI latency
+- presentation cache rebuild cost
+- presentation cache hit cost
+
+Do not keep obsolete A/B implementations only to preserve historical comparisons.
+
+Remove comparison paths when all of these conditions apply:
+
+- the production strategy is final
+- the alternative strategy is rejected
+- the comparison is already documented
+- the alternative has no expected future diagnostic value
+
+Keep historical benchmark results in documentation when they explain an implemented decision.
+
+Do not require executable benchmark code only to reproduce every historical comparison.
+
+Review feature-gated benchmark modules carefully.
+
+Remove benchmark-only production hooks when no retained benchmark needs them.
+
+Do not change production behavior as part of this task.
+
+Do not make unrelated benchmark or architecture changes.
+
+Keep benchmark commands clear and reproducible.
+
+For each retained benchmark, document:
+
+- what it measures
+- why it remains useful
+- which production behavior it protects
+- the main command to run it
+- whether its results can be compared across machines
+
+Remove obsolete benchmark documentation together with obsolete benchmark code.
+
+Update ~docs/presentation-performance.org~ so that it distinguishes:
+
+- retained regression benchmarks
+- retained diagnostic benchmarks
+- historical measurements from completed design decisions
+
+Do not present removed A/B paths as current benchmark strategies.
+
+Run the retained presentation benchmarks if code changes can affect their operation.
+
+A full new performance study is not required unless cleanup changes benchmark behavior.
+
+Acceptance criteria:
+
+- Every presentation benchmark has a clear long-term purpose.
+- Obsolete one-time A/B benchmark paths are removed.
+- Rejected production alternatives do not remain only for historical benchmarking.
+- Useful regression benchmarks remain available.
+- Useful diagnostic benchmarks remain available.
+- Historical performance evidence remains documented where it explains current architecture.
+- Benchmark-only production hooks remain only when a retained benchmark needs them.
+- Retained benchmark commands are documented and reproducible.
+- Production presentation and cache behavior stays unchanged.
+- ~docs/presentation-performance.org~ matches the retained benchmark infrastructure.
+- ~make ci~ passes.
+  
+* Planning
+
+** Problem summary
+
+The repository still contains benchmark paths that supported completed presentation design decisions.
+
+The final production code now includes selective Rayon parallelism and the registered presentation view cache.
+
+The benchmark suite must measure those production paths instead of preserving rejected alternatives.
+
+** Goals
+
+- Keep the production presentation benchmark as the long-term regression benchmark.
+- Keep payload attribution as a reusable diagnostic benchmark.
+- Keep cache rebuild and cache-hit measurements against the production cache path.
+- Remove the forced sequential-versus-parallel A/B benchmark.
+- Remove the pre-production cache simulation and its obsolete comparison modes.
+- Keep the historical measurements that explain the selected production strategies.
+
+** Non-goals
+
+- Do not change presentation output or cache behavior.
+- Do not change production thresholds or rebuild concurrency.
+- Do not run a new performance study.
+- Do not refactor unrelated query benchmarks.
+
+** Architecture
+
+The retained timing benchmark uses the production ~PresentationSpec::build_response~ dispatch.
+
+The retained cache benchmark uses a real ~orgfdb watch~ process, the production view control protocol, production rebuild workers, and ~orgfdb view read~.
+
+The payload analyzer continues to inspect the active production wire format.
+
+** Execution plan
+
+1. Remove the forced parallel A/B module, binary, and feature flag.
+2. Replace the pre-production cache simulation with a smaller production-path cache benchmark.
+3. Keep the general presentation benchmark and payload analyzer.
+4. Rewrite the performance documentation around retained and historical benchmark sections.
+5. Record the classification and changed files in this task file.
+6. Run the available repository checks and a retained benchmark smoke run when the environment supports Cargo.
+
+** Risks & assumptions
+
+The cache benchmark must isolate its runtime and cache directories.
+
+The benchmark must not require benchmark-only changes to production cache code.
+
+Absolute timing values are machine-specific.
+
+** Open questions
+
+None.
+
+** Proposed checks
+
+- ~cargo fmt --all --check~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+- ~cargo test --all-targets --all-features~
+- ~cargo build --all-targets --all-features~
+- retained presentation benchmark smoke run
+- retained cache benchmark smoke run
+- ~make ci~
+
+* Results
+
+** Approach
+
+The benchmark review produced four classifications.
+
+- Keep ~orgfdb-presentation-benchmark~ as the long-term regression benchmark.
+- Keep ~orgfdb-presentation-payload-analysis~ as a reusable payload diagnostic.
+- Simplify ~orgfdb-presentation-cache-benchmark~ into a production-path cache diagnostic.
+- Remove ~orgfdb-presentation-parallel-benchmark~ because it only supported the completed parallelism A/B decision.
+
+The retained timing benchmark still measures query execution, presentation stages, serialization, payload size, startup, and full CLI latency.
+
+The cache benchmark no longer simulates cache workers or alternative rebuild strategies.
+
+It starts a real ~orgfdb watch~ process and uses the production view control protocol.
+
+It uses production rebuild workers, the production cache store, and ~orgfdb view read~.
+
+Each cache-hit sample must equal the uncached production ~presentation-json~ payload byte for byte.
+
+A timed rebuild removes the previous registration before the sample starts.
+
+The sample then measures registration of a new revision until the production cache reports ready.
+
+Historical wire-format, parallelism, and cache measurements remain in ~docs/presentation-performance.org~.
+
+No production presentation, query, watcher, rebuild, or cache implementation changed.
+
+** Changed files
+
+Updated:
+
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-21--review-prune-presentation-benchmark-infrastructure.org~
+- ~Cargo.toml~
+- ~docs/presentation-performance.org~
+- ~src/lib.rs~
+- ~src/presentation_cache_benchmark.rs~
+- ~src/bin/orgfdb-presentation-cache-benchmark.rs~
+
+Removed:
+
+- ~src/presentation_parallel_benchmark.rs~
+- ~src/bin/orgfdb-presentation-parallel-benchmark.rs~
+
+The ~presentation-parallel-benchmark~ feature is removed.
+
+The ~presentation-cache-benchmark~ feature remains because the retained diagnostic needs crate-internal production view APIs.
+
+** Checks performed
+
+- Parsed ~Cargo.toml~ with Python ~tomllib~.
+- Checked delimiter balance in all modified Rust files.
+- Checked that the removed parallel feature and module have no executable code references.
+- Checked that obsolete cache worker modes and group-comparison options have no retained code or documentation references.
+- Checked that all three retained presentation benchmark binaries exist.
+- Checked the documented timing, payload, and cache schema versions against the source constants.
+- Audited ~docs/presentation-performance.org~ with the pragmatic Simple English rules.
+- Attempted ~make ci~ after the final code changes.
+
+** Test results
+
+Static repository checks pass.
+
+~make ci~ cannot start in the supplied execution environment because ~cargo~ is not installed.
+
+The command stops at ~cargo fmt --all --check~ with ~make: cargo: No such file or directory~.
+
+The retained benchmark smoke runs cannot run for the same reason.
+
+** Blockers
+
+A Rust toolchain is not available in the supplied execution environment.
+
+Run ~make ci~ in the normal project environment before approval.
+
+Run the documented presentation and cache smoke benchmarks if ~make ci~ is green.
+
+** Follow-ups
+
+After review and green CI, complete the final presentation architecture documentation task.

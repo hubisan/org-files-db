@@ -17,8 +17,6 @@ pub mod presentation;
 pub mod presentation_benchmark;
 #[cfg(feature = "presentation-cache-benchmark")]
 pub mod presentation_cache_benchmark;
-#[cfg(feature = "presentation-parallel-benchmark")]
-pub mod presentation_parallel_benchmark;
 pub(crate) mod presentation_view;
 pub(crate) mod presentation_view_cache;
 pub(crate) mod presentation_view_rebuild;

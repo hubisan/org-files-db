@@ -1,117 +1,122 @@
-#+TITLE: Presentation Performance Benchmark
+#+TITLE: Presentation Performance Benchmarks
 #+STARTUP: showall
 
 * Purpose
 
-This benchmark measures the complete uncached Rust presentation path.
+This document describes the retained presentation benchmark infrastructure.
 
-It measures the sequential implementation before presentation cache or parallel optimization work.
+The retained benchmarks use the final production presentation and cache implementations.
 
-The benchmark uses synthetic structural queries with 100, 1,000, 10,000, and 50,000 query results by default.
+Historical sections keep measurements that explain completed design decisions.
 
-It also measures expanded rows from tags, effective properties, and keywords.
+Historical A/B implementations do not remain executable only to reproduce old comparisons.
 
-The payload analyzer measures how the current ~presentation-json~ wire format uses bytes.
+* Benchmark classification
 
-* Status
+| Component | Classification | Long-term purpose |
+|-----------+----------------+-------------------|
+| ~orgfdb-presentation-benchmark~ | long-term regression benchmark | Detect changes in query, presentation, serialization, payload size, and full CLI latency. |
+| ~orgfdb-presentation-payload-analysis~ | reusable diagnostic benchmark | Attribute production ~presentation-json~ bytes to results, rows, cells, roles, and repeated values. |
+| ~orgfdb-presentation-cache-benchmark~ | reusable production-path diagnostic benchmark | Measure production view rebuild readiness, cache-hit CLI latency, and the uncached reference on one host. |
+| former ~orgfdb-presentation-parallel-benchmark~ | removed completed A/B benchmark | The paired sequential-versus-parallel experiment selected the production thresholds. |
+| former cache benchmark schema 1 comparison paths | simplified after completed design work | The pre-production cache simulator and rebuild-group A/B modes no longer represent the production cache. |
 
-The benchmark harness is implemented in ~orgfdb-presentation-benchmark~.
+~orgfdb-query-sql-benchmark~ remains a separate query diagnostic benchmark.
 
-A local release benchmark completed on Linux x86_64 with eight available CPUs.
+It reuses the deterministic presentation corpus generator.
 
-The run used one warmup and three measured iterations for each workload.
+Its current purpose and commands are documented in ~docs/query-sql-performance.org~.
 
-The payload analyzer is implemented in ~orgfdb-presentation-payload-analysis~.
+No removed A/B benchmark requires a production-only compatibility path.
 
-The analyzer follows the active production ~presentation-json~ wire format.
+The retained presentation timing benchmark still uses stage helpers that the production presentation path also uses.
 
-The payload-size task uses analyzer schema version 2 for the compact version 2 wire format.
+* Shared deterministic corpus
 
-* Benchmark corpus
+The timing, payload, cache, and query SQL benchmarks can reuse the same deterministic corpus shape.
 
 Each target result uses one small Org file and one level-1 heading.
 
 Each heading contains three tags and two local properties.
 
-Each file also contains two non-title document keywords.
+Each file contains two non-title document keywords.
 
 The corpus generator uses deterministic names and values.
 
-The JSON output records the corpus fingerprint for each result size.
+The timing benchmark records a corpus fingerprint for each result size.
 
-The benchmark queries return exactly the requested number of original results.
+The default timing sizes are 100, 1,000, 10,000, and 50,000 query results.
 
-Expanded workloads can produce more presentation rows than original query results.
+The cache benchmark defaults to 50,000 query results.
 
-* Workloads
+* Shared workloads
 
-The benchmark runs these workloads for every configured result size:
+The production presentation benchmarks use these workloads:
 
-- ~headings.narrow~ uses one displayed title cell per heading result.
-- ~headings.normal~ uses four displayed cells per heading result.
-- ~headings.wide~ uses eleven displayed heading cells without row expansion.
+- ~headings.narrow~ displays one title cell per heading result.
+- ~headings.normal~ displays four cells per heading result.
+- ~headings.wide~ displays eleven cells per heading result.
 - ~headings.tags~ expands effective heading tags.
 - ~headings.effective-properties~ expands effective heading properties.
 - ~files.keywords~ expands file keywords.
 
-Each workload uses sorting and shared column widths.
+The specifications exercise sorting, hidden sort columns, widths, truncation, and row expansion.
 
-The specifications also exercise fixed widths, maximum widths, truncation, and hidden sort columns.
+The cache benchmark keeps four representative large workloads:
 
-The output records the original result count and the final presentation row count.
+- ~headings.wide~
+- ~headings.tags~
+- ~headings.effective-properties~
+- ~files.keywords~
 
-* Measured stages
+* Retained regression benchmark
 
-The internal benchmark uses the production query and presentation code.
+** Production presentation timing
 
-It records these timing distributions:
+~orgfdb-presentation-benchmark~ is the primary long-term presentation regression benchmark.
+
+It uses the active production ~PresentationSpec::build_response~ strategy.
+
+It does not force rejected sequential or parallel alternatives.
+
+It measures these stages:
 
 - database query execution
 - row expansion
 - sort-key creation
 - sorting
-- displayed-value extraction
-- shared width calculation
-- truncation, padding, and final row formatting
-- complete presentation preparation
+- value extraction
+- width calculation
+- truncation, padding, and row formatting
+- complete presentation processing
 - compact JSON serialization
 - query, presentation, and serialization together
+- full fresh-process CLI latency
+- process startup
+- presentation payload size
 
-The truncation stage also creates the final ~display_text~ strings.
+The benchmark records the active production parallel strategy for each workload.
 
-These operations share one production loop and are measured together.
+The current output schema version is 3.
 
-The benchmark excludes input cloning from isolated stage timers.
+The benchmark protects the production query-to-presentation path from large performance regressions.
 
-It prepares cloned stage input before each measured sample.
+It also protects representative expanded-row and wide-layout workloads.
 
-* Process measurements
+** Run the timing benchmark
 
-The benchmark records one process-startup probe with ~orgfdb --help~.
-
-This value includes process creation, CLI parsing, and help generation.
-
-It does not include database or presentation work.
-
-Each total CLI sample starts a fresh ~orgfdb~ process and runs the complete ~presentation-json~ query.
-
-The runner captures stdout through a pipe.
-
-Total CLI time therefore includes payload transfer into the benchmark process.
-
-The output records the exact stdout payload size in bytes.
-
-* Run the timing benchmark
-
-Build both release binaries first.
+Build the production CLI and timing benchmark.
 
 #+begin_src sh
 cargo build --release --bin orgfdb --bin orgfdb-presentation-benchmark
 #+end_src
 
-Run a short smoke benchmark before the full measurement.
+Run a short smoke benchmark first.
 
 #+begin_src sh
+rm -rf /tmp/orgfdb-presentation-smoke-work
+rm -f /tmp/orgfdb-presentation-smoke.json
+
 target/release/orgfdb-presentation-benchmark \
   --orgfdb target/release/orgfdb \
   --rows 100,1000 \
@@ -121,9 +126,12 @@ target/release/orgfdb-presentation-benchmark \
   --output /tmp/orgfdb-presentation-smoke.json
 #+end_src
 
-Use new work and output paths for a full benchmark.
+Use a new work directory for a full benchmark.
 
 #+begin_src sh
+rm -rf /tmp/orgfdb-presentation-benchmark-work
+rm -f /tmp/orgfdb-presentation-benchmark.json
+
 target/release/orgfdb-presentation-benchmark \
   --orgfdb target/release/orgfdb \
   --rows 100,1000,10000,50000 \
@@ -133,303 +141,201 @@ target/release/orgfdb-presentation-benchmark \
   --output /tmp/orgfdb-presentation-benchmark.json
 #+end_src
 
-Keep the machine under normal low-load conditions during the measurement.
+Keep the machine under stable low load during timing runs.
 
-* Timing benchmark output
-
-The benchmark writes one JSON document.
+** Timing output
 
 Each timing contains ~min_ns~, ~median_ns~, ~p95_ns~, ~max_ns~, and the sample count.
 
-Each size record also contains corpus generation time, rebuild time, database size, and a corpus fingerprint.
+Each size record contains corpus generation time, rebuild time, database size, and the corpus fingerprint.
 
 Setup time is reproducibility evidence.
 
 It is not part of the presentation latency totals.
 
-The protocol record states that the benchmark uses no presentation cache and no presentation parallelism.
+Fresh CLI samples capture stdout through a pipe.
 
-* Timing baseline
+The CLI measurement therefore includes payload transfer into the benchmark process.
 
-The completed local run shows that database query execution dominates normal presentation work at large result sizes.
+** Machine comparison
 
-The process-startup median is about 1.72 ms.
+Use timing values for same-machine regression comparisons.
 
-At 50,000 original results, the timing run produced these payloads:
+Keep the build profile, CPU availability, filesystem, and system load comparable.
 
-| Workload | Results | Rows | CLI payload bytes |
-|----------+---------+------+-------------------|
-| ~headings.normal~ | 50,000 | 50,000 | 47,300,127 |
-| ~headings.tags~ | 50,000 | 150,000 | 74,677,907 |
-| ~headings.effective-properties~ | 50,000 | 150,000 | 87,347,199 |
-| ~files.keywords~ | 50,000 | 150,000 | 94,425,521 |
+Do not compare absolute timing values from different machines as direct regressions.
 
-The normal workload scales from 93,456 bytes at 100 results to 47,300,127 bytes at 50,000 results.
+Payload bytes and deterministic corpus fingerprints can be compared across machines for the same code and inputs.
 
-The large payloads justify a separate wire-size analysis before parallel or cache work.
+* Retained diagnostic benchmarks
 
-This historical timing baseline predates the explicit ~headings.narrow~ and ~headings.wide~ workloads.
+** Presentation payload analysis
 
-The payload-size task must record one fresh baseline with the current workload set before the wire format changes.
+~orgfdb-presentation-payload-analysis~ is a reusable wire-format diagnostic.
 
-* Payload analysis
+It reads databases from an existing timing benchmark work directory.
 
-The payload analyzer reuses databases from an existing timing benchmark work directory.
+It executes each workload once for each requested result size.
 
-It does not rebuild the corpus or modify the database.
+It serializes the active production ~PresentationResponse~.
 
-** Run the payload analyzer
+The current analyzer output schema version is 2.
 
-Build the analyzer after the timing benchmark work directory exists.
+The analyzer records these main byte groups:
+
+- response metadata
+- original ~results~
+- presentation rows
+- row metadata
+- row context
+- cell structure
+- ~search_text~
+- ~display_text~
+- semantic roles
+- JSON field names and syntax
+
+It also records exact repetition counters and per-result, per-row, and per-cell averages.
+
+Use this diagnostic when payload size changes unexpectedly.
+
+Use it before a future wire-format change that needs byte attribution.
+
+*** Run the payload analyzer
+
+Build the analyzer after the timing benchmark creates its work directory.
 
 #+begin_src sh
 cargo build --release --bin orgfdb-presentation-payload-analysis
 #+end_src
 
-Run the analyzer for the same result sizes.
+Run the analyzer against the same result sizes.
 
 #+begin_src sh
+rm -f /tmp/orgfdb-presentation-payload-analysis.json
+
 target/release/orgfdb-presentation-payload-analysis \
   --rows 100,1000,10000,50000 \
   --work-dir /tmp/orgfdb-presentation-benchmark-work \
   --output /tmp/orgfdb-presentation-payload-analysis.json
 #+end_src
 
-Use a new output path for each analysis run.
+Payload byte attribution is deterministic for the same code and corpus.
 
-** Analysis behavior
+Timing is not part of this analyzer.
 
-The analyzer executes each existing workload once for each requested result size.
+** Production presentation cache benchmark
 
-It serializes the same production ~PresentationResponse~ that the CLI uses.
+~orgfdb-presentation-cache-benchmark~ measures the production registered-view cache path.
 
-The analyzer records ~compact_json_bytes~ without the final newline.
+The benchmark starts a real ~orgfdb watch~ process for each corpus size.
 
-It also records ~cli_payload_bytes~, which adds the one-byte CLI newline.
+It uses the production view control protocol and production rebuild workers.
 
-** Payload sections
+It uses the production cache store and ~orgfdb view read~ for cache hits.
 
-The byte sections form an exact hierarchy.
+The benchmark uses private XDG runtime and cache directories below its work directory.
 
-#+begin_example
-compact_json_bytes
-  = response_metadata_bytes
-  + results_bytes
-  + rows_bytes
+It does not write benchmark cache data to the normal user cache directory.
 
-rows_bytes
-  = row_metadata_bytes
-  + row_context_bytes
-  + cells_bytes
+The current cache benchmark output schema version is 2.
 
-cells_bytes
-  = cell_structure_bytes
-  + search_text_bytes
-  + display_text_bytes
-  + semantic_role_bytes
-#+end_example
+For each workload, the benchmark records:
 
-~results_bytes~ and ~rows_bytes~ are the serialized values of the two top-level fields.
+- initial registration-to-ready time
+- full rebuild-to-ready timing for new view revisions
+- fresh-process ~orgfdb view read~ latency
+- fresh-process uncached ~presentation-json~ latency
+- payload size
 
-~response_metadata_bytes~ contains the remaining top-level JSON data and syntax.
+Before each timed rebuild sample, the benchmark removes the current view registration.
 
-~row_context_bytes~ contains the serialized ~row_context~ values, including ~null~.
+The timer starts when the benchmark registers the same definition with a new revision.
 
-~cells_bytes~ contains every serialized cells array.
+The sample ends when the production control protocol reports the new cache ready.
 
-The cell value counters measure the encoded wire values.
+This operation uses the normal complete rebuild and atomic cache publication path.
 
-For presentation version 2, ~display_text_bytes~ includes the ~null~ sentinel when the display value equals ~search_text~.
+The timer does not include removal, file notification, or database update cost.
 
-~cell_structure_bytes~ contains the remaining cell-array syntax and separators.
+Production tests cover generation replacement, obsolete worker termination, and bounded rebuild coordination.
 
-** Field-name and syntax overhead
+The benchmark no longer duplicates those behaviors with alternative benchmark-only worker implementations.
 
-The analyzer counts serialized object-key bytes separately.
+Every cache-hit sample must equal the uncached production presentation payload byte for byte.
 
-The field-name counters include the quotes around each object key.
+*** Run the cache benchmark
 
-The analyzer also counts JSON braces, brackets, commas, and colons outside strings.
+Build the production CLI and the feature-gated diagnostic benchmark.
 
-~structural_overhead.combined_bytes~ adds these field-name and syntax counts.
+#+begin_src sh
+cargo build --release \
+  --features presentation-cache-benchmark \
+  --bin orgfdb \
+  --bin orgfdb-presentation-cache-benchmark
+#+end_src
 
-This value does not include quotes or escaping that belong to scalar string values.
+Run a short smoke benchmark first.
 
-** Repeated values
+#+begin_src sh
+rm -rf /tmp/orgfdb-presentation-cache-smoke-work
+rm -f /tmp/orgfdb-presentation-cache-smoke.json
 
-The repetition counters identify exact repeated values.
+target/release/orgfdb-presentation-cache-benchmark \
+  --orgfdb target/release/orgfdb \
+  --rows 100 \
+  --warmups 0 \
+  --iterations 1 \
+  --work-dir /tmp/orgfdb-presentation-cache-smoke-work \
+  --output /tmp/orgfdb-presentation-cache-smoke.json
+#+end_src
 
-~search_display_equal_cells~ counts cells where ~search_text~ and ~display_text~ are identical.
+Use the representative large size for a diagnostic run.
 
-~search_display_duplicate_bytes~ counts one serialized copy of each identical value.
+#+begin_src sh
+rm -rf /tmp/orgfdb-presentation-cache-benchmark-work
+rm -f /tmp/orgfdb-presentation-cache-benchmark.json
 
-~display_is_padded_search_cells~ counts cells where ~display_text~ only adds right-side spaces.
+target/release/orgfdb-presentation-cache-benchmark \
+  --orgfdb target/release/orgfdb \
+  --rows 50000 \
+  --warmups 1 \
+  --iterations 3 \
+  --work-dir /tmp/orgfdb-presentation-cache-benchmark-work \
+  --output /tmp/orgfdb-presentation-cache-benchmark.json
+#+end_src
 
-~padded_search_repeated_content_bytes~ counts the repeated serialized search content in those padded cells.
+Use cache timings for same-machine comparisons.
 
-Row-context counters compare context scalar values with cell ~search_text~ values in the same row.
+Filesystem cache state, CPU count, and process scheduling affect these measurements.
 
-Result counters compare cell ~search_text~ values with exact scalar values in the referenced original result.
+Do not compare absolute cache timings across different machines.
 
-Result number values use their JSON decimal text for this comparison.
+* Historical measurements from completed design decisions
 
-JSON ~null~ values do not match presentation text.
+The following sections explain current architecture choices.
 
-The repetition counters can overlap.
+The removed A/B executables are not required to reproduce these historical comparisons.
 
-Do not add their byte counts as one possible saving value.
+** Compact presentation wire selection
 
-** Averages
+The payload task compared several row and cell representations on identical in-memory responses.
 
-The analyzer records these averages:
+The selected version 2 representation uses positional rows, contexts, and cells.
 
-- serialized ~results~ bytes per original result
-- serialized ~rows~ bytes per presentation row
-- serialized cell bytes per cell
-- total compact payload bytes per original result
+It also uses a shared role table and a null display sentinel for equal text.
 
-* Payload analysis results
+At 50,000 results, the final production payload changed as follows:
 
-Detailed payload attribution requires one local analyzer run against the completed benchmark work directory.
+| Workload | Version 1 bytes | Version 2 bytes | Reduction |
+|----------+-----------------+-----------------+-----------|
+| ~headings.narrow~ | 36,000,126 | 31,600,618 | 12.22 % |
+| ~headings.normal~ | 47,800,126 | 35,500,618 | 25.73 % |
+| ~headings.wide~ | 76,233,458 | 49,267,286 | 35.37 % |
+| ~headings.tags~ | 75,177,906 | 44,578,398 | 40.70 % |
+| ~headings.effective-properties~ | 87,847,198 | 56,256,785 | 35.96 % |
+| ~files.keywords~ | 95,925,520 | 63,326,012 | 33.98 % |
 
-Keep the raw analysis JSON outside version control unless it is intentionally added as evidence.
-
-Record at least:
-
-- the share of ~results~ and ~rows~ in the total payload
-- the share of cell structure and repeated field names
-- the share of ~search_text~ and ~display_text~
-- the share of semantic roles
-- row-context size for expanded workloads
-- exact search/display repetition
-- search content repeated by padding
-- exact row-context/cell repetition
-- exact result-scalar/cell repetition
-- average bytes per result, row, and cell
-
-Use these measurements to define the payload-reduction task.
-
-* Fresh payload baseline for compact-wire work
-
-The payload-size task recorded a fresh release baseline with the current six workloads.
-
-The run used 100, 1,000, 10,000, and 50,000 original results.
-
-At 50,000 results, the compact payload sizes are:
-
-| Workload | Results | Rows | Cells | Compact bytes |
-|----------+---------+------+-------+---------------|
-| ~headings.narrow~ | 50,000 | 50,000 | 50,000 | 36,000,126 |
-| ~headings.normal~ | 50,000 | 50,000 | 200,000 | 47,800,126 |
-| ~headings.wide~ | 50,000 | 50,000 | 550,000 | 76,233,458 |
-| ~headings.tags~ | 50,000 | 150,000 | 450,000 | 75,177,906 |
-| ~headings.effective-properties~ | 50,000 | 150,000 | 450,000 | 87,847,198 |
-| ~files.keywords~ | 50,000 | 150,000 | 450,000 | 95,925,520 |
-
-Repeated object structure is the largest common wire cost.
-
-Field names alone use between 16,750,062 and 39,100,062 bytes at 50,000 results.
-
-This is about 38 % to 47 % of the complete payload, depending on the workload.
-
-Field names plus JSON syntax use about 48 % to 58 % of the complete payload.
-
-~headings.wide~ uses 22,600,000 bytes for cell structure.
-
-Each expanded 150,000-row workload uses 18,600,000 bytes for cell structure.
-
-Exact duplicate ~search_text~ and ~display_text~ values are smaller than the repeated object-key cost.
-
-They still provide a useful secondary omission candidate.
-
-The fresh timing run also records presentation processing, JSON serialization, and complete CLI time for every workload.
-
-The raw timing and payload-analysis JSON files remain outside version control.
-
-* Compact wire candidate benchmark
-
-The payload-size task compared five representations on identical in-memory ~PresentationResponse~ values.
-
-The candidate run used 100 and 50,000 original results.
-
-Every candidate passed semantic equality checks for metadata, results, rows, contexts, cells, display text, and roles.
-
-The selected representation uses:
-
-- positional row arrays with one shared row schema
-- positional row-context arrays with explicit shared shapes
-- positional cell arrays with one shared cell schema
-- ~display_text = null~ when ~display_text == search_text~
-- integer role indexes with one shared ~role_values~ table
-
-At 50,000 results, the selected representation changes payload size as follows:
-
-| Workload | Version 1 bytes | Selected bytes | Reduction |
-|----------+-----------------+----------------+-----------|
-| ~headings.narrow~ | 36,000,126 | 31,500,618 | 12.50 % |
-| ~headings.normal~ | 47,800,126 | 35,400,618 | 25.94 % |
-| ~headings.wide~ | 76,233,458 | 49,067,286 | 35.64 % |
-| ~headings.tags~ | 75,177,906 | 44,478,398 | 40.84 % |
-| ~headings.effective-properties~ | 87,847,198 | 56,156,785 | 36.07 % |
-| ~files.keywords~ | 95,925,520 | 63,026,012 | 34.30 % |
-
-The null display sentinel adds another 0.55 MB to 3.70 MB reduction beyond positional arrays at 50,000 results.
-
-Role indexes add another 0.30 MB to 5.40 MB reduction beyond the display-null representation.
-
-The selected representation also serializes faster than version 1 for every 50,000-result workload in this run.
-
-Median serialization time changes as follows:
-
-| Workload | Version 1 | Selected |
-|----------+-----------+----------|
-| ~headings.narrow~ | 52.58 ms | 32.05 ms |
-| ~headings.normal~ | 48.10 ms | 37.48 ms |
-| ~headings.wide~ | 106.04 ms | 56.72 ms |
-| ~headings.tags~ | 87.61 ms | 55.58 ms |
-| ~headings.effective-properties~ | 98.95 ms | 82.13 ms |
-| ~files.keywords~ | 95.19 ms | 70.90 ms |
-
-The 100-result workloads also have smaller payloads and no serialization regression with the selected representation.
-
-These results select the positional display-null role-index representation for ~presentation-json~ version 2.
-
-The original query-result objects remain unchanged inside the top-level ~results~ array.
-
-The compact rules apply only to presentation rows, row contexts, cells, and roles.
-
-The temporary candidate benchmark is removed after this selection.
-
-* Production wire version 2 results
-
-The final production run uses the selected positional representation in ~presentation-json~ version 2.
-
-The run uses 100, 1,000, 10,000, and 50,000 original results.
-
-Its corpus fingerprints match the fresh version 1 baseline at every result size.
-
-The normal ~--format json~ output remains unchanged.
-
-** Payload size
-
-At 50,000 results, the final production payload changes are:
-
-| Workload | Version 1 bytes | Version 2 bytes | Saved | Reduction |
-|----------+-----------------+-----------------+-------+-----------|
-| ~headings.narrow~ | 36,000,126 | 31,600,618 | 4.40 MB | 12.22 % |
-| ~headings.normal~ | 47,800,126 | 35,500,618 | 12.30 MB | 25.73 % |
-| ~headings.wide~ | 76,233,458 | 49,267,286 | 26.97 MB | 35.37 % |
-| ~headings.tags~ | 75,177,906 | 44,578,398 | 30.60 MB | 40.70 % |
-| ~headings.effective-properties~ | 87,847,198 | 56,256,785 | 31.59 MB | 35.96 % |
-| ~files.keywords~ | 95,925,520 | 63,326,012 | 32.60 MB | 33.98 % |
-
-At 100 results, payload reduction ranges from 11.73 % to 40.84 %.
-
-The shared schema cost stays small enough that every small workload is also smaller.
-
-** Serialization
-
-At 50,000 results, median JSON serialization time changes as follows:
+Median JSON serialization time also decreased for every 50,000-result workload.
 
 | Workload | Version 1 | Version 2 | Change |
 |----------+-----------+-----------+--------|
@@ -440,237 +346,23 @@ At 50,000 results, median JSON serialization time changes as follows:
 | ~headings.effective-properties~ | 140.45 ms | 87.48 ms | -37.7 % |
 | ~files.keywords~ | 181.41 ms | 80.59 ms | -55.6 % |
 
-All six 100-result serialization medians are also lower with version 2.
+These results selected ~presentation-json~ version 2.
 
-The isolated candidate benchmark is the strongest direct serialization comparison.
+The normal ~orgfdb query --format json~ contract did not change.
 
-It serializes different representations from the same in-memory ~PresentationResponse~.
+The temporary representation A/B benchmark was removed after the decision.
 
-The production benchmark confirms that the selected serializer keeps this benefit in the real CLI path.
+The retained payload analyzer follows the selected production representation.
 
-** Presentation processing and CLI time
+** Selective Rayon parallelism
 
-At 50,000 results, median complete presentation processing changes as follows:
+The parallelism task first tested forced parallel stages at several result sizes.
 
-| Workload | Version 1 | Version 2 | Change |
-|----------+-----------+-----------+--------|
-| ~headings.narrow~ | 33.26 ms | 30.16 ms | -9.3 % |
-| ~headings.normal~ | 64.31 ms | 44.82 ms | -30.3 % |
-| ~headings.wide~ | 157.43 ms | 109.62 ms | -30.4 % |
-| ~headings.tags~ | 256.80 ms | 227.96 ms | -11.2 % |
-| ~headings.effective-properties~ | 577.68 ms | 347.48 ms | -39.8 % |
-| ~files.keywords~ | 349.58 ms | 232.34 ms | -33.5 % |
+Small forced parallel workloads lost because coordination cost exceeded the saved CPU work.
 
-At 50,000 results, every median complete CLI time is lower with version 2:
+A corrected paired v3 benchmark compared the same candidate path with alternating sample order.
 
-| Workload | Version 1 | Version 2 | Change |
-|----------+-----------+-----------+--------|
-| ~headings.narrow~ | 781.97 ms | 566.78 ms | -27.5 % |
-| ~headings.normal~ | 809.21 ms | 578.66 ms | -28.5 % |
-| ~headings.wide~ | 1,358.92 ms | 876.24 ms | -35.5 % |
-| ~headings.tags~ | 1,776.58 ms | 1,069.36 ms | -39.8 % |
-| ~headings.effective-properties~ | 2,006.97 ms | 1,499.32 ms | -25.3 % |
-| ~files.keywords~ | 1,410.64 ms | 1,157.28 ms | -18.0 % |
-
-At 100 results, five CLI medians are lower.
-
-~headings.narrow~ changes from 3.25 ms to 3.27 ms.
-
-This 0.5 % difference is not material.
-
-The timing runs are separate process runs, so query and operating-system noise can affect complete CLI time.
-
-Payload bytes and isolated same-response serialization measurements provide the direct wire-format evidence.
-
-** Remaining result-object overhead
-
-The version 2 payload keeps each original query result as an object.
-
-At 50,000 results, these objects still contain 13.4 MB to 16.3 MB of field-name bytes.
-
-The client uses these complete results for actions through ~result_index~.
-
-A compact result representation needs explicit schemas for file, heading, and link results.
-
-It also needs rules for nested path, property, keyword, link, source, target, and child data.
-
-That change adds a second result-decoding contract and requires another wire-format version.
-
-Version 2 keeps these objects unchanged to keep the action boundary simple.
-
-A separate payload task can benchmark result-object compaction if the extra contract is acceptable.
-
-
-* Parallelism evaluation baseline
-
-The final ~presentation-json~ version 2 production run is the sequential baseline for the parallelism task.
-
-The baseline already measures all relevant presentation stages on 100, 1,000, 10,000, and 50,000 original results.
-
-At 50,000 original results, expanded workloads create 150,000 presentation rows.
-
-Their median isolated sorting time is:
-
-| Workload | Rows | Sorting |
-|----------+------+---------|
-| ~headings.tags~ | 150,000 | 219.10 ms |
-| ~headings.effective-properties~ | 150,000 | 301.79 ms |
-| ~files.keywords~ | 150,000 | 264.35 ms |
-
-The wide non-expanded workload creates 50,000 rows and 550,000 cells.
-
-Its median value extraction time is 51.87 ms.
-
-Its median truncation, padding, and row formatting time is 64.53 ms.
-
-These measurements identify CPU-bound work before the project adds a parallel dependency.
-
-The first parallel experiment uses Rayon 1.12.0 through the optional ~presentation-parallel-benchmark~ feature.
-
-The production ~PresentationSpec::build_response~ path stays sequential during this experiment.
-
-The experiment compares:
-
-- sequential and parallel sort-key creation
-- sequential and parallel sorting
-- sequential and parallel value extraction with deterministic width reduction
-- sequential and parallel final row formatting
-- complete sequential presentation processing
-- complete processing with parallel sort work only
-- complete processing with parallel layout work only
-- complete processing with all measured candidate stages in parallel
-
-The experiment forces the parallel candidates at every requested result size.
-
-This exposes coordination overhead at 100 and 1,000 results before a production threshold is selected.
-
-Every parallel candidate must produce the exact same ~PresentationResponse~ as the sequential baseline.
-
-SQLite query loading stays sequential and outside the candidate timing.
-
-Complete CLI timing remains a final production gate after the benchmark selects a strategy and threshold.
-
-
-* Parallel candidate v1 results
-
-The first candidate benchmark runs on 14 available CPUs with 14 Rayon worker threads.
-
-It forces parallel work at every requested size to expose coordination overhead.
-
-All parallel responses equal the sequential response.
-
-At 100 and 1,000 results, forced parallel work loses clearly.
-
-At 10,000 results, ~headings.wide~ is the only strong complete-pipeline winner.
-
-Its layout-only candidate changes complete presentation time by -44.6 %.
-
-At 50,000 results, the complete candidates change as follows:
-
-| Workload | Sort only | Layout only | All parallel |
-|----------+-----------+-------------+--------------|
-| ~headings.narrow~ | -25.6 % | +13.1 % | +5.1 % |
-| ~headings.normal~ | +17.1 % | -10.8 % | -12.7 % |
-| ~headings.wide~ | +11.4 % | -40.7 % | -33.0 % |
-| ~headings.tags~ | -3.7 % | +4.9 % | -4.4 % |
-| ~headings.effective-properties~ | -2.2 % | +11.4 % | -4.1 % |
-| ~files.keywords~ | -16.3 % | -4.4 % | -23.5 % |
-
-The stage data explains why one global mode is not suitable.
-
-At 50,000 results, parallel value extraction improves every workload except ~headings.narrow~.
-
-Parallel formatting strongly improves ~headings.normal~ and ~headings.wide~, but it loses for expanded tag and effective-property rows.
-
-Parallel sorting strongly improves the isolated 150,000-row expanded sorting stage.
-
-The second candidate benchmark therefore tests one selective strategy.
-
-The strategy uses these thresholds:
-
-- parallel sort at 100,000 presentation rows
-- parallel extraction at 200,000 cells
-- parallel extraction at 100,000 cells when the presentation has at least 8 columns
-- parallel formatting only for one-row-per-result presentations that meet an extraction threshold
-
-These thresholds keep small workloads sequential.
-
-They also keep expanded-row formatting sequential when v1 shows a loss.
-
-The v2 benchmark measures extraction-only and formatting-only totals in addition to the previous candidates.
-
-Production remains sequential until this selective candidate passes the complete-presentation benchmark.
-
-
-* Parallel candidate v2 results and measurement correction
-
-The v2 benchmark keeps production sequential and tests the selective threshold strategy.
-
-All candidate responses equal the sequential production response.
-
-The isolated candidate data confirms two useful areas.
-
-For 50,000 original results, layout-only changes complete presentation time by:
-
-| Workload | Layout only |
-|----------+-------------|
-| ~headings.normal~ | -36.6 % |
-| ~headings.wide~ | -39.3 % |
-
-For 10,000 original results, ~headings.wide~ layout-only changes complete presentation time by -22.3 %.
-
-For 50,000 original results, sort-only changes the expanded workloads by:
-
-| Workload | Rows | Sort only |
-|----------+------+-----------|
-| ~headings.tags~ | 150,000 | -3.0 % |
-| ~headings.effective-properties~ | 150,000 | -27.1 % |
-| ~files.keywords~ | 150,000 | -20.0 % |
-
-The v2 selective total cannot be used as the production decision gate.
-
-The benchmark measures the sequential total and the selective total in separate timing blocks.
-
-When all strategy flags are false, both paths perform the same sequential candidate operations.
-
-Despite that, some medians differ substantially.
-
-For example, the 10,000-result ~headings.tags~ selective result reports -23.5 % with all flags false.
-
-The 1,000-result ~files.keywords~ selective result reports +59.6 % with all flags false.
-
-These values expose run-order and sample noise rather than parallel speedup.
-
-The v3 benchmark corrects this comparison.
-
-It uses the same candidate implementation for the timed sequential reference and selective strategy.
-
-It measures both paths as paired samples and alternates their execution order.
-
-The corrected strategy is conservative:
-
-- parallel sorting starts at 150,000 presentation rows
-- parallel extraction and formatting run only for one-row-per-result presentations
-- layout parallelism starts at 200,000 cells
-- presentations with at least 8 columns can start layout parallelism at 100,000 cells
-- expanded-row extraction and formatting stay sequential
-
-The production pipeline remains sequential until this corrected selective benchmark passes.
-
-
-* Parallel candidate v3 results
-
-The corrected v3 benchmark runs on native Linux with 8 available CPUs and 8 Rayon worker threads.
-
-It uses output schema version 3.
-
-The timed sequential reference and selective strategy use the same candidate code path.
-
-The benchmark measures them as paired samples and alternates execution order.
-
-All complete responses are equal to the semantic reference response.
-
-The selective strategy changes complete presentation time by:
+The selected strategy changed complete presentation time as follows on the measured 8-CPU Linux host:
 
 | Workload | Results | Presentation rows | Selective change |
 |----------+---------+-------------------+------------------|
@@ -681,72 +373,18 @@ The selective strategy changes complete presentation time by:
 | ~headings.effective-properties~ | 50,000 | 150,000 | -8.6 % |
 | ~files.keywords~ | 50,000 | 150,000 | -11.2 % |
 
-The 10,000-result wide workload uses parallel extraction and formatting.
+The selected production rules are:
 
-The 50,000-result normal and wide workloads also use parallel extraction and formatting.
+- Parallel sorting starts at 150,000 presentation rows.
+- Parallel layout applies only to one-row-per-result presentations.
+- Layout parallelism starts at 200,000 cells.
+- A layout with at least 8 columns starts at 100,000 cells.
+- Expanded-row extraction and formatting stay sequential.
+- SQLite query execution stays sequential.
+- Row expansion and width resolution stay sequential.
+- JSON serialization stays sequential.
 
-The 150,000-row expanded workloads use parallel sort-key creation and parallel sorting only.
-
-Expanded-row extraction and formatting stay sequential.
-
-Workloads below the thresholds keep all strategy flags false.
-
-Their paired selective totals stay near the sequential reference and show only normal measurement noise.
-
-These results select the conservative strategy for production validation.
-
-
-* Production parallel strategy
-
-~PresentationSpec::build_response~ uses selective Rayon parallelism.
-
-The strategy is deterministic and depends only on presentation shape.
-
-Parallel sort work runs when all of these conditions are true:
-
-- the presentation has a sort specification
-- the expanded presentation has at least 150,000 rows
-
-This path parallelizes sort-key creation and stable sorting.
-
-The existing comparator still uses ~original_index~ as the final tie-breaker.
-
-Parallel layout work runs only for one-row-per-result presentations.
-
-It starts when either condition is true:
-
-- the presentation has at least 200,000 cells
-- the presentation has at least 8 columns and at least 100,000 cells
-
-This path parallelizes value extraction with per-row natural-width collection and final row formatting.
-
-The natural-width reduction and width resolution remain deterministic.
-
-Expanded-row layout stays sequential even when its cell count is large.
-
-SQLite query execution, row expansion, width resolution, and JSON serialization stay sequential.
-
-Rayon 1.12.0 is a normal runtime dependency after the benchmark evidence selected these paths.
-
-The diagnostic ~presentation-parallel-benchmark~ feature gates only the separate benchmark module and binary.
-
-The production and diagnostic benchmarks share the threshold helpers from ~src/presentation.rs~.
-
-The normal presentation benchmark uses output schema version 3 after this integration.
-
-Each workload records its active production execution strategy.
-
-Its isolated sort and layout stage timings also follow the production strategy.
-
-The production validation below records the complete CLI benchmark.
-
-* Production parallel validation v4
-
-The production benchmark runs on native Linux with 8 available CPUs.
-
-The benchmark uses output schema version 3 and records the active strategy for every workload.
-
-The final production dispatch matches the corrected v3 strategy.
+The production v4 validation confirmed that the selected dispatch reached the normal build path.
 
 | Workload | Results | Rows | Parallel work | Presentation median | CLI median |
 |----------+---------+------+---------------+---------------------+------------|
@@ -758,176 +396,28 @@ The final production dispatch matches the corrected v3 strategy.
 | ~headings.effective-properties~ | 50,000 | 150,000 | sorting | 342.21 ms | 1,023.84 ms |
 | ~files.keywords~ | 50,000 | 150,000 | sorting | 263.37 ms | 903.03 ms |
 
-All 100-result and 1,000-result workloads stay sequential.
+The former ~presentation-parallel-benchmark~ feature and binary only supported this completed A/B decision.
 
-At 10,000 results, every workload except ~headings.wide~ stays sequential.
+They are removed from the retained benchmark infrastructure.
 
-This keeps Rayon coordination out of workloads where the candidate benchmark found no reliable complete-pipeline gain.
+The normal timing benchmark records the current production strategy instead.
 
-The production presentation totals also track the paired v3 candidate totals on the same 8-CPU Linux environment.
+** Eager registered-view cache selection
 
-For the listed 10,000 and 50,000 result workloads, the difference ranges from -9.6 % to +7.6 %.
+The original cache validation used a benchmark-only cache worker before production cache code existed.
 
-The 10,000-result wide workload differs by +1.0 %.
+It compared sequential and parallel rebuild groups and tested obsolete worker termination.
 
-This production run therefore confirms that the selected candidate behavior transfers to the normal ~PresentationSpec::build_response~ path.
+At 50,000 results, the validation measured these single-view costs:
 
-The older final sequential production benchmark used 14 available CPUs.
+| Workload | Payload | Uncached CLI median | Rebuild + persist median | Cache-hit median | Hit reduction |
+|----------+---------+---------------------+--------------------------+------------------+---------------|
+| ~headings.wide~ | 48.61 MiB | 667.10 ms | 536.73 ms | 49.42 ms | -92.6 % |
+| ~headings.tags~ | 43.32 MiB | 796.03 ms | 660.92 ms | 44.57 ms | -94.4 % |
+| ~headings.effective-properties~ | 54.46 MiB | 1,025.24 ms | 901.85 ms | 53.63 ms | -94.8 % |
+| ~files.keywords~ | 62.82 MiB | 888.26 ms | 746.45 ms | 60.15 ms | -93.2 % |
 
-The v4 production run uses 8 available CPUs.
-
-A direct percentage between those independent runs does not isolate the effect of parallelism.
-
-The paired v3 benchmark remains the causal sequential-versus-parallel evidence.
-
-The v4 run is the final production dispatch and complete CLI validation.
-
-
-* Registered presentation view cache validation benchmark
-
-The cache validation benchmark tests the selected eager registered-view model before production implementation.
-
-It does not add a production cache or public ~orgfdb view~ command.
-
-The benchmark uses four expensive production presentation workloads at 50,000 results by default:
-
-- ~headings.wide~
-- ~headings.tags~
-- ~headings.effective-properties~
-- ~files.keywords~
-
-A rebuild worker uses the normal query and presentation code.
-
-The worker serializes the complete version 2 presentation payload and appends the normal CLI newline.
-
-It writes a worker-specific temporary file and then atomically renames the file to the cache path.
-
-The benchmark does not call ~fsync~ because the cache is disposable session data.
-
-A cache-hit worker only reads the materialized payload and writes it to stdout.
-
-The parent process captures stdout through a pipe.
-
-This measurement is a lower bound for the later ~orgfdb view~ command because it excludes registry IPC.
-
-The benchmark compares three rebuild-group modes:
-
-- sequential worker processes
-- concurrent worker processes where each process uses its default Rayon pool
-- concurrent worker processes where ~RAYON_NUM_THREADS~ divides the available CPU budget across active views
-
-The benchmark also measures an immediate request during a rebuild.
-
-That request waits for the rebuild worker and then performs one cache hit.
-
-The obsolete-generation test writes a complete temporary payload and pauses before publication.
-
-The parent advances the benchmark database generation and terminates the obsolete worker.
-
-The test then rebuilds the newest generation and confirms that the obsolete cache never becomes current.
-
-On Linux, the parent polls ~/proc/<pid>/status~ and records peak aggregate worker ~VmRSS~.
-
-The memory field is absent on systems without this interface.
-
-** Run the cache validation benchmark
-
-Build the production CLI and diagnostic benchmark:
-
-#+begin_src sh
-cargo build --release \
-  --features presentation-cache-benchmark \
-  --bin orgfdb \
-  --bin orgfdb-presentation-cache-benchmark
-#+end_src
-
-Use a new work directory for each benchmark version:
-
-#+begin_src sh
-rm -rf /tmp/orgfdb-presentation-cache-benchmark-v1-work
-
-target/release/orgfdb-presentation-cache-benchmark \
-  --orgfdb target/release/orgfdb \
-  --rows 50000 \
-  --view-counts 1,3,5,10 \
-  --warmups 1 \
-  --iterations 3 \
-  --group-iterations 2 \
-  --work-dir /tmp/orgfdb-presentation-cache-benchmark-v1-work \
-  --output ~/Downloads/orgfdb-presentation-cache-benchmark-linux-v1.json
-#+end_src
-
-The benchmark output records:
-
-- complete uncached CLI latency
-- full rebuild and atomic persistence latency
-- fresh-process cache-hit latency
-- immediate-request wait latency during a rebuild
-- cache payload size
-- peak rebuild-worker RSS on Linux
-- sequential rebuild-group latency
-- unbounded parallel rebuild-group latency
-- CPU-budgeted parallel rebuild-group latency
-- peak aggregate RSS for parallel rebuild groups on Linux
-- obsolete-worker termination and replacement-generation publication
-
-Use the final production presentation benchmark as the stage-level baseline.
-
-Do not interpret the cache-hit result as a complete production ~orgfdb view~ measurement.
-
-The later view registry and control channel add a small unmeasured lookup and synchronization cost.
-
-** Native Linux validation v1
-
-The validation ran on native Linux with 8 available CPUs.
-
-It used 50,000-result workloads and the final production presentation pipeline.
-
-The benchmark output is ~orgfdb-presentation-cache-benchmark-linux-v1.json~.
-
-The result supports the eager registered-view cache model.
-
-No correctness or performance blocker appeared.
-
-*** Single-view cost
-
-| Workload | Payload | Uncached CLI median | Rebuild + persist median | Cache-hit median | Hit reduction | Immediate wait median | Rebuild peak RSS |
-|----------+---------+---------------------+--------------------------+------------------+---------------+-----------------------+------------------|
-| ~headings.wide~ | 48.61 MiB | 667.10 ms | 536.73 ms | 49.42 ms | -92.6 % | 524.64 ms | 203.02 MiB |
-| ~headings.tags~ | 43.32 MiB | 796.03 ms | 660.92 ms | 44.57 ms | -94.4 % | 667.92 ms | 220.37 MiB |
-| ~headings.effective-properties~ | 54.46 MiB | 1,025.24 ms | 901.85 ms | 53.63 ms | -94.8 % | 889.46 ms | 266.73 MiB |
-| ~files.keywords~ | 62.82 MiB | 888.26 ms | 746.45 ms | 60.15 ms | -93.2 % | 752.51 ms | 267.48 MiB |
-
-A valid hit removes about 93 % to 95 % of the measured CLI latency.
-
-The hit still includes a fresh process, cache-file reading, stdout writing, and parent pipe capture.
-
-It does not include the future view-registry lookup or synchronization protocol.
-
-The full rebuild writes the complete cache payload to local storage.
-
-The measured rebuild is still faster than the uncached CLI path for all four workloads.
-
-One read after each database change already amortizes the measured eager rebuild cost.
-
-The combined rebuild plus one cache hit changes total measured time by:
-
-| Workload | Rebuild + one hit | One uncached read | Change |
-|----------+-------------------+-------------------+--------|
-| ~headings.wide~ | 586.15 ms | 667.10 ms | -12.1 % |
-| ~headings.tags~ | 705.49 ms | 796.03 ms | -11.4 % |
-| ~headings.effective-properties~ | 955.48 ms | 1,025.24 ms | -6.8 % |
-| ~files.keywords~ | 806.60 ms | 888.26 ms | -9.2 % |
-
-Each additional read in the same generation gains the full cache-hit reduction.
-
-The immediate-request result matches the intended blocking behavior.
-
-A request that arrives after a database change waits for about one rebuild duration.
-
-*** Parallel rebuild cost
-
-The benchmark compares sequential rebuilds with concurrent rebuild worker processes.
+The validation also showed clear wall-time gains from concurrent rebuild workers.
 
 | Views | Sequential median | Parallel unbounded median | Parallel budgeted median | Unbounded peak RSS | Budgeted peak RSS |
 |-------+-------------------+---------------------------+--------------------------+--------------------+-------------------|
@@ -936,116 +426,26 @@ The benchmark compares sequential rebuilds with concurrent rebuild worker proces
 | 5 | 3,833.55 ms | 1,465.69 ms | 1,432.10 ms | 1,085.49 MiB | 1,044.61 MiB |
 | 10 | 7,025.47 ms | 4,721.05 ms | 3,827.00 ms | 2,245.45 MiB | 1,929.29 MiB |
 
-Concurrent rebuilds provide a clear wall-time benefit.
+Ten large workers used too much memory for the default operating target on that host.
 
-Memory use grows with the number and shape of active views.
+This evidence supported bounded concurrent rebuild workers.
 
-Ten large concurrent workers use about 1.9 GiB to 2.2 GiB of aggregate worker RSS on this host.
+The obsolete-generation experiment also confirmed that a terminated old worker did not publish its old generation.
 
-The 10-view timings also show stronger contention and variance.
+The replacement generation then rebuilt successfully.
 
-Do not start every registered view at the same time without a concurrency bound.
+These measurements supported the eager registered-view cache architecture and separate rebuild worker processes.
 
-On this 8-CPU host, 3 concurrent large workers are comfortable and 5 remain practical.
+The pre-production cache simulator no longer represents the final implementation.
 
-Treat 10 concurrent large workers as outside the default operating target.
+Its worker modes, rebuild-group comparisons, and cancellation experiment are removed from executable benchmark code.
 
-The implementation must queue excess rebuilds while it keeps different views concurrent.
+The retained cache benchmark now measures the real production cache path.
 
-The exact portable concurrency limit remains an implementation policy, not a cache-format rule.
+* Raw benchmark results
 
-*** Obsolete generation handling
+Raw timing JSON files normally stay outside version control.
 
-The benchmark terminated an obsolete ~headings.effective-properties~ worker after the database generation changed.
+Keep a raw result when a future task needs durable evidence for an architecture decision.
 
-Worker termination took 13.42 ms.
-
-The generation 2 payload never became current.
-
-The replacement generation 3 rebuild took 839.70 ms.
-
-This result supports separate rebuild worker processes.
-
-The watcher can terminate obsolete workers without cooperative cancellation inside SQLite or Rayon.
-
-The watcher can continue to process file changes while rebuild workers run.
-
-*** Storage and lifecycle conclusions
-
-The representative cache payloads range from 43.32 MiB to 62.82 MiB per view.
-
-The 10-view benchmark set represents about 510.36 MiB of materialized cache data.
-
-Each full rebuild adds one local cache write of about 43.32 MiB to 62.82 MiB for these workloads.
-
-Each later cache hit reads the complete materialized payload once.
-
-These sizes do not justify a hard cache-size limit.
-
-A soft warning near ~250 MB~ for one view remains reasonable as an operational guard.
-
-Use an XDG cache directory for the production cache.
-
-Keep each watcher session in a separate cache namespace.
-
-A cache entry is valid only for an active registration in the current watcher session.
-
-A clean watcher shutdown removes the current session cache directory and ownership marker.
-
-A later watcher session cannot use cache files from an abandoned session.
-
-Each watcher session creates a database-scoped ownership marker for cleanup.
-
-After the watcher owns the control socket, startup recovery removes abandoned marked sessions for the same database.
-
-Recovery leaves cache sessions for other database paths untouched.
-
-Use a separate cache format version in addition to the presentation wire version.
-
-The cache format version covers the on-disk envelope and validity metadata.
-
-The presentation wire version covers the materialized payload itself.
-
-A valid cache entry must match:
-
-- the active watcher session
-- ~database_id~
-- ~generation~
-- the registered view-definition identity
-- the cache format version
-- the presentation wire version
-- the effective query date when the query contains relative date operands
-
-Relative dates use the existing query timezone rules.
-
-For a relative-date view, the watcher schedules the next effective local query-date boundary and starts a rebuild at that boundary.
-
-The scheduler uses the registered query timezone and does not assume a fixed 24-hour interval. A view read does not trigger this rebuild.
-
-The cache target stores that effective date in addition to the unchanged database generation.
-
-Fixed-date views do not get this extra validity value.
-
-This rule keeps ~generation~ and ~changes~ semantics unchanged.
-
-*** Decision
-
-Proceed with the eager persistent cache for explicitly registered presentation views.
-
-Use session-local registrations from Emacs.
-
-Use complete materialized presentation payloads as cache values.
-
-Use separate rebuild worker processes so that obsolete work can terminate quickly.
-
-Run rebuild workers concurrently, but use a bounded queue for large views.
-
-A database generation change starts eager rebuild work and never waits for a view request.
-
-A view request waits when its current cache is not ready.
-
-Never serve the stale payload as the current view.
-
-Do not add incremental per-file updates or cross-generation reuse.
-
-The validation creates separate implementation tasks for registry access, storage, watcher coordination, cleanup, and relative-date validity.
+Record the host, build profile, CPU availability, command, and corpus fingerprint with timing evidence.

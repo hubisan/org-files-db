@@ -1,8 +1,9 @@
-//! Measurement-only validation for eager caches of registered presentation views.
+//! Production-path benchmark support for registered presentation view caches.
 
 use std::{
-    fs::{self, File},
-    io::{self, Read, Write},
+    ffi::OsString,
+    fs,
+    io::Read,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     thread,
@@ -12,25 +13,26 @@ use std::{
 use serde::Serialize;
 
 use crate::{
-    db::{
-        advance_index_generation, open_database_with_schema, open_existing_database_read_only,
-        read_index_state, IndexGenerationChange, SchemaDefinition, CURRENT_SCHEMA_VERSION,
-    },
+    config::Config,
+    db::{open_existing_database_read_only, read_index_state},
     presentation_benchmark::{
-        load_workload_response, prepare_benchmark_databases, PresentationWorkload, Timing,
-        CORPUS_CONTRACT_VERSION, WORKLOADS,
+        prepare_benchmark_databases, PresentationWorkload, Timing, CORPUS_CONTRACT_VERSION,
+        WORKLOADS,
+    },
+    presentation_view::{
+        register_presentation_view, remove_presentation_view, show_presentation_view,
+        wait_for_presentation_view, PresentationViewDefinition, PresentationViewInclude,
+        PresentationViewOutputMode, ViewControlClientError,
     },
 };
 
-pub const OUTPUT_SCHEMA_VERSION: &str = "1";
+pub const OUTPUT_SCHEMA_VERSION: &str = "2";
 pub const DEFAULT_WARMUPS: usize = 1;
 pub const DEFAULT_ITERATIONS: usize = 3;
-pub const DEFAULT_GROUP_ITERATIONS: usize = 2;
 pub const DEFAULT_ROW_COUNTS: &[usize] = &[50_000];
-pub const DEFAULT_VIEW_COUNTS: &[usize] = &[1, 3, 5, 10];
-pub const DEFAULT_CANCEL_PUBLISH_DELAY_MS: u64 = 5_000;
-pub const DEFAULT_POLL_INTERVAL_MS: u64 = 5;
 
+const WATCHER_READY_TIMEOUT: Duration = Duration::from_secs(15);
+const WATCHER_READY_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const REPRESENTATIVE_WORKLOAD_IDS: &[&str] = &[
     "headings.wide",
     "headings.tags",
@@ -41,20 +43,16 @@ const REPRESENTATIVE_WORKLOAD_IDS: &[&str] = &[
 #[derive(Debug, Clone)]
 pub struct PresentationCacheBenchmarkOptions {
     pub row_counts: Vec<usize>,
-    pub view_counts: Vec<usize>,
     pub warmups: usize,
     pub iterations: usize,
-    pub group_iterations: usize,
 }
 
 impl Default for PresentationCacheBenchmarkOptions {
     fn default() -> Self {
         Self {
             row_counts: DEFAULT_ROW_COUNTS.to_vec(),
-            view_counts: DEFAULT_VIEW_COUNTS.to_vec(),
             warmups: DEFAULT_WARMUPS,
             iterations: DEFAULT_ITERATIONS,
-            group_iterations: DEFAULT_GROUP_ITERATIONS,
         }
     }
 }
@@ -72,18 +70,13 @@ pub struct PresentationCacheBenchmarkOutput {
 pub struct PresentationCacheBenchmarkProtocol {
     pub warmups: usize,
     pub iterations: usize,
-    pub group_iterations: usize,
     pub row_counts: Vec<usize>,
-    pub view_counts: Vec<usize>,
-    pub cache_value: &'static str,
-    pub rebuild_worker: &'static str,
-    pub persistence: &'static str,
-    pub cache_hit: &'static str,
-    pub wait_measurement: &'static str,
-    pub cancellation: &'static str,
-    pub worker_parallelism: &'static str,
-    pub memory_measurement: &'static str,
-    pub production_cache: &'static str,
+    pub production_path: &'static str,
+    pub rebuild_measurement: &'static str,
+    pub cache_hit_measurement: &'static str,
+    pub uncached_reference: &'static str,
+    pub isolation: &'static str,
+    pub machine_comparison: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -94,18 +87,14 @@ pub struct PresentationCacheBenchmarkEnvironment {
     pub architecture: &'static str,
     pub available_cpus: Option<usize>,
     pub orgfdb_path: String,
-    pub benchmark_executable_path: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct PresentationCacheSizeResult {
     pub target_results: usize,
     pub database_id: String,
-    pub initial_generation: i64,
-    pub rebuild_generation: i64,
+    pub generation: i64,
     pub workloads: Vec<PresentationCacheWorkloadResult>,
-    pub rebuild_groups: Vec<PresentationCacheRebuildGroupResult>,
-    pub obsolete_rebuild: ObsoleteRebuildResult,
 }
 
 #[derive(Debug, Serialize)]
@@ -113,45 +102,17 @@ pub struct PresentationCacheWorkloadResult {
     pub id: &'static str,
     pub query: &'static str,
     pub presentation_spec_json: &'static str,
-    pub payload_bytes: u64,
-    pub initial_build_persist_elapsed_ns: u128,
-    pub uncached_cli_total_elapsed: Timing,
-    pub rebuild_persist_elapsed: Timing,
+    pub payload_bytes: usize,
+    pub initial_build_ready_elapsed_ns: u128,
+    pub rebuild_ready_elapsed: Timing,
     pub cache_hit_cli_elapsed: Timing,
-    pub immediate_request_wait_elapsed: Timing,
-    pub rebuild_peak_worker_rss_bytes: Option<u64>,
-    pub immediate_wait_peak_worker_rss_bytes: Option<u64>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct PresentationCacheRebuildGroupResult {
-    pub view_count: usize,
-    pub workload_ids: Vec<&'static str>,
-    pub rayon_threads_per_parallel_worker: Option<usize>,
-    pub sequential_elapsed: Timing,
-    pub parallel_unbounded_elapsed: Timing,
-    pub parallel_budgeted_elapsed: Timing,
-    pub parallel_unbounded_peak_worker_rss_bytes: Option<u64>,
-    pub parallel_budgeted_peak_worker_rss_bytes: Option<u64>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ObsoleteRebuildResult {
-    pub workload_id: &'static str,
-    pub old_generation: i64,
-    pub new_generation: i64,
-    pub obsolete_payload_generation: i64,
-    pub replacement_payload_generation: i64,
-    pub obsolete_cache_published: bool,
-    pub replacement_elapsed_ns: u128,
-    pub termination_elapsed_ns: u128,
+    pub uncached_cli_total_elapsed: Timing,
 }
 
 pub fn run(
     output: &Path,
     work_dir: &Path,
     orgfdb: &Path,
-    benchmark_executable: &Path,
     options: PresentationCacheBenchmarkOptions,
 ) -> Result<(), String> {
     validate_options(&options)?;
@@ -169,10 +130,15 @@ pub fn run(
     }
 
     let orgfdb = absolute_existing_path(orgfdb, "orgfdb binary")?;
-    let benchmark_executable =
-        absolute_existing_path(benchmark_executable, "cache benchmark executable")?;
     fs::create_dir_all(work_dir).map_err(|error| error.to_string())?;
     let work_dir = fs::canonicalize(work_dir).map_err(|error| error.to_string())?;
+    let runtime_dir = work_dir.join("runtime");
+    let cache_home = work_dir.join("cache-home");
+    fs::create_dir_all(&runtime_dir).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&cache_home).map_err(|error| error.to_string())?;
+    let _runtime_override = EnvironmentOverride::set("XDG_RUNTIME_DIR", &runtime_dir);
+    let _cache_override = EnvironmentOverride::set("XDG_CACHE_HOME", &cache_home);
+
     let presentation_work_dir = work_dir.join("presentation-corpus");
     prepare_benchmark_databases(&presentation_work_dir, &options.row_counts, 1)?;
 
@@ -181,9 +147,7 @@ pub fn run(
     for target_results in &options.row_counts {
         sizes.push(run_size(
             &presentation_work_dir,
-            &work_dir,
             &orgfdb,
-            &benchmark_executable,
             *target_results,
             &workloads,
             &options,
@@ -196,18 +160,13 @@ pub fn run(
         protocol: PresentationCacheBenchmarkProtocol {
             warmups: options.warmups,
             iterations: options.iterations,
-            group_iterations: options.group_iterations,
             row_counts: options.row_counts.clone(),
-            view_counts: options.view_counts.clone(),
-            cache_value: "complete presentation-json version 2 payload including trailing CLI newline",
-            rebuild_worker: "fresh benchmark worker process uses the production query and presentation pipeline",
-            persistence: "write a worker-specific temporary file, close it, then atomically rename it to the current cache path; no fsync",
-            cache_hit: "fresh benchmark process reads the materialized payload and writes it to stdout; parent captures stdout through a pipe; excludes future registry IPC",
-            wait_measurement: "request starts immediately after rebuild worker spawn, waits for rebuild completion, then performs one fresh-process cache hit",
-            cancellation: "obsolete worker writes a complete temporary payload and pauses before publish; parent advances the benchmark database generation, kills the worker, then rebuilds the newest generation",
-            worker_parallelism: "compare sequential workers, parallel workers with each default Rayon pool, and parallel workers with RAYON_NUM_THREADS divided across active views",
-            memory_measurement: "poll Linux /proc/<pid>/status VmRSS and record the maximum aggregate active-worker RSS; unavailable on other operating systems",
-            production_cache: "none; this benchmark does not add view registration, watcher cache state, or orgfdb view commands",
+            production_path: "real orgfdb watch process, production view control protocol, production rebuild workers, production cache store, and orgfdb view read",
+            rebuild_measurement: "remove the current benchmark registration outside each timing sample, then time registration of a new revision until the production control protocol reports the cache ready; includes rebuild worker and atomic cache persistence; excludes payload reading",
+            cache_hit_measurement: "fresh orgfdb view read process per sample; stdout is captured through a pipe and compared with the uncached presentation-json payload",
+            uncached_reference: "fresh orgfdb query --format presentation-json process per sample on the same database generation",
+            isolation: "benchmark-specific XDG_RUNTIME_DIR and XDG_CACHE_HOME below the work directory",
+            machine_comparison: "absolute timings are for same-machine regression and diagnosis; do not compare absolute timings across machines",
         },
         environment: PresentationCacheBenchmarkEnvironment {
             command_arguments: std::env::args().collect(),
@@ -222,7 +181,6 @@ pub fn run(
                 .ok()
                 .map(usize::from),
             orgfdb_path: orgfdb.display().to_string(),
-            benchmark_executable_path: benchmark_executable.display().to_string(),
         },
         sizes,
     };
@@ -242,9 +200,7 @@ pub fn run(
 
 fn run_size(
     presentation_work_dir: &Path,
-    work_dir: &Path,
     orgfdb: &Path,
-    benchmark_executable: &Path,
     target_results: usize,
     workloads: &[PresentationWorkload],
     options: &PresentationCacheBenchmarkOptions,
@@ -252,556 +208,165 @@ fn run_size(
     let size_dir = presentation_work_dir.join(format!("rows-{target_results}"));
     let db_path = size_dir.join("org-files-db.sqlite");
     let config_path = size_dir.join("org-files-db.toml");
-    let cache_dir = work_dir.join(format!("cache-rows-{target_results}"));
-    fs::create_dir_all(&cache_dir).map_err(|error| error.to_string())?;
+    let config = Config::load_from_file(&config_path).map_err(|error| error.to_string())?;
+    let state = read_state(&db_path)?;
+    let mut watcher = WatcherProcess::start(orgfdb, &config_path, &config)?;
 
-    let initial_state = read_state(&db_path)?;
-    let mut initial_builds = Vec::with_capacity(workloads.len());
-    for workload in workloads {
-        let cache_path = cache_dir.join(format!("{}.json", workload_file_name(workload.id)));
-        let measurement = run_rebuild_sample(
-            benchmark_executable,
-            &db_path,
-            *workload,
-            target_results,
-            &cache_path,
-            None,
-        )?;
-        initial_builds.push((*workload, cache_path, measurement));
-    }
-
-    let rebuild_generation = advance_benchmark_generation(&db_path)?;
-    if rebuild_generation <= initial_state.generation {
-        return Err("benchmark generation did not advance".into());
-    }
-
-    let mut workload_results = Vec::with_capacity(workloads.len());
-    for (workload, cache_path, initial_build) in initial_builds {
-        let mut rebuild_peak = None;
-        let rebuild_persist_elapsed = measure_process_operation(options, || {
-            let sample = run_rebuild_sample(
-                benchmark_executable,
-                &db_path,
-                workload,
-                target_results,
-                &cache_path,
-                None,
-            )?;
-            rebuild_peak = max_optional(rebuild_peak, sample.peak_rss_bytes);
-            Ok(())
-        })?;
-
-        let expected_payload = fs::read(&cache_path).map_err(|error| error.to_string())?;
-        let payload_bytes = expected_payload.len() as u64;
-        let cached_generation = payload_generation(&expected_payload)?;
-        if cached_generation != rebuild_generation {
-            return Err(format!(
-                "{} cache generation {cached_generation} differs from current generation {rebuild_generation}",
-                workload.id
-            ));
+    let measurement = (|| {
+        let mut results = Vec::with_capacity(workloads.len());
+        for workload in workloads {
+            results.push(measure_workload(
+                &config,
+                &config_path,
+                orgfdb,
+                *workload,
+                options,
+            )?);
         }
+        Ok(PresentationCacheSizeResult {
+            target_results,
+            database_id: state.database_id,
+            generation: state.generation,
+            workloads: results,
+        })
+    })();
 
-        let uncached_cli_total_elapsed = measure_process_operation(options, || {
-            let output = run_uncached_cli(orgfdb, &config_path, workload)?;
-            if output != expected_payload {
-                return Err(format!(
-                    "{} uncached CLI payload differs from the benchmark cache payload",
-                    workload.id
-                ));
-            }
-            Ok(())
-        })?;
-
-        let cache_hit_cli_elapsed = measure_process_operation(options, || {
-            let output = run_cache_hit(benchmark_executable, &cache_path)?;
-            if output != expected_payload {
-                return Err(format!(
-                    "{} cache-hit payload differs from the materialized payload",
-                    workload.id
-                ));
-            }
-            Ok(())
-        })?;
-
-        let mut wait_peak = None;
-        let immediate_request_wait_elapsed = measure_process_operation(options, || {
-            let sample = run_wait_sample(
-                benchmark_executable,
-                &db_path,
-                workload,
-                target_results,
-                &cache_path,
-                &expected_payload,
-            )?;
-            wait_peak = max_optional(wait_peak, sample.peak_rss_bytes);
-            Ok(())
-        })?;
-
-        workload_results.push(PresentationCacheWorkloadResult {
-            id: workload.id,
-            query: workload.query,
-            presentation_spec_json: workload.presentation_spec_json,
-            payload_bytes,
-            initial_build_persist_elapsed_ns: initial_build.elapsed.as_nanos(),
-            uncached_cli_total_elapsed,
-            rebuild_persist_elapsed,
-            cache_hit_cli_elapsed,
-            immediate_request_wait_elapsed,
-            rebuild_peak_worker_rss_bytes: rebuild_peak,
-            immediate_wait_peak_worker_rss_bytes: wait_peak,
-        });
+    let shutdown = watcher.shutdown();
+    match (measurement, shutdown) {
+        (Ok(result), Ok(())) => Ok(result),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(_), Err(error)) => Err(error),
+        (Err(error), Err(shutdown_error)) => Err(format!(
+            "{error}; watcher shutdown also failed: {shutdown_error}"
+        )),
     }
-
-    let rebuild_groups = measure_rebuild_groups(
-        benchmark_executable,
-        &db_path,
-        &cache_dir,
-        target_results,
-        workloads,
-        options,
-    )?;
-    let obsolete_rebuild = measure_obsolete_rebuild(
-        benchmark_executable,
-        &db_path,
-        &cache_dir,
-        target_results,
-        workloads[2],
-    )?;
-
-    Ok(PresentationCacheSizeResult {
-        target_results,
-        database_id: initial_state.database_id,
-        initial_generation: initial_state.generation,
-        rebuild_generation,
-        workloads: workload_results,
-        rebuild_groups,
-        obsolete_rebuild,
-    })
 }
 
-fn measure_rebuild_groups(
-    benchmark_executable: &Path,
-    db_path: &Path,
-    cache_dir: &Path,
-    target_results: usize,
-    workloads: &[PresentationWorkload],
+fn measure_workload(
+    config: &Config,
+    config_path: &Path,
+    orgfdb: &Path,
+    workload: PresentationWorkload,
     options: &PresentationCacheBenchmarkOptions,
-) -> Result<Vec<PresentationCacheRebuildGroupResult>, String> {
-    let available_cpus = std::thread::available_parallelism().ok().map(usize::from);
-    let mut groups = Vec::with_capacity(options.view_counts.len());
+) -> Result<PresentationCacheWorkloadResult, String> {
+    let expected_payload = run_uncached_cli(orgfdb, config_path, workload)?;
+    let definition = benchmark_view_definition(config, workload)?;
 
-    for view_count in &options.view_counts {
-        let selected = (0..*view_count)
-            .map(|index| workloads[index % workloads.len()])
-            .collect::<Vec<_>>();
-        let workload_ids = selected.iter().map(|workload| workload.id).collect();
-        let budgeted_threads = available_cpus.map(|cpus| (cpus / *view_count).max(1));
-
-        let sequential_elapsed = measure_group(options.group_iterations, || {
-            run_sequential_group(
-                benchmark_executable,
-                db_path,
-                cache_dir,
-                target_results,
-                &selected,
-            )
-        })?;
-
-        let mut unbounded_peak = None;
-        let parallel_unbounded_elapsed = measure_group(options.group_iterations, || {
-            let sample = run_parallel_group(
-                benchmark_executable,
-                db_path,
-                cache_dir,
-                target_results,
-                &selected,
-                None,
-                "unbounded",
-            )?;
-            unbounded_peak = max_optional(unbounded_peak, sample.peak_rss_bytes);
-            Ok(())
-        })?;
-
-        let mut budgeted_peak = None;
-        let parallel_budgeted_elapsed = measure_group(options.group_iterations, || {
-            let sample = run_parallel_group(
-                benchmark_executable,
-                db_path,
-                cache_dir,
-                target_results,
-                &selected,
-                budgeted_threads,
-                "budgeted",
-            )?;
-            budgeted_peak = max_optional(budgeted_peak, sample.peak_rss_bytes);
-            Ok(())
-        })?;
-
-        groups.push(PresentationCacheRebuildGroupResult {
-            view_count: *view_count,
-            workload_ids,
-            rayon_threads_per_parallel_worker: budgeted_threads,
-            sequential_elapsed,
-            parallel_unbounded_elapsed,
-            parallel_budgeted_elapsed,
-            parallel_unbounded_peak_worker_rss_bytes: unbounded_peak,
-            parallel_budgeted_peak_worker_rss_bytes: budgeted_peak,
-        });
-    }
-
-    Ok(groups)
-}
-
-fn run_sequential_group(
-    benchmark_executable: &Path,
-    db_path: &Path,
-    cache_dir: &Path,
-    target_results: usize,
-    workloads: &[PresentationWorkload],
-) -> Result<(), String> {
-    for (index, workload) in workloads.iter().enumerate() {
-        let cache_path = cache_dir.join(format!(
-            "group-sequential-{index}-{}.json",
-            workload_file_name(workload.id)
-        ));
-        run_rebuild_sample(
-            benchmark_executable,
-            db_path,
-            *workload,
-            target_results,
-            &cache_path,
-            None,
-        )?;
-    }
-    Ok(())
-}
-
-fn run_parallel_group(
-    benchmark_executable: &Path,
-    db_path: &Path,
-    cache_dir: &Path,
-    target_results: usize,
-    workloads: &[PresentationWorkload],
-    rayon_threads: Option<usize>,
-    label: &str,
-) -> Result<ProcessMeasurement, String> {
-    let start = Instant::now();
-    let mut workers = Vec::with_capacity(workloads.len());
-    for (index, workload) in workloads.iter().enumerate() {
-        let cache_path = cache_dir.join(format!(
-            "group-{label}-{index}-{}.json",
-            workload_file_name(workload.id)
-        ));
-        workers.push(spawn_rebuild_worker(
-            benchmark_executable,
-            db_path,
-            *workload,
-            target_results,
-            &cache_path,
-            RebuildWorkerOptions {
-                rayon_threads,
-                ..RebuildWorkerOptions::default()
-            },
-        )?);
-    }
-    let peak_rss_bytes = wait_for_workers(&mut workers)?;
-    Ok(ProcessMeasurement {
-        elapsed: start.elapsed(),
-        peak_rss_bytes,
-    })
-}
-
-fn measure_obsolete_rebuild(
-    benchmark_executable: &Path,
-    db_path: &Path,
-    cache_dir: &Path,
-    target_results: usize,
-    workload: PresentationWorkload,
-) -> Result<ObsoleteRebuildResult, String> {
-    let cache_path = cache_dir.join("obsolete-generation.json");
-    let marker_path = cache_dir.join("obsolete-generation.ready");
-    remove_if_exists(&cache_path)?;
-    remove_if_exists(&marker_path)?;
-
-    let old_generation = read_state(db_path)?.generation;
-    let mut worker = spawn_rebuild_worker(
-        benchmark_executable,
-        db_path,
-        workload,
-        target_results,
-        &cache_path,
-        RebuildWorkerOptions {
-            ready_marker: Some(&marker_path),
-            publish_delay: Duration::from_millis(DEFAULT_CANCEL_PUBLISH_DELAY_MS),
-            ..RebuildWorkerOptions::default()
-        },
-    )?;
-    wait_for_marker(&mut worker, &marker_path, Duration::from_secs(60))?;
-
-    let temp_path = cache_temp_path(&cache_path, worker.child.id());
-    let obsolete_payload = fs::read(&temp_path).map_err(|error| error.to_string())?;
-    let obsolete_payload_generation = payload_generation(&obsolete_payload)?;
-    if obsolete_payload_generation != old_generation {
-        return Err(format!(
-            "obsolete worker payload generation {obsolete_payload_generation} differs from expected generation {old_generation}"
-        ));
-    }
-
-    let new_generation = advance_benchmark_generation(db_path)?;
-    let termination_start = Instant::now();
-    worker.child.kill().map_err(|error| error.to_string())?;
-    let status = worker.child.wait().map_err(|error| error.to_string())?;
-    let termination_elapsed = termination_start.elapsed();
-    if status.success() {
-        return Err("obsolete worker unexpectedly exited successfully after kill".into());
-    }
-    remove_if_exists(&marker_path)?;
-    remove_if_exists(&temp_path)?;
-    let obsolete_cache_published = cache_path.exists();
-    if obsolete_cache_published {
-        return Err(
-            "obsolete worker published a cache after the database generation changed".into(),
-        );
-    }
-
-    let replacement_start = Instant::now();
-    run_rebuild_sample(
-        benchmark_executable,
-        db_path,
-        workload,
-        target_results,
-        &cache_path,
-        None,
-    )?;
-    let replacement_elapsed = replacement_start.elapsed();
-    let replacement_payload = fs::read(&cache_path).map_err(|error| error.to_string())?;
-    let replacement_payload_generation = payload_generation(&replacement_payload)?;
-    if replacement_payload_generation != new_generation {
-        return Err(format!(
-            "replacement payload generation {replacement_payload_generation} differs from current generation {new_generation}"
-        ));
-    }
-
-    Ok(ObsoleteRebuildResult {
-        workload_id: workload.id,
-        old_generation,
-        new_generation,
-        obsolete_payload_generation,
-        replacement_payload_generation,
-        obsolete_cache_published,
-        replacement_elapsed_ns: replacement_elapsed.as_nanos(),
-        termination_elapsed_ns: termination_elapsed.as_nanos(),
-    })
-}
-
-fn wait_for_marker(
-    worker: &mut RunningWorker,
-    marker_path: &Path,
-    timeout: Duration,
-) -> Result<(), String> {
-    let start = Instant::now();
-    loop {
-        if marker_path.is_file() {
-            return Ok(());
-        }
-        if let Some(status) = worker.child.try_wait().map_err(|error| error.to_string())? {
-            let stderr = read_child_stderr(&mut worker.child);
-            return Err(format!(
-                "{} exited before the publish marker with {status}: {stderr}",
-                worker.label
-            ));
-        }
-        if start.elapsed() >= timeout {
-            let _ = worker.child.kill();
-            let _ = worker.child.wait();
-            return Err(format!(
-                "{} did not reach the publish marker within {} ms",
-                worker.label,
-                timeout.as_millis()
-            ));
-        }
-        thread::sleep(Duration::from_millis(DEFAULT_POLL_INTERVAL_MS));
-    }
-}
-
-fn advance_benchmark_generation(db_path: &Path) -> Result<i64, String> {
-    let mut connection = open_database_with_schema(
-        db_path,
-        &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
-    )
-    .map_err(|error| error.to_string())?;
-    let transaction = connection
-        .transaction()
+    let initial_start = Instant::now();
+    let registration = register_presentation_view(config, definition.clone())
         .map_err(|error| error.to_string())?;
-    advance_index_generation(&transaction, &IndexGenerationChange::full_invalidation())
+    let ticket = wait_for_presentation_view(config, definition.name.clone())
         .map_err(|error| error.to_string())?;
-    transaction.commit().map_err(|error| error.to_string())?;
-    Ok(read_state(db_path)?.generation)
-}
-
-fn read_state(db_path: &Path) -> Result<crate::db::index_state::IndexState, String> {
-    let connection =
-        open_existing_database_read_only(db_path).map_err(|error| error.to_string())?;
-    read_index_state(&connection).map_err(|error| error.to_string())
-}
-
-fn run_rebuild_sample(
-    benchmark_executable: &Path,
-    db_path: &Path,
-    workload: PresentationWorkload,
-    target_results: usize,
-    cache_path: &Path,
-    rayon_threads: Option<usize>,
-) -> Result<ProcessMeasurement, String> {
-    let start = Instant::now();
-    let worker = spawn_rebuild_worker(
-        benchmark_executable,
-        db_path,
-        workload,
-        target_results,
-        cache_path,
-        RebuildWorkerOptions {
-            rayon_threads,
-            ..RebuildWorkerOptions::default()
-        },
-    )?;
-    let mut workers = vec![worker];
-    let peak_rss_bytes = wait_for_workers(&mut workers)?;
-    Ok(ProcessMeasurement {
-        elapsed: start.elapsed(),
-        peak_rss_bytes,
-    })
-}
-
-fn run_wait_sample(
-    benchmark_executable: &Path,
-    db_path: &Path,
-    workload: PresentationWorkload,
-    target_results: usize,
-    cache_path: &Path,
-    expected_payload: &[u8],
-) -> Result<ProcessMeasurement, String> {
-    remove_if_exists(cache_path)?;
-    let start = Instant::now();
-    let worker = spawn_rebuild_worker(
-        benchmark_executable,
-        db_path,
-        workload,
-        target_results,
-        cache_path,
-        RebuildWorkerOptions::default(),
-    )?;
-    let mut workers = vec![worker];
-    let peak_rss_bytes = wait_for_workers(&mut workers)?;
-    let output = run_cache_hit(benchmark_executable, cache_path)?;
-    if output != expected_payload {
+    if ticket.view.revision != registration.revision {
         return Err(format!(
-            "{} waited cache-hit payload differs from the expected payload",
+            "{} initial cache revision changed while it was building",
             workload.id
         ));
     }
-    Ok(ProcessMeasurement {
-        elapsed: start.elapsed(),
-        peak_rss_bytes,
+    let initial_build_ready_elapsed_ns = initial_start.elapsed().as_nanos();
+
+    let initial_cached_payload = run_cache_hit(orgfdb, config_path, &definition.name)?;
+    ensure_payload_equal(workload.id, &expected_payload, &initial_cached_payload)?;
+
+    for _ in 0..options.warmups {
+        let _ = rebuild_view(config, &definition, workload.id)?;
+    }
+    let rebuild_ready_elapsed =
+        measure_rebuilds(config, &definition, workload.id, options.iterations)?;
+
+    for _ in 0..options.warmups {
+        let payload = run_cache_hit(orgfdb, config_path, &definition.name)?;
+        ensure_payload_equal(workload.id, &expected_payload, &payload)?;
+    }
+    let cache_hit_cli_elapsed = measure_operation(options.iterations, || {
+        let payload = run_cache_hit(orgfdb, config_path, &definition.name)?;
+        ensure_payload_equal(workload.id, &expected_payload, &payload)
+    })?;
+
+    for _ in 0..options.warmups {
+        let payload = run_uncached_cli(orgfdb, config_path, workload)?;
+        ensure_payload_equal(workload.id, &expected_payload, &payload)?;
+    }
+    let uncached_cli_total_elapsed = measure_operation(options.iterations, || {
+        let payload = run_uncached_cli(orgfdb, config_path, workload)?;
+        ensure_payload_equal(workload.id, &expected_payload, &payload)
+    })?;
+
+    Ok(PresentationCacheWorkloadResult {
+        id: workload.id,
+        query: workload.query,
+        presentation_spec_json: workload.presentation_spec_json,
+        payload_bytes: expected_payload.len(),
+        initial_build_ready_elapsed_ns,
+        rebuild_ready_elapsed,
+        cache_hit_cli_elapsed,
+        uncached_cli_total_elapsed,
     })
 }
 
-#[derive(Default)]
-struct RebuildWorkerOptions<'a> {
-    rayon_threads: Option<usize>,
-    ready_marker: Option<&'a Path>,
-    publish_delay: Duration,
+fn rebuild_view(
+    config: &Config,
+    definition: &PresentationViewDefinition,
+    workload_id: &str,
+) -> Result<Duration, String> {
+    let removal = remove_presentation_view(config, definition.name.clone())
+        .map_err(|error| error.to_string())?;
+    if !removal.removed {
+        return Err(format!(
+            "{workload_id} benchmark view was not registered before rebuild"
+        ));
+    }
+
+    let start = Instant::now();
+    let registration = register_presentation_view(config, definition.clone())
+        .map_err(|error| error.to_string())?;
+    let ticket = wait_for_presentation_view(config, definition.name.clone())
+        .map_err(|error| error.to_string())?;
+    if ticket.view.revision != registration.revision {
+        return Err(format!(
+            "{workload_id} cache revision changed while it was rebuilding"
+        ));
+    }
+    Ok(start.elapsed())
 }
 
-fn spawn_rebuild_worker(
-    benchmark_executable: &Path,
-    db_path: &Path,
+fn measure_rebuilds(
+    config: &Config,
+    definition: &PresentationViewDefinition,
+    workload_id: &str,
+    iterations: usize,
+) -> Result<Timing, String> {
+    let mut samples = Vec::with_capacity(iterations);
+    for _ in 0..iterations {
+        samples.push(rebuild_view(config, definition, workload_id)?);
+    }
+    Ok(timing(&mut samples))
+}
+
+fn benchmark_view_definition(
+    config: &Config,
     workload: PresentationWorkload,
-    target_results: usize,
-    cache_path: &Path,
-    options: RebuildWorkerOptions<'_>,
-) -> Result<RunningWorker, String> {
-    let mut command = Command::new(benchmark_executable);
-    command
-        .arg("__worker-build")
-        .arg("--db")
-        .arg(db_path)
-        .arg("--workload")
-        .arg(workload.id)
-        .arg("--expected-results")
-        .arg(target_results.to_string())
-        .arg("--cache-file")
-        .arg(cache_path)
-        .arg("--publish-delay-ms")
-        .arg(options.publish_delay.as_millis().to_string())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-    if let Some(marker) = options.ready_marker {
-        command.arg("--ready-marker").arg(marker);
-    }
-    if let Some(threads) = options.rayon_threads {
-        command.env("RAYON_NUM_THREADS", threads.to_string());
-    }
-    let child = command.spawn().map_err(|error| error.to_string())?;
-    Ok(RunningWorker {
-        label: format!("rebuild worker {}", workload.id),
-        child,
-        done: false,
+) -> Result<PresentationViewDefinition, String> {
+    let presentation_spec =
+        serde_json::from_str(workload.presentation_spec_json).map_err(|error| error.to_string())?;
+    Ok(PresentationViewDefinition {
+        name: format!("benchmark-{}", workload.id.replace('.', "-")),
+        query: workload.query.to_string(),
+        output: PresentationViewOutputMode::Flat,
+        includes: Vec::<PresentationViewInclude>::new(),
+        query_timezone: config.query.timezone.clone(),
+        relative_date_dependent: false,
+        presentation_spec,
     })
 }
 
-fn wait_for_workers(workers: &mut [RunningWorker]) -> Result<Option<u64>, String> {
-    let mut peak_rss_bytes = None;
-    loop {
-        let mut active = 0usize;
-        let mut current_rss = 0u64;
-        let mut has_rss = false;
-
-        for worker in workers.iter_mut().filter(|worker| !worker.done) {
-            match worker.child.try_wait().map_err(|error| error.to_string())? {
-                Some(status) => {
-                    worker.done = true;
-                    if !status.success() {
-                        let stderr = read_child_stderr(&mut worker.child);
-                        return Err(format!("{} failed with {status}: {stderr}", worker.label));
-                    }
-                }
-                None => {
-                    active += 1;
-                    if let Some(rss) = read_process_rss_bytes(worker.child.id()) {
-                        current_rss = current_rss.saturating_add(rss);
-                        has_rss = true;
-                    }
-                }
-            }
-        }
-
-        if has_rss {
-            peak_rss_bytes = Some(peak_rss_bytes.unwrap_or(0).max(current_rss));
-        }
-        if active == 0 {
-            return Ok(peak_rss_bytes);
-        }
-        thread::sleep(Duration::from_millis(DEFAULT_POLL_INTERVAL_MS));
+fn ensure_payload_equal(id: &str, expected: &[u8], actual: &[u8]) -> Result<(), String> {
+    if actual != expected {
+        return Err(format!(
+            "{id} cached presentation payload differs from the uncached production payload"
+        ));
     }
-}
-
-fn read_child_stderr(child: &mut Child) -> String {
-    let mut stderr = String::new();
-    if let Some(mut stream) = child.stderr.take() {
-        let _ = stream.read_to_string(&mut stderr);
-    }
-    stderr.trim().to_string()
-}
-
-fn read_process_rss_bytes(pid: u32) -> Option<u64> {
-    if !cfg!(target_os = "linux") {
-        return None;
-    }
-    let status = fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
-    let line = status.lines().find(|line| line.starts_with("VmRSS:"))?;
-    let kib = line.split_whitespace().nth(1)?.parse::<u64>().ok()?;
-    kib.checked_mul(1024)
+    Ok(())
 }
 
 fn run_uncached_cli(
@@ -833,16 +398,16 @@ fn run_uncached_cli(
     Ok(output.stdout)
 }
 
-fn run_cache_hit(benchmark_executable: &Path, cache_path: &Path) -> Result<Vec<u8>, String> {
-    let output = Command::new(benchmark_executable)
-        .arg("__worker-hit")
-        .arg("--cache-file")
-        .arg(cache_path)
+fn run_cache_hit(orgfdb: &Path, config_path: &Path, name: &str) -> Result<Vec<u8>, String> {
+    let output = Command::new(orgfdb)
+        .args(["view", "read", "--config"])
+        .arg(config_path)
+        .arg(name)
         .output()
         .map_err(|error| error.to_string())?;
     if !output.status.success() {
         return Err(format!(
-            "cache-hit worker failed with {}: {}",
+            "cache-hit CLI sample failed with {}: {}",
             output.status,
             String::from_utf8_lossy(&output.stderr)
         ));
@@ -850,85 +415,13 @@ fn run_cache_hit(benchmark_executable: &Path, cache_path: &Path) -> Result<Vec<u
     Ok(output.stdout)
 }
 
-pub fn run_build_worker(
-    db_path: &Path,
-    workload_id: &str,
-    expected_results: usize,
-    cache_path: &Path,
-    ready_marker: Option<&Path>,
-    publish_delay: Duration,
-) -> Result<(), String> {
-    let workload = workload_by_id(workload_id)?;
-    if let Some(parent) = cache_path.parent() {
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
-    let response = load_workload_response(db_path, workload, expected_results)?;
-    let mut payload = serde_json::to_vec(&response).map_err(|error| error.to_string())?;
-    payload.push(b'\n');
-
-    let temp_path = cache_temp_path(cache_path, std::process::id());
-    remove_if_exists(&temp_path)?;
-    let mut file = File::create(&temp_path).map_err(|error| error.to_string())?;
-    file.write_all(&payload)
-        .map_err(|error| error.to_string())?;
-    file.flush().map_err(|error| error.to_string())?;
-    drop(file);
-
-    if let Some(marker) = ready_marker {
-        fs::write(marker, response.generation.to_string()).map_err(|error| error.to_string())?;
-    }
-    if !publish_delay.is_zero() {
-        thread::sleep(publish_delay);
-    }
-    fs::rename(&temp_path, cache_path).map_err(|error| error.to_string())?;
-    Ok(())
+fn read_state(db_path: &Path) -> Result<crate::db::index_state::IndexState, String> {
+    let connection =
+        open_existing_database_read_only(db_path).map_err(|error| error.to_string())?;
+    read_index_state(&connection).map_err(|error| error.to_string())
 }
 
-pub fn run_hit_worker(cache_path: &Path) -> Result<(), String> {
-    let mut file = File::open(cache_path).map_err(|error| error.to_string())?;
-    let stdout = io::stdout();
-    let mut handle = stdout.lock();
-    io::copy(&mut file, &mut handle).map_err(|error| error.to_string())?;
-    handle.flush().map_err(|error| error.to_string())
-}
-
-fn cache_temp_path(cache_path: &Path, pid: u32) -> PathBuf {
-    let file_name = cache_path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("view-cache");
-    cache_path.with_file_name(format!(".{file_name}.tmp-{pid}"))
-}
-
-fn payload_generation(payload: &[u8]) -> Result<i64, String> {
-    let value: serde_json::Value =
-        serde_json::from_slice(payload).map_err(|error| error.to_string())?;
-    value
-        .get("generation")
-        .and_then(serde_json::Value::as_i64)
-        .ok_or_else(|| "presentation payload does not contain an integer generation".to_string())
-}
-
-fn measure_process_operation<F>(
-    options: &PresentationCacheBenchmarkOptions,
-    mut operation: F,
-) -> Result<Timing, String>
-where
-    F: FnMut() -> Result<(), String>,
-{
-    for _ in 0..options.warmups {
-        operation()?;
-    }
-    let mut samples = Vec::with_capacity(options.iterations);
-    for _ in 0..options.iterations {
-        let start = Instant::now();
-        operation()?;
-        samples.push(start.elapsed());
-    }
-    Ok(timing(&mut samples))
-}
-
-fn measure_group<F>(iterations: usize, mut operation: F) -> Result<Timing, String>
+fn measure_operation<F>(iterations: usize, mut operation: F) -> Result<Timing, String>
 where
     F: FnMut() -> Result<(), String>,
 {
@@ -970,10 +463,6 @@ fn workload_by_id(id: &str) -> Result<PresentationWorkload, String> {
         .ok_or_else(|| format!("unknown presentation benchmark workload {id:?}"))
 }
 
-fn workload_file_name(id: &str) -> String {
-    id.replace('.', "-")
-}
-
 fn absolute_existing_path(path: &Path, label: &str) -> Result<PathBuf, String> {
     if !path.exists() {
         return Err(format!("{label} does not exist: {}", path.display()));
@@ -981,56 +470,147 @@ fn absolute_existing_path(path: &Path, label: &str) -> Result<PathBuf, String> {
     fs::canonicalize(path).map_err(|error| error.to_string())
 }
 
-fn remove_if_exists(path: &Path) -> Result<(), String> {
-    match fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error.to_string()),
-    }
-}
-
-fn max_optional(left: Option<u64>, right: Option<u64>) -> Option<u64> {
-    match (left, right) {
-        (Some(left), Some(right)) => Some(left.max(right)),
-        (Some(value), None) | (None, Some(value)) => Some(value),
-        (None, None) => None,
-    }
-}
-
 fn validate_options(options: &PresentationCacheBenchmarkOptions) -> Result<(), String> {
     if options.row_counts.is_empty() || options.row_counts.contains(&0) {
         return Err("benchmark row counts must be positive".into());
     }
-    if options.view_counts.is_empty() || options.view_counts.contains(&0) {
-        return Err("benchmark view counts must be positive".into());
-    }
     if options.iterations == 0 {
         return Err("benchmark iterations must be positive".into());
-    }
-    if options.group_iterations == 0 {
-        return Err("benchmark group iterations must be positive".into());
     }
     Ok(())
 }
 
-struct ProcessMeasurement {
-    elapsed: Duration,
-    peak_rss_bytes: Option<u64>,
+struct EnvironmentOverride {
+    name: &'static str,
+    previous: Option<OsString>,
 }
 
-struct RunningWorker {
-    label: String,
+impl EnvironmentOverride {
+    fn set(name: &'static str, value: &Path) -> Self {
+        let previous = std::env::var_os(name);
+        std::env::set_var(name, value);
+        Self { name, previous }
+    }
+}
+
+impl Drop for EnvironmentOverride {
+    fn drop(&mut self) {
+        if let Some(previous) = &self.previous {
+            std::env::set_var(self.name, previous);
+        } else {
+            std::env::remove_var(self.name);
+        }
+    }
+}
+
+struct WatcherProcess {
     child: Child,
-    done: bool,
+    stopped: bool,
+}
+
+impl WatcherProcess {
+    fn start(orgfdb: &Path, config_path: &Path, config: &Config) -> Result<Self, String> {
+        let child = Command::new(orgfdb)
+            .args(["watch", "--config"])
+            .arg(config_path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        let mut process = Self {
+            child,
+            stopped: false,
+        };
+        process.wait_until_ready(config)?;
+        Ok(process)
+    }
+
+    fn wait_until_ready(&mut self, config: &Config) -> Result<(), String> {
+        let start = Instant::now();
+        loop {
+            if let Some(status) = self.child.try_wait().map_err(|error| error.to_string())? {
+                self.stopped = true;
+                let stderr = read_child_stderr(&mut self.child);
+                return Err(format!(
+                    "orgfdb watch exited before view control became ready with {status}: {stderr}"
+                ));
+            }
+
+            match show_presentation_view(config, "__benchmark_ready_probe__".to_string()) {
+                Err(ViewControlClientError::Remote { code, .. }) if code == "view_not_found" => {
+                    return Ok(())
+                }
+                Ok(_) => {
+                    return Err(
+                        "benchmark readiness probe unexpectedly found a registered view".into(),
+                    )
+                }
+                Err(_) if start.elapsed() < WATCHER_READY_TIMEOUT => {
+                    thread::sleep(WATCHER_READY_POLL_INTERVAL);
+                }
+                Err(error) => {
+                    return Err(format!(
+                        "orgfdb watch did not make view control ready within {} seconds: {error}",
+                        WATCHER_READY_TIMEOUT.as_secs()
+                    ))
+                }
+            }
+        }
+    }
+
+    fn shutdown(&mut self) -> Result<(), String> {
+        if self.stopped {
+            return Ok(());
+        }
+        if self
+            .child
+            .try_wait()
+            .map_err(|error| error.to_string())?
+            .is_none()
+        {
+            let status = Command::new("kill")
+                .arg("-TERM")
+                .arg(self.child.id().to_string())
+                .status()
+                .map_err(|error| error.to_string())?;
+            if !status.success() {
+                return Err(format!(
+                    "failed to send SIGTERM to orgfdb watch process {}",
+                    self.child.id()
+                ));
+            }
+        }
+        let status = self.child.wait().map_err(|error| error.to_string())?;
+        self.stopped = true;
+        if !status.success() {
+            let stderr = read_child_stderr(&mut self.child);
+            return Err(format!("orgfdb watch exited with {status}: {stderr}"));
+        }
+        Ok(())
+    }
+}
+
+impl Drop for WatcherProcess {
+    fn drop(&mut self) {
+        if !self.stopped {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+            self.stopped = true;
+        }
+    }
+}
+
+fn read_child_stderr(child: &mut Child) -> String {
+    let mut stderr = String::new();
+    if let Some(mut stream) = child.stderr.take() {
+        let _ = stream.read_to_string(&mut stderr);
+    }
+    stderr.trim().to_string()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        cache_temp_path, max_optional, representative_workloads, validate_options,
-        PresentationCacheBenchmarkOptions,
-    };
-    use std::path::Path;
+    use super::{representative_workloads, validate_options, PresentationCacheBenchmarkOptions};
 
     #[test]
     fn representative_workloads_exist() {
@@ -1049,31 +629,9 @@ mod tests {
         assert!(validate_options(&options).is_err());
 
         let options = PresentationCacheBenchmarkOptions {
-            view_counts: vec![1, 0],
-            ..PresentationCacheBenchmarkOptions::default()
-        };
-        assert!(validate_options(&options).is_err());
-
-        let options = PresentationCacheBenchmarkOptions {
             iterations: 0,
             ..PresentationCacheBenchmarkOptions::default()
         };
         assert!(validate_options(&options).is_err());
-    }
-
-    #[test]
-    fn cache_temp_path_is_worker_specific() {
-        assert_eq!(
-            cache_temp_path(Path::new("/tmp/view.json"), 42),
-            Path::new("/tmp/.view.json.tmp-42")
-        );
-    }
-
-    #[test]
-    fn optional_max_preserves_available_measurements() {
-        assert_eq!(max_optional(Some(5), Some(9)), Some(9));
-        assert_eq!(max_optional(Some(5), None), Some(5));
-        assert_eq!(max_optional(None, Some(9)), Some(9));
-        assert_eq!(max_optional(None, None), None);
     }
 }

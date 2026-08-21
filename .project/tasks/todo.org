@@ -912,100 +912,13 @@ Task file: [[./2026-08-21--add-presentation-view-session-cleanup-cache-recovery.
 
 Task file: [[./2026-08-20--add-relative-date-refresh-for-cached-presentation-views.org][Add Relative-Date Refresh for Cached Presentation Views]]
 
-* TODO Review and prune presentation benchmark infrastructure
+* DONE Review and prune presentation benchmark infrastructure
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Start this task after all presentation performance and cache implementation tasks are complete.
+Task file: [[./2026-08-21--review-prune-presentation-benchmark-infrastructure.org][Review and Prune Presentation Benchmark Infrastructure]]
 
-Complete this task before the final presentation architecture documentation.
-
-Goal: keep useful long-term performance coverage and remove benchmark code that only supported completed design decisions.
-
-Use the final production implementation as the baseline.
-
-Review all presentation-related benchmark code, binaries, feature flags, fixtures, output schemas, scripts, and documentation.
-
-Classify each benchmark component as one of:
-
-- keep as a long-term regression benchmark
-- keep as a reusable diagnostic benchmark
-- remove because it only supports a completed A/B decision
-- simplify because the production implementation no longer needs both comparison paths
-
-Keep benchmarks that protect important production behavior.
-
-Examples include benchmarks that can detect regressions in:
-
-- database query execution
-- presentation processing
-- sorting
-- row expansion
-- JSON serialization
-- full CLI latency
-- presentation cache rebuild cost
-- presentation cache hit cost
-
-Do not keep obsolete A/B implementations only to preserve historical comparisons.
-
-Remove comparison paths when all of these conditions apply:
-
-- the production strategy is final
-- the alternative strategy is rejected
-- the comparison is already documented
-- the alternative has no expected future diagnostic value
-
-Keep historical benchmark results in documentation when they explain an implemented decision.
-
-Do not require executable benchmark code only to reproduce every historical comparison.
-
-Review feature-gated benchmark modules carefully.
-
-Remove benchmark-only production hooks when no retained benchmark needs them.
-
-Do not change production behavior as part of this task.
-
-Do not make unrelated benchmark or architecture changes.
-
-Keep benchmark commands clear and reproducible.
-
-For each retained benchmark, document:
-
-- what it measures
-- why it remains useful
-- which production behavior it protects
-- the main command to run it
-- whether its results can be compared across machines
-
-Remove obsolete benchmark documentation together with obsolete benchmark code.
-
-Update ~docs/presentation-performance.org~ so that it distinguishes:
-
-- retained regression benchmarks
-- retained diagnostic benchmarks
-- historical measurements from completed design decisions
-
-Do not present removed A/B paths as current benchmark strategies.
-
-Run the retained presentation benchmarks if code changes can affect their operation.
-
-A full new performance study is not required unless cleanup changes benchmark behavior.
-
-Acceptance criteria:
-
-- Every presentation benchmark has a clear long-term purpose.
-- Obsolete one-time A/B benchmark paths are removed.
-- Rejected production alternatives do not remain only for historical benchmarking.
-- Useful regression benchmarks remain available.
-- Useful diagnostic benchmarks remain available.
-- Historical performance evidence remains documented where it explains current architecture.
-- Benchmark-only production hooks remain only when a retained benchmark needs them.
-- Retained benchmark commands are documented and reproducible.
-- Production presentation and cache behavior stays unchanged.
-- ~docs/presentation-performance.org~ matches the retained benchmark infrastructure.
-- ~make ci~ passes.
-  
 * TODO Finalize presentation architecture documentation
 :PROPERTIES:
 :VISIBILITY: folded
