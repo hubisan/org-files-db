@@ -10,13 +10,7 @@ This file contains active tasks only.
 - Later phases and backlog: [[./roadmap.org][roadmap.org]]
 - Completed and cancelled tasks: [[./archive/todo-archive.org][todo-archive.org]]
 
-* TODO Auto rename > resolve link mode
-
-* REVIEW Clean up task index and archive completed work
-
-Task file: [[./2026-08-21--clean-up-task-index.org][Clean Up Task Index]]
-
-* Completed so far
+* DONE Completed so far
 
 All completed and cancelled tasks are in [[./archive/todo-archive.org][todo-archive.org]].
 
