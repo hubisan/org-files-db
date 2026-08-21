@@ -9,7 +9,9 @@ orgfdb query --format json QUERY
 
 This contract remains the compatibility interface for existing structural-query clients.
 
-Planned presentation output is a separate opt-in format. It does not replace or modify this JSON contract.
+Presentation output is a separate opt-in format. It does not replace or modify this JSON contract.
+
+Read [[./presentation.org][Presentation Output Reference]] for that interface.
 
 * Contract scope
 

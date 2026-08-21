@@ -118,7 +118,7 @@ Read [[./docs/config.org][docs/config.org]] for all supported keys and defaults.
 
 The existing ~orgfdb query --format json~ contract is stable. The query-specific ~presentation-json~ format provides opt-in prepared rows and does not replace this contract.
 
-Read [[./docs/reference/query-json.org][Query JSON Contract]] for the structural query response format.
+Read [[./docs/reference/query-json.org][Query JSON Contract]] for normal query JSON. Read [[./docs/reference/presentation.org][Presentation Output Reference]] for the opt-in presentation interface.
 
 * Documentation
 
@@ -130,6 +130,7 @@ User references:
 - [[./docs/config.org][Configuration Reference]]
 - [[./docs/reference/query-language.org][Structural Query Language]]
 - [[./docs/reference/query-json.org][Query JSON Contract]]
+- [[./docs/reference/presentation.org][Presentation Output Reference]]
 
 Contributor references:
 
@@ -138,10 +139,6 @@ Contributor references:
 - [[./docs/design/index-generations-and-changes.org][Index Generations and Changes]]
 - [[./docs/design/parser-risks.org][Parser Risks]]
 - [[./docs/performance-baseline.org][Performance Baseline]]
-
-Planned work:
-
-- [[./docs/design/presentation.org][Presentation Output Design]]
 
 * Development
 

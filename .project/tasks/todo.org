@@ -919,68 +919,13 @@ Task file: [[./2026-08-20--add-relative-date-refresh-for-cached-presentation-vie
 
 Task file: [[./2026-08-21--review-prune-presentation-benchmark-infrastructure.org][Review and Prune Presentation Benchmark Infrastructure]]
 
-* TODO Finalize presentation architecture documentation
+* DONE Finalize presentation architecture documentation
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Start this task after the presentation implementation and performance decisions are complete.
+Task file: [[./2026-08-21--finalize-presentation-architecture-documentation.org][Finalize Presentation Architecture Documentation]]
 
-Document the implemented system instead of the earlier design proposal.
-
-Use the current code and public CLI behavior as the source of truth.
-
-Update:
-
-- CLI presentation usage
-- ~PresentationSpec~
-- supported columns
-- semantic roles
-- result representation
-- row representation
-- cell representation
-- row expansion
-- include inference
-- sorting
-- width behavior
-- truncation behavior
-- padding behavior
-- presentation JSON representation
-- compatibility guarantees
-- performance observations
-- parallel execution decision
-- cache decision
-
-Retain this compatibility guarantee clearly:
-
-#+begin_src sh
-orgfdb query --format json ...
-#+end_src
-
-The command keeps its existing JSON contract.
-
-Remove design text that no longer describes the implementation.
-
-Mark historical alternatives clearly if they remain useful.
-
-Do not present rejected alternatives as current architecture.
-
-Use public examples that run against the implemented CLI.
-
-Verify each example against the current command-line interface.
-
-Acceptance criteria:
-
-- Current documentation describes the implemented presentation architecture.
-- Planned sections become implementation documentation where appropriate.
-- Rejected alternatives are not presented as current architecture.
-- Public examples run against the implemented CLI.
-- Presentation JSON semantics match the implemented serializer.
-- The normal JSON compatibility guarantee is explicit.
-- Performance documentation matches the final measured strategies.
-- The Emacs client has one stable documented interface to implement against.
-- ~make ci~ passes.
-  
 * TODO Auto rename > resolve link mode
 
 The watcher automatically fixes links upon renaming files (filename, dir, path). This would be cool, no more having to worry about this. Should be a configuration option in the toml.

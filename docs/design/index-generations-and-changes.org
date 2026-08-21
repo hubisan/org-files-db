@@ -3,7 +3,7 @@
 
 This document describes the committed index-state and affected-file journal. External clients can use this data to detect database changes.
 
-This document does not define the planned presentation cache architecture. The planned presentation path starts without a cache.
+This document does not define the registered presentation cache. That cache uses committed generations as rebuild targets and does not patch payloads from this journal.
 
 * Consistency model
 
@@ -206,7 +206,7 @@ Examples that can require a complete rerun include:
 
 The client owns this higher-level decision.
 
-The planned presentation architecture does not use this mechanism initially. Benchmarks will determine whether presentation caching is necessary.
+Registered presentation views do not patch caches from this journal. The watcher rebuilds each affected registered view for the new generation.
 
 * Refresh races
 

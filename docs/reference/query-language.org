@@ -3,7 +3,7 @@
 
 ~orgfdb query~ uses a small Lisp-like language for structural queries over indexed Org data.
 
-This document describes the current implemented language. It does not describe planned presentation output or FTS5 search.
+This document describes the current implemented language. It does not describe presentation output or FTS5 search.
 
 * Quick examples
 

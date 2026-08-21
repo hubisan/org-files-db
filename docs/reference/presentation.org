@@ -1,0 +1,751 @@
+#+TITLE: Presentation Output Reference
+#+STARTUP: showall
+
+This document describes the current presentation interface for structural queries.
+
+The interface has two public paths:
+
+- one-shot ~orgfdb query --format presentation-json~ output
+- session-local materialized views through ~orgfdb view~
+
+Rust prepares UI-independent rows, layout text, and semantic roles.
+
+Clients keep UI-specific styling and actions outside the presentation specification.
+
+* Compatibility boundary
+
+The existing structural-query JSON interface remains unchanged:
+
+#+begin_src sh
+orgfdb query --format json ...
+#+end_src
+
+For example:
+
+#+begin_src sh
+orgfdb query --format json '(headings)'
+#+end_src
+
+~presentation-json~ is a separate opt-in representation.
+
+It does not replace the normal query JSON contract.
+
+Read [[./query-json.org][Query JSON Contract]] for the stable normal query response.
+
+* Public CLI paths
+
+** One-shot presentation query
+
+Use ~presentation-json~ when a client needs prepared presentation rows without a registered view.
+
+#+begin_src sh
+orgfdb query \
+  --format presentation-json \
+  --presentation-spec-json '{"columns":[{"name":"title"}]}' \
+  '(headings)'
+#+end_src
+
+Only ~orgfdb query~ accepts ~--format presentation-json~.
+
+~--presentation-spec-json~ is required with this format.
+
+The CLI rejects ~--presentation-spec-json~ with normal ~--format json~ output.
+
+~--output~, ~--include~, ~--restrict-files-json~, and ~--config~ keep their normal query meanings.
+
+The query runs once and returns one complete ~presentation-json~ response.
+
+The response uses compact JSON and ends with one newline.
+
+** Registered presentation views
+
+Use registered views for expensive views that a long-running client reads repeatedly.
+
+The watcher owns the view registry and materialized presentation cache.
+
+Start the watcher before view commands:
+
+#+begin_src sh
+orgfdb watch --config ./org-files-db.toml
+#+end_src
+
+Register one view definition:
+
+#+begin_src sh
+orgfdb view register \
+  --config ./org-files-db.toml \
+  --output flat \
+  --include path \
+  --presentation-spec-json '{"columns":[{"name":"title"},{"name":"file-path"}]}' \
+  agenda \
+  '(headings (not (done)))'
+#+end_src
+
+Read the current materialized payload:
+
+#+begin_src sh
+orgfdb view read \
+  --config ./org-files-db.toml \
+  agenda
+#+end_src
+
+~view read~ returns the same ~presentation-json~ payload shape as the one-shot path.
+
+The registry exists only for the active watcher session.
+
+A client must register its views again after a new watcher session starts.
+
+The public client boundary is the ~orgfdb view~ CLI.
+
+Clients must not depend on cache file paths or the private control protocol.
+
+Read [[../cli.org][CLI Reference]] for ~view register~, ~view show~, ~view read~, and ~view remove~ behavior.
+
+* Stable Emacs integration boundary
+
+The Emacs client registers its predefined structural views through ~orgfdb view register~.
+
+It reads candidates through ~orgfdb view read~.
+
+It uses each row's ~result_index~ to reach the original result for actions.
+
+It uses ~search_text~ for matching and ~display_text~ for visible candidate text.
+
+It maps semantic roles to Emacs faces.
+
+Emacs does not recalculate sorting, widths, truncation, padding, or outline paths.
+
+Emacs also does not read or write presentation cache files directly.
+
+The client can use the one-shot presentation query for views that do not need materialization.
+
+* ~PresentationSpec~
+
+One ~PresentationSpec~ defines UI-independent presentation work.
+
+The top-level JSON object contains:
+
+#+begin_example
+PresentationSpec
+  columns
+  sort
+  row_source
+#+end_example
+
+~columns~ is required and must contain at least one column.
+
+~sort~ defaults to an empty list.
+
+~row_source~ defaults to ~null~.
+
+Unknown fields and unknown enum values are errors.
+
+The CLI also validates every column against the structural query target.
+
+** Column specification
+
+A displayed column can use this shape:
+
+#+begin_src json
+{
+  "name": "outline-path",
+  "width": {"mode": "max", "value": 80},
+  "truncate": {"position": "right", "marker": "…"},
+  "outline_path": {
+    "separator": " » ",
+    "include_root": false,
+    "include_match": true
+  }
+}
+#+end_src
+
+~name~ selects one public presentation column.
+
+~width~ defaults to ~{"mode":"auto"}~.
+
+~truncate~ is optional.
+
+~outline_path~ is valid only for outline-path columns.
+
+** Width specification
+
+The supported width modes are:
+
+- ~auto~ with no ~value~
+- ~max~ with a positive ~value~
+- ~fixed~ with a positive ~value~
+
+~auto~ uses the largest complete value width in that column.
+
+~max N~ uses the smaller value between the natural width and ~N~.
+
+~fixed N~ always uses ~N~.
+
+Width values count Unicode scalar values.
+
+They do not use terminal display width or Emacs display width.
+
+** Truncation specification
+
+The optional truncation object contains ~position~ and ~marker~.
+
+~position~ defaults to ~right~.
+
+~marker~ defaults to ~…~.
+
+The supported positions are:
+
+- ~left~
+- ~middle~
+- ~right~
+
+An empty marker performs hard truncation.
+
+The marker counts inside the configured column width.
+
+If the marker is at least as wide as the column, the marker prefix fills the column.
+
+** Outline-path specification
+
+Only these columns accept ~outline_path~:
+
+- ~outline-path~
+- ~source-outline-path~
+- ~target-outline-path~
+
+The defaults are:
+
+- ~separator~: ~ » ~
+- ~include_root~: ~false~
+- ~include_match~: ~true~
+
+The separator affects rendered text.
+
+It does not affect outline sorting.
+
+** Sort specification
+
+A sort rule uses this shape:
+
+#+begin_src json
+{"column":"title","direction":"asc"}
+#+end_src
+
+~direction~ defaults to ~asc~.
+
+The supported directions are ~asc~ and ~desc~.
+
+Sort-only columns do not need to appear in ~columns~.
+
+If a sort column also appears in ~columns~, sorting uses the first matching displayed column options.
+
+A hidden outline sort uses the default outline-path options.
+
+** Row-source specification
+
+A row source uses this shape:
+
+#+begin_src json
+{"kind":"tags"}
+#+end_src
+
+The supported row-source kinds are:
+
+- ~tags~
+- ~effective-properties~
+- ~keywords~
+
+Only heading and file queries support row sources.
+
+One presentation can use at most one row source.
+
+A singular row column requires its matching row source in both displayed and sort-only columns.
+
+* Supported columns
+
+The current query presentation interface supports the columns below.
+
+The inferred include column shows data that Rust adds to the query automatically.
+
+| Column | Query targets | Inferred include | Semantic role | Required row source |
+|--------+---------------+------------------+---------------+---------------------|
+| ~title~ | headings | none | ~title~ | none |
+| ~todo-keyword~ | headings | none | ~todo~ or ~done~ | none |
+| ~todo-type~ | headings | none | none | none |
+| ~priority~ | headings | none | ~priority~ | none |
+| ~outline-path~ | headings | ~path~ | ~heading~ | none |
+| ~tags~ | headings, files | none | ~tag~ | none |
+| ~scheduled-raw~ | headings | none | ~date~ | none |
+| ~deadline-raw~ | headings | none | ~date~ | none |
+| ~closed-raw~ | headings | none | ~date~ | none |
+| ~file-title~ | headings, files | ~path~ for headings | ~title~ | none |
+| ~file-name~ | headings, files, links | none | ~file-name~ | none |
+| ~file-path~ | headings, files, links | none | ~file-path~ | none |
+| ~line-number~ | headings, files, links | none | none | none |
+| ~link-type~ | links | none | none | none |
+| ~link-target~ | links | none | none | none |
+| ~link-description~ | links | none | none | none |
+| ~resolution-status~ | links | none | none | none |
+| ~source-outline-path~ | links | ~path~ | ~heading~ | none |
+| ~target-outline-path~ | links | ~target~ | ~heading~ | none |
+| ~tag~ | headings, files | none | ~tag~ | ~tags~ |
+| ~property-name~ | headings, files | ~effective_properties~ | ~property-name~ | ~effective-properties~ |
+| ~property-value~ | headings, files | ~effective_properties~ | ~property-value~ | ~effective-properties~ |
+| ~keyword-name~ | headings, files | ~keywords~ | ~keyword-name~ | ~keywords~ |
+| ~keyword-value~ | headings, files | ~keywords~ | ~keyword-value~ | ~keywords~ |
+
+The internal registry also contains search-specific entries such as ~rank~.
+
+~orgfdb search~ does not accept ~presentation-json~.
+
+Search-specific registry entries are not part of the current presentation CLI contract.
+
+* Value extraction and include inference
+
+Rust extracts presentation values from structured query results.
+
+It does not use arbitrary JSON field lookup as the public column API.
+
+The main value rules are:
+
+- ~title~ uses the heading title.
+- ~tags~ joins effective heading tags or file tags with commas.
+- ~file-title~ uses the source file title.
+- ~file-name~ uses the owning file name.
+- ~file-path~ uses the owning file path.
+- ~line-number~ keeps numeric ordering before text conversion.
+- ~link-target~ uses the authored ~raw_target~ value.
+- ~link-description~ uses ~raw_description~.
+- outline columns use structured path or target data.
+
+A missing optional value becomes an empty presentation string.
+
+A missing required include produces a presentation error.
+
+Rust derives includes from displayed columns, sort columns, and the row source.
+
+It combines these includes with explicit ~--include~ values.
+
+Explicit includes remain available in the original result objects for client actions.
+
+For example, a hidden ~outline-path~ sort adds ~path~ automatically.
+
+An ~effective-properties~ row source adds ~effective_properties~ automatically.
+
+* Row expansion
+
+Without ~row_source~, each top-level query result creates one presentation row.
+
+That row uses ~row_context = null~.
+
+With ~row_source~, one top-level result can create zero or more presentation rows.
+
+All expanded rows keep the same ~result_index~ for their source result.
+
+** Tags
+
+~row_source.kind = tags~ uses effective heading tags or file tags.
+
+Each tag creates one row with this logical context:
+
+#+begin_example
+kind = tag
+value = project
+#+end_example
+
+** Effective properties
+
+~row_source.kind = effective-properties~ uses the effective property list.
+
+Each property creates one row with this logical context:
+
+#+begin_example
+kind = effective-property
+name = OWNER
+value = Daniel
+#+end_example
+
+A property without a value uses an empty string.
+
+** Keywords
+
+~row_source.kind = keywords~ uses the keyword list.
+
+Each keyword creates one row with this logical context:
+
+#+begin_example
+kind = keyword
+name = TITLE
+value = Notes
+#+end_example
+
+Keyword expansion preserves source order and duplicate keyword entries.
+
+A keyword without a value uses an empty string.
+
+An empty row-source collection produces no rows for that result.
+
+The pipeline does not create Cartesian products between row sources.
+
+Normal displayed columns repeat for each expanded row.
+
+* Result representation
+
+The ~results~ array stores the original top-level ~QueryResultNode~ objects.
+
+The objects keep the requested query output mode and include-controlled data.
+
+Presentation sorting does not reorder the ~results~ array.
+
+A presentation row refers to one top-level result through ~result_index~.
+
+Several rows can refer to the same result after row expansion.
+
+With ~--output outline~, nested ~children~ stay inside their top-level result object.
+
+Nested children do not create separate presentation rows.
+
+* Sorting
+
+Rust extracts all sort keys before it sorts rows.
+
+Sort rules run in their declared order.
+
+The logical value types keep useful ordering information:
+
+- text uses case-sensitive lexicographic order
+- integers use numeric order
+- text lists compare their elements in order
+- outlines compare their components in order
+
+The rendered outline separator does not affect outline ordering.
+
+Missing values sort after present values in both directions.
+
+Rows with equal sort keys keep their incoming row order.
+
+Sorting changes only the ~rows~ array.
+
+The ~results~ array keeps its original order and identity.
+
+* Widths, truncation, and padding
+
+Layout runs after row expansion and sorting.
+
+Rust first extracts every displayed value as complete ~search_text~.
+
+It calculates one shared width for each displayed column across all rows.
+
+Rust truncates values that exceed that shared width.
+
+It then adds spaces on the right until each visible cell reaches the shared width.
+
+Right truncation keeps the start of the value.
+
+Left truncation keeps the end of the value.
+
+Middle truncation keeps both ends.
+
+If middle truncation has one extra content character, the start receives it.
+
+Width calculation and truncation count Unicode scalar values.
+
+The behavior stays independent of terminal-specific width tables.
+
+~search_text~ always keeps the complete logical value.
+
+~display_text~ contains the final truncated and padded value.
+
+* Semantic roles
+
+Rust assigns semantic roles without client styling information.
+
+The current roles are:
+
+- ~heading~
+- ~title~
+- ~todo~
+- ~done~
+- ~priority~
+- ~tag~
+- ~date~
+- ~file-name~
+- ~file-path~
+- ~keyword-name~
+- ~keyword-value~
+- ~property-name~
+- ~property-value~
+
+~todo-keyword~ uses ~todo~ when ~todo_type = open~.
+
+It uses ~done~ when ~todo_type = closed~.
+
+A missing or unknown TODO type gives that cell no semantic role.
+
+The complete rendered outline value uses the ~heading~ role.
+
+A cell has one optional role.
+
+The wire format does not contain role ranges or heading-level roles.
+
+It also does not contain Emacs face names, colors, or font sizes.
+
+* Presentation JSON version 2
+
+The current wire format uses ~presentation_version = 2~.
+
+The top-level response contains:
+
+#+begin_example
+presentation_version
+database_id
+generation
+results
+schemas
+rows
+#+end_example
+
+~database_id~ and ~generation~ identify the database snapshot used for the response.
+
+The one-shot query reads index state and query data inside one database read transaction.
+
+A cached view stores the complete production ~presentation-json~ payload for its rebuild target.
+
+** Wire schemas
+
+The response emits positional schemas with each payload:
+
+#+begin_src json
+{
+  "row_fields": ["result_index", "row_context", "cells"],
+  "cell_fields": ["search_text", "display_text", "role"],
+  "row_context_shapes": {
+    "tag": ["kind", "value"],
+    "effective-property": ["kind", "name", "value"],
+    "keyword": ["kind", "name", "value"]
+  },
+  "display_text_null": "same-as-search_text",
+  "role_encoding": "null-or-index-into-role_values",
+  "role_values": [
+    "heading",
+    "title",
+    "todo",
+    "done",
+    "priority",
+    "tag",
+    "date",
+    "file-name",
+    "file-path",
+    "keyword-name",
+    "keyword-value",
+    "property-name",
+    "property-value"
+  ]
+}
+#+end_src
+
+Clients must read ~presentation_version~ before they decode positional rows.
+
+Clients can use the emitted ~schemas~ object instead of duplicating field names.
+
+** Row representation
+
+Each row is a three-value array:
+
+#+begin_src json
+[0, null, [["Task", null, 1]]]
+#+end_src
+
+The positions follow ~schemas.row_fields~.
+
+Position 0 is ~result_index~.
+
+Position 1 is ~row_context~.
+
+Position 2 is the cell array.
+
+Normal rows use ~null~ for ~row_context~.
+
+A tag row uses:
+
+#+begin_src json
+["tag", "project"]
+#+end_src
+
+An effective-property row uses:
+
+#+begin_src json
+["effective-property", "OWNER", "Daniel"]
+#+end_src
+
+A keyword row uses:
+
+#+begin_src json
+["keyword", "TITLE", "Notes"]
+#+end_src
+
+** Cell representation
+
+Each cell is a three-value array:
+
+#+begin_src json
+["Task", null, 1]
+#+end_src
+
+Position 0 is complete ~search_text~.
+
+Position 1 is ~display_text~.
+
+Position 2 is the semantic role.
+
+If ~display_text~ equals ~search_text~, position 1 is ~null~.
+
+That ~null~ value means exactly ~display_text == search_text~.
+
+The cell keeps all three positions, so later fields never shift.
+
+The role is either ~null~ or an index into ~schemas.role_values~.
+
+The current version 2 role indexes are:
+
+| Index | Role |
+|-------+------|
+| 0 | ~heading~ |
+| 1 | ~title~ |
+| 2 | ~todo~ |
+| 3 | ~done~ |
+| 4 | ~priority~ |
+| 5 | ~tag~ |
+| 6 | ~date~ |
+| 7 | ~file-name~ |
+| 8 | ~file-path~ |
+| 9 | ~keyword-name~ |
+| 10 | ~keyword-value~ |
+| 11 | ~property-name~ |
+| 12 | ~property-value~ |
+
+The version 2 positional field meanings and current role indexes are stable within version 2.
+
+An incompatible positional change requires a new ~presentation_version~.
+
+Compatible top-level metadata can be added without changing existing positional meanings.
+
+* Production pipeline
+
+The one-shot presentation path performs these stages:
+
+#+begin_example
+structural query
+  -> top-level results
+  -> row expansion
+  -> sort-key extraction
+  -> row sorting
+  -> displayed value extraction
+  -> shared width calculation
+  -> truncation and padding
+  -> compact presentation JSON
+#+end_example
+
+Semantic roles come from the same registered value extraction as displayed cell values.
+
+The query executes once for one presentation response.
+
+The presentation path does not run one follow-up query for each row.
+
+* Parallel execution decision
+
+Production uses selective Rayon parallelism for large presentation work.
+
+Parallel sorting starts at 150,000 presentation rows.
+
+Parallel layout applies only when one result creates one row.
+
+Normal layout starts parallel work at 200,000 cells.
+
+A layout with at least 8 columns starts parallel work at 100,000 cells.
+
+Expanded-row layout stays sequential.
+
+SQLite query execution stays sequential.
+
+Row expansion and width resolution stay sequential.
+
+JSON serialization stays sequential.
+
+These thresholds come from completed paired benchmarks.
+
+The rejected forced-parallel A/B implementation is not part of production or retained benchmark code.
+
+* Cache decision
+
+Production uses an eager materialized cache for registered presentation views.
+
+The watcher owns the registry, rebuild coordination, and cache session.
+
+A new or changed registration queues a complete rebuild.
+
+A committed database generation change refreshes the registered views.
+
+A relative-date view also refreshes when its effective query date changes.
+
+The registered query timezone defines that effective date.
+
+~view read~ never starts a rebuild.
+
+It waits for the current target while that target is queued or its rebuild is active.
+
+It returns an error when the current rebuild fails.
+
+It never returns the previous stale payload as the current view.
+
+Rebuilds run in separate ~orgfdb~ worker processes.
+
+The coordinator uses at most three workers and never exceeds available CPU parallelism.
+
+A newer generation or view revision replaces obsolete rebuild work.
+
+A worker validates the database target before and after presentation work.
+
+The cache stores one current payload for each registered view in the watcher session.
+
+The cache is disposable session data, not a persistent client contract.
+
+A clean watcher shutdown removes the current session cache and registry state.
+
+Read [[../architecture.org][Architecture]] for storage and rebuild-coordination details.
+
+* Performance observations
+
+Historical benchmark evidence selected the current production strategies.
+
+At 50,000 results, presentation JSON version 2 reduced payload size by 12.22 % to 40.70 % in measured workloads.
+
+Selective parallel presentation work reduced complete presentation time by 8.6 % to 39.8 % in selected large workloads.
+
+The cache study reduced measured repeated-view CLI latency by 92.6 % to 94.8 % for four large workloads.
+
+The cache study also showed excessive memory use with many unbounded worker processes.
+
+That result led to bounded concurrent rebuild workers.
+
+These measurements explain architecture decisions.
+
+They are not cross-machine performance guarantees.
+
+Read [[../presentation-performance.org][Presentation Performance Benchmarks]] for commands, workload details, and historical measurements.
+
+* Historical alternatives
+
+Earlier work considered or measured several alternatives:
+
+- version 1 object-heavy presentation rows and cells
+- forced sequential-versus-parallel presentation paths
+- a pre-production cache simulator
+- unbounded concurrent cache rebuild workers
+- no presentation cache
+
+These alternatives are not current architecture.
+
+The performance document keeps the measurements that explain why production uses the current strategies.
+
+Executable benchmark code does not preserve rejected paths only for historical reproduction.

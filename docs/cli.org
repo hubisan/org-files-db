@@ -156,7 +156,7 @@ Emacs can register a small set of expensive views after it starts its watcher in
 
 Registrations exist only in watcher memory. A new watcher session starts with an empty registry.
 
-The watcher eagerly materializes cache-enabled registered views. A view read uses only the materialized cache and never starts query work.
+The watcher eagerly materializes every registered view. A view read uses only the materialized cache and never starts query work.
 
 ** Control connection
 
@@ -513,7 +513,7 @@ The presentation query reads index state and query data from one database read t
 
 The supported row sources are ~tags~, ~effective-properties~, and ~keywords~. Empty row-source collections produce no rows.
 
-Other commands do not accept ~presentation-json~ or ~--presentation-spec-json~.
+No command other than ~query~ accepts ~--format presentation-json~. ~view register~ also accepts ~--presentation-spec-json~ as part of its view definition.
 
 Example request:
 
@@ -544,7 +544,7 @@ The response contains:
 
 ~presentation_version~ is ~2~ for the current compact wire format.
 
-~results~ stores each original query result once.
+~results~ stores each original top-level query result once.
 
 ~schemas~ defines the positional row, row-context, and cell layouts.
 
@@ -554,7 +554,7 @@ Each cell preserves complete ~search_text~, final ~display_text~, and one option
 
 The wire format can encode equal display text as ~null~ and roles as indexes into the emitted role table.
 
-Read [[./design/presentation.org][Presentation Output Design]] for the current ~PresentationSpec~ model.
+Read [[./reference/presentation.org][Presentation Output Reference]] for the current ~PresentationSpec~ and wire contract.
 
 ~--include~ is repeatable. One flag can also contain comma-separated values.
 

@@ -9,6 +9,7 @@ This directory separates user references, machine-readable contracts, contributo
 - [[./config.org][Configuration Reference]] describes every supported TOML key.
 - [[./reference/query-language.org][Structural Query Language]] describes structural query syntax and matching semantics.
 - [[./reference/query-json.org][Query JSON Contract]] describes the stable ~orgfdb query --format json~ response.
+- [[./reference/presentation.org][Presentation Output Reference]] describes ~PresentationSpec~, ~presentation-json~, and the registered-view client boundary.
 
 Use these documents when you use ~orgfdb~ or build a client for its current public interfaces.
 
@@ -19,16 +20,10 @@ Use these documents when you use ~orgfdb~ or build a client for its current publ
 - [[./design/index-generations-and-changes.org][Index Generations and Changes]] describes committed generations and affected-file deltas.
 - [[./design/parser-risks.org][Parser Risks]] records known parser differences and risk decisions.
 - [[./performance-baseline.org][Performance Baseline]] describes the benchmark framework and historical measurements.
-- [[./presentation-performance.org][Presentation Performance Benchmark]] describes the uncached benchmark, payload analysis, and measurement protocol.
+- [[./presentation-performance.org][Presentation Performance Benchmarks]] describes retained regression benchmarks, diagnostics, and historical presentation measurements.
 - [[./query-sql-performance.org][Query SQL Performance]] records the query SQL audit, optimizations, and SQL benchmark protocol.
 
 These documents describe implementation boundaries or detailed internal contracts.
-
-* Planned design work
-
-- [[./design/presentation.org][Presentation Output Design]] describes planned query presentation output.
-
-A planned design document does not describe current CLI behavior. The document says explicitly when an interface does not exist yet.
 
 * Documentation ownership
 
@@ -38,6 +33,7 @@ Use one primary document for each public fact.
 - Put TOML keys and defaults in ~docs/config.org~.
 - Put structural query syntax in ~docs/reference/query-language.org~.
 - Put query JSON fields and include-controlled output in ~docs/reference/query-json.org~.
+- Put presentation specification and wire semantics in ~docs/reference/presentation.org~.
 - Put current module boundaries in ~docs/architecture.org~.
 - Put future architecture in a file under ~docs/design/~ and mark it as planned.
 

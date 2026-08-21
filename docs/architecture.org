@@ -1,7 +1,7 @@
 #+TITLE: Architecture
 #+STARTUP: showall
 
-This document describes the current ~org-files-db~ implementation. It does not describe planned presentation output.
+This document describes the current ~org-files-db~ implementation and its major runtime boundaries.
 
 * Overview
 
@@ -35,6 +35,7 @@ The CLI exposes these commands:
 - ~changes~
 - ~query~
 - ~search~
+- ~view~
 
 Read [[./cli.org][CLI Reference]] for the public command contract.
 
@@ -190,12 +191,26 @@ Read [[./design/index-generations-and-changes.org][Index Generations and Changes
 
 Current machine-readable CLI output uses JSON. ~src/cli.rs~ owns command-specific inspection and search serializers.
 
-~src/query/result.rs~ owns the structural query response model. The stable query JSON contract is documented separately from future presentation output.
+~src/query/result.rs~ owns the structural query response model. The stable query JSON contract is separate from opt-in presentation output.
 
 Read [[./reference/query-json.org][Query JSON Contract]] for client-facing query fields.
 
 * Presentation output
 
-Structural queries can use the opt-in ~presentation-json~ format. Rust prepares UI-independent rows while the existing query JSON contract stays unchanged.
+~src/presentation.rs~ owns ~PresentationSpec~, the public column registry, row expansion, sorting, layout, semantic roles, and wire serialization.
 
-Read [[./design/presentation.org][Presentation Output Design]] for the presentation boundary.
+~orgfdb query --format presentation-json~ runs the structural query once and builds presentation rows from the returned top-level results.
+
+The response records ~database_id~ and ~generation~ from the same database snapshot as the query data.
+
+Large presentation work uses selective Rayon parallelism. SQLite query execution, row expansion, width resolution, and JSON serialization remain sequential.
+
+~src/presentation_view.rs~ owns session-local view registration and the private watcher control protocol.
+
+~src/presentation_view_rebuild.rs~ coordinates eager rebuilds in separate worker processes. ~src/presentation_view_cache.rs~ owns cache validation and atomic payload publication.
+
+Public clients use ~orgfdb view~ commands. They do not depend on the private socket protocol or cache file layout.
+
+The existing ~orgfdb query --format json~ contract remains unchanged.
+
+Read [[./reference/presentation.org][Presentation Output Reference]] for the client contract and [[./presentation-performance.org][Presentation Performance Benchmarks]] for measured decisions.

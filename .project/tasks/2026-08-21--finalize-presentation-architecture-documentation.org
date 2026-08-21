@@ -1,0 +1,258 @@
+#+TITLE: Finalize Presentation Architecture Documentation
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-21 Fri 17:16]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Start this task after the presentation implementation and performance decisions are complete.
+
+Document the implemented system instead of the earlier design proposal.
+
+Use the current code and public CLI behavior as the source of truth.
+
+Update:
+
+- CLI presentation usage
+- ~PresentationSpec~
+- supported columns
+- semantic roles
+- result representation
+- row representation
+- cell representation
+- row expansion
+- include inference
+- sorting
+- width behavior
+- truncation behavior
+- padding behavior
+- presentation JSON representation
+- compatibility guarantees
+- performance observations
+- parallel execution decision
+- cache decision
+
+Retain this compatibility guarantee clearly:
+
+#+begin_src sh
+orgfdb query --format json ...
+#+end_src
+
+The command keeps its existing JSON contract.
+
+Remove design text that no longer describes the implementation.
+
+Mark historical alternatives clearly if they remain useful.
+
+Do not present rejected alternatives as current architecture.
+
+Use public examples that run against the implemented CLI.
+
+Verify each example against the current command-line interface.
+
+Acceptance criteria:
+
+- Current documentation describes the implemented presentation architecture.
+- Planned sections become implementation documentation where appropriate.
+- Rejected alternatives are not presented as current architecture.
+- Public examples run against the implemented CLI.
+- Presentation JSON semantics match the implemented serializer.
+- The normal JSON compatibility guarantee is explicit.
+- Performance documentation matches the final measured strategies.
+- The Emacs client has one stable documented interface to implement against.
+- ~make ci~ passes.
+
+** DONE Finalize presentation architecture documentation
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Task file: [[./2026-08-21--finalize-presentation-architecture-documentation.org][Finalize Presentation Architecture Documentation]]
+
+Start this task after the presentation implementation and performance decisions are complete.
+
+Document the implemented system instead of the earlier design proposal.
+
+Use the current code and public CLI behavior as the source of truth.
+
+Update:
+
+- CLI presentation usage
+- ~PresentationSpec~
+- supported columns
+- semantic roles
+- result representation
+- row representation
+- cell representation
+- row expansion
+- include inference
+- sorting
+- width behavior
+- truncation behavior
+- padding behavior
+- presentation JSON representation
+- compatibility guarantees
+- performance observations
+- parallel execution decision
+- cache decision
+
+Retain this compatibility guarantee clearly:
+
+#+begin_src sh
+orgfdb query --format json ...
+#+end_src
+
+The command keeps its existing JSON contract.
+
+Remove design text that no longer describes the implementation.
+
+Mark historical alternatives clearly if they remain useful.
+
+Do not present rejected alternatives as current architecture.
+
+Use public examples that run against the implemented CLI.
+
+Verify each example against the current command-line interface.
+
+Acceptance criteria:
+
+- Current documentation describes the implemented presentation architecture.
+- Planned sections become implementation documentation where appropriate.
+- Rejected alternatives are not presented as current architecture.
+- Public examples run against the implemented CLI.
+- Presentation JSON semantics match the implemented serializer.
+- The normal JSON compatibility guarantee is explicit.
+- Performance documentation matches the final measured strategies.
+- The Emacs client has one stable documented interface to implement against.
+- ~make ci~ passes.
+  
+* Planning
+
+** Problem summary
+
+The presentation implementation is complete, but its main detailed document still exists under ~docs/design/~.
+
+That document also contains an obsolete no-cache policy and other planning language.
+
+The current production code now includes compact presentation JSON, selective Rayon work, and eager registered-view caching.
+
+** Goals
+
+- Replace the planned presentation design with a current client reference.
+- Document ~PresentationSpec~ and ~presentation-json~ from the production serializer.
+- Document the registered-view CLI as the stable Emacs integration boundary.
+- Keep the existing ~orgfdb query --format json~ compatibility guarantee explicit.
+- Point historical performance decisions to the retained performance document.
+- Remove stale presentation planning claims from other current documents.
+
+** Non-goals
+
+- Do not change production presentation behavior.
+- Do not change cache behavior or performance thresholds.
+- Do not change the normal query JSON contract.
+- Do not redesign the Emacs client.
+- Do not add new CLI options.
+
+** Architecture
+
+~docs/reference/presentation.org~ becomes the current detailed presentation reference.
+
+~docs/cli.org~ owns command syntax and command behavior.
+
+~docs/architecture.org~ owns the high-level module and cache boundaries.
+
+~docs/presentation-performance.org~ keeps benchmark protocols and historical performance evidence.
+
+** Execution plan
+
+1. Compare presentation documentation with ~src/presentation.rs~ and the current CLI parser.
+2. Replace ~docs/design/presentation.org~ with a current reference document.
+3. Update documentation links and stale planning text.
+4. Verify public examples against the implemented CLI definitions.
+5. Audit the new technical text with the Simple English rules.
+6. Run ~make ci~ if the environment provides the Rust toolchain.
+
+** Risks & assumptions
+
+The supplied repository archive has no Git metadata. Branch creation is not available in this workspace.
+
+The current environment does not provide ~cargo~. Full CLI execution and ~make ci~ can require the user environment.
+
+** Proposed checks
+
+- Search current documentation for stale ~Presentation Output Design~ links.
+- Search current documentation for obsolete no-cache presentation claims.
+- Compare documented columns, roles, schemas, and defaults with ~src/presentation.rs~.
+- Compare command examples with the Clap definitions in ~src/cli.rs~.
+- Run ~make ci~ if ~cargo~ is available.
+
+* Results
+
+** Approach
+
+The old presentation design was replaced by a current public reference.
+
+The new reference uses ~src/presentation.rs~, ~src/cli.rs~, and the production view-cache modules as the source of truth.
+
+The current CLI reference and architecture now point to this reference.
+
+Historical performance alternatives stay in ~docs/presentation-performance.org~ instead of the current client contract.
+
+** Changed files
+
+- Added ~docs/reference/presentation.org~.
+- Removed ~docs/design/presentation.org~.
+- Updated ~docs/cli.org~ for the current query and registered-view presentation interface.
+- Updated ~docs/architecture.org~ for the current presentation modules and runtime boundary.
+- Updated ~docs/README.org~ and ~README.org~ to list the presentation reference as current documentation.
+- Updated ~docs/reference/query-json.org~ and ~docs/reference/query-language.org~ to remove planned-presentation wording.
+- Updated ~docs/design/index-generations-and-changes.org~ to describe full registered-view rebuilds instead of the old no-cache plan.
+- Added this task file and linked it from ~.project/tasks/todo.org~.
+
+** Checks performed
+
+- Compared every documented presentation column with ~PresentationColumn~ and its production registry definition.
+- Compared semantic role order with ~PRESENTATION_ROLE_VALUES~.
+- Compared row, row-context, and cell schema fields with the version 2 serializer.
+- Compared row-source, width, truncation, and outline-path defaults with ~src/presentation.rs~.
+- Compared parallel thresholds with the production constants.
+- Compared the cache worker limit with ~MAX_REBUILD_WORKERS~.
+- Checked the public command examples against the Clap definitions and existing CLI parser tests.
+- Checked all relative Org links after the document move.
+- Checked Org source-block balance in the new reference and task file.
+- Searched current documentation for the removed design title and stale no-cache planning text.
+- Audited the new technical text with the Simple English pragmatic rules.
+- Ran ~make ci~.
+
+** Test results
+
+The static presentation contract checks passed.
+
+The role table, current CLI column list, wire schemas, parallel thresholds, and cache worker limit match production source.
+
+All relative Org links resolve after the document move.
+
+The new Org source blocks are balanced.
+
+~make ci~ did not start because this environment does not provide ~cargo~.
+
+The failure is:
+
+#+begin_example
+make: cargo: No such file or directory
+make: *** [Makefile:19: fmt] Error 127
+#+end_example
+
+** Blockers
+
+Run ~make ci~ in an environment with the Rust toolchain before approval.
+
+The public command examples also need one runtime smoke check there.
+
+** Follow-ups
+
+After green CI and the CLI smoke check, approve this task as ~DONE~.
