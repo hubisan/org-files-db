@@ -926,6 +926,3 @@ Task file: [[./2026-08-21--review-prune-presentation-benchmark-infrastructure.or
 
 Task file: [[./2026-08-21--finalize-presentation-architecture-documentation.org][Finalize Presentation Architecture Documentation]]
 
-* TODO Auto rename > resolve link mode
-
-The watcher automatically fixes links upon renaming files (filename, dir, path). This would be cool, no more having to worry about this. Should be a configuration option in the toml.
