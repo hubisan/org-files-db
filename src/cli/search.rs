@@ -534,3 +534,6 @@ impl SearchJsonRow {
         Self { heading, rank }
     }
 }
+
+#[cfg(test)]
+mod tests;

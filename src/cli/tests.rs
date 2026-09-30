@@ -12,11 +12,9 @@ use super::{
     write_json_output,
 };
 use crate::db::{
-    open_database, open_database_with_schema, open_in_memory_database_with_schema,
-    sqlite_supports_fts5, DbError, DbWriter, EffectiveTagRecord, FileRecordInput, HeadingRecord,
-    LinkRecord, OutlinePathRecord, SchemaDefinition, TagRecord, CURRENT_SCHEMA_VERSION,
-    DB_METADATA_FTS_AVAILABLE_KEY, DB_METADATA_FTS_BODY_INDEXED_KEY,
-    DB_METADATA_FTS_SCHEMA_VERSION_KEY, FTS_SCHEMA_CONTRACT_VERSION,
+    open_database, open_in_memory_database_with_schema, sqlite_supports_fts5, DbError, DbWriter,
+    EffectiveTagRecord, FileRecordInput, HeadingRecord, LinkRecord, OutlinePathRecord,
+    SchemaDefinition, TagRecord, CURRENT_SCHEMA_VERSION,
 };
 use crate::presentation::PresentationSpec;
 use crate::test_support::{write_file, TestDir};
@@ -52,7 +50,7 @@ fn seed_single_heading_tag(
     )
 }
 
-fn write_search_config(
+pub(super) fn write_search_config(
     path: &Path,
     db_path: &str,
     file_names: &[&str],
@@ -72,7 +70,7 @@ fn write_search_config(
     );
 }
 
-fn build_search_fixture(
+pub(super) fn build_search_fixture(
     name: &str,
     files: &[(&str, &str)],
     index_body_text: bool,
@@ -1845,388 +1843,6 @@ fn search_all_scope_allows_explicit_column_filters() {
 }
 
 #[test]
-fn search_rejects_body_scope_when_trusted_index_is_title_only() {
-    let (_test_dir, config_path, _) = build_search_fixture(
-        "search-title-only",
-        &[(
-            "notes.org",
-            "* Searchable Heading\nBody phrase for sqlite search.\n",
-        )],
-        false,
-    );
-
-    let error = search_json_rows(CliSearchScope::Body, "phrase", Some(&config_path))
-        .expect_err("body scope should fail for title-only index");
-    assert!(matches!(
-        error,
-        CliError::Search(SearchError::BodyScopeUnavailable)
-    ));
-}
-
-#[test]
-fn rebuild_persists_search_trust_metadata_for_search_command() {
-    let (_test_dir, _config_path, db_path) = build_search_fixture(
-        "search-trust-metadata",
-        &[(
-            "notes.org",
-            "* Searchable Heading\nBody phrase for sqlite search.\n",
-        )],
-        true,
-    );
-    let connection = open_database(&db_path).expect("database should open");
-    let rows: Vec<(String, String)> = {
-        let mut statement = connection
-            .prepare(
-                "SELECT key, value FROM db_metadata
-                 WHERE key IN (?1, ?2, ?3)
-                 ORDER BY key",
-            )
-            .expect("metadata query should prepare");
-        statement
-            .query_map(
-                [
-                    DB_METADATA_FTS_AVAILABLE_KEY,
-                    DB_METADATA_FTS_BODY_INDEXED_KEY,
-                    DB_METADATA_FTS_SCHEMA_VERSION_KEY,
-                ],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .expect("metadata query should run")
-            .collect::<Result<Vec<_>, _>>()
-            .expect("metadata rows should collect")
-    };
-
-    assert_eq!(
-        rows,
-        vec![
-            (DB_METADATA_FTS_AVAILABLE_KEY.to_string(), "1".to_string()),
-            (
-                DB_METADATA_FTS_BODY_INDEXED_KEY.to_string(),
-                "1".to_string(),
-            ),
-            (
-                DB_METADATA_FTS_SCHEMA_VERSION_KEY.to_string(),
-                FTS_SCHEMA_CONTRACT_VERSION.to_string(),
-            ),
-        ]
-    );
-}
-
-#[test]
-fn search_rejects_missing_trust_metadata_and_requires_rebuild() {
-    let test_dir = TestDir::new("search-missing-metadata");
-    let db_path = test_dir.path().join("db.sqlite");
-    let config_path = test_dir.path().join("config.toml");
-    write_search_config(&config_path, "./db.sqlite", &[], true, true);
-
-    let connection = open_database_with_schema(
-        &db_path,
-        &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, true),
-    )
-    .expect("database should open");
-    drop(connection);
-
-    let error = search_json_rows(CliSearchScope::All, "sqlite", Some(&config_path))
-        .expect_err("missing metadata should fail");
-    match error {
-        CliError::Search(SearchError::MissingTrustMetadata) => {}
-        other => panic!("unexpected error: {other}"),
-    }
-    assert!(error.to_string().contains("run orgfdb rebuild"));
-}
-
-#[test]
-fn search_rejects_non_current_numeric_fts_contract_versions_as_stale() {
-    let (_test_dir, config_path, db_path) = build_search_fixture(
-        "search-stale-fts-contract",
-        &[("notes.org", "* Searchable Heading\nBody phrase.\n")],
-        true,
-    );
-    let connection = open_database(&db_path).expect("database should open");
-    for version in ["0", "1", "2", "4"] {
-        connection
-            .execute(
-                "UPDATE db_metadata SET value = ?1 WHERE key = ?2",
-                (version, DB_METADATA_FTS_SCHEMA_VERSION_KEY),
-            )
-            .expect("non-current FTS contract version should store");
-
-        let error = search_json_rows(CliSearchScope::All, "Searchable", Some(&config_path))
-            .expect_err("non-current FTS contract version should be stale");
-        assert!(matches!(
-            error,
-            CliError::Search(SearchError::MissingTrustedIndex)
-        ));
-        assert!(error.to_string().contains("run orgfdb rebuild"));
-    }
-}
-
-#[test]
-fn search_rejects_non_numeric_fts_contract_metadata() {
-    let (_test_dir, config_path, db_path) = build_search_fixture(
-        "search-invalid-fts-contract",
-        &[("notes.org", "* Searchable Heading\nBody phrase.\n")],
-        true,
-    );
-    let connection = open_database(&db_path).expect("database should open");
-    connection
-        .execute(
-            "UPDATE db_metadata SET value = 'invalid' WHERE key = ?1",
-            [DB_METADATA_FTS_SCHEMA_VERSION_KEY],
-        )
-        .expect("invalid FTS contract metadata should store");
-
-    let error = search_json_rows(CliSearchScope::All, "Searchable", Some(&config_path))
-        .expect_err("non-numeric FTS contract metadata should be invalid");
-    assert!(matches!(
-        error,
-        CliError::Search(SearchError::InvalidTrustMetadata)
-    ));
-}
-
-#[test]
-fn search_accepts_trusted_empty_fts_rebuilds() {
-    let probe = Connection::open_in_memory().expect("probe should open");
-    if !sqlite_supports_fts5(&probe).expect("fts5 probe should run") {
-        return;
-    }
-
-    let test_dir = TestDir::new("search-empty-trusted-rebuild");
-    let config_path = test_dir.path().join("config.toml");
-    let db_path = test_dir.path().join("db.sqlite");
-    write_file(
-        &config_path,
-        r#"
-db_path = "./db.sqlite"
-
-[search]
-fts5_enabled = true
-index_body_text = true
-"#,
-    );
-
-    let report = rebuild(&config_path).expect("empty rebuild should succeed");
-    assert!(report.indexed_files.is_empty());
-    assert!(report.diagnostics.is_empty());
-
-    let rows = search_json_rows(CliSearchScope::All, "sqlite", Some(&config_path))
-        .expect("search should trust the empty rebuild");
-    assert!(rows.is_empty());
-
-    let connection = open_database(&db_path).expect("database should open");
-    let metadata_rows: Vec<(String, String)> = {
-        let mut statement = connection
-            .prepare(
-                "SELECT key, value FROM db_metadata
-                 WHERE key IN (?1, ?2, ?3)
-                 ORDER BY key",
-            )
-            .expect("metadata query should prepare");
-        statement
-            .query_map(
-                [
-                    DB_METADATA_FTS_AVAILABLE_KEY,
-                    DB_METADATA_FTS_BODY_INDEXED_KEY,
-                    DB_METADATA_FTS_SCHEMA_VERSION_KEY,
-                ],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .expect("metadata query should run")
-            .collect::<Result<Vec<_>, _>>()
-            .expect("metadata rows should collect")
-    };
-
-    assert_eq!(
-        metadata_rows,
-        vec![
-            (DB_METADATA_FTS_AVAILABLE_KEY.to_string(), "1".to_string()),
-            (
-                DB_METADATA_FTS_BODY_INDEXED_KEY.to_string(),
-                "1".to_string(),
-            ),
-            (
-                DB_METADATA_FTS_SCHEMA_VERSION_KEY.to_string(),
-                FTS_SCHEMA_CONTRACT_VERSION.to_string(),
-            ),
-        ]
-    );
-}
-
-#[test]
-fn search_rejects_disabled_config_even_when_index_is_trusted() {
-    let (test_dir, trusted_config_path, _db_path) = build_search_fixture(
-        "search-disabled-config",
-        &[("notes.org", "* Searchable Heading\nBody phrase.\n")],
-        true,
-    );
-    let disabled_config_path = test_dir.path().join("disabled.toml");
-    write_search_config(
-        &disabled_config_path,
-        "./db.sqlite",
-        &["notes.org"],
-        false,
-        true,
-    );
-
-    let error = search_json_rows(
-        CliSearchScope::All,
-        "Searchable",
-        Some(&disabled_config_path),
-    )
-    .expect_err("disabled config should fail");
-    assert!(matches!(
-        error,
-        CliError::Search(SearchError::DisabledByConfig)
-    ));
-
-    let trusted_rows = search_json_rows(
-        CliSearchScope::All,
-        "Searchable",
-        Some(&trusted_config_path),
-    )
-    .expect("trusted config should still work");
-    assert_eq!(trusted_rows.len(), 1);
-}
-
-#[test]
-fn search_rejects_missing_heading_fts_even_with_trusted_metadata() {
-    let (_test_dir, config_path, db_path) = build_search_fixture(
-        "search-missing-heading-fts",
-        &[("notes.org", "* Searchable Heading\nBody phrase.\n")],
-        true,
-    );
-
-    let connection = open_database(&db_path).expect("database should open");
-    connection
-        .execute_batch("DROP TABLE heading_fts;")
-        .expect("fts table should drop");
-    drop(connection);
-
-    let error = search_json_rows(CliSearchScope::All, "Searchable", Some(&config_path))
-        .expect_err("missing table should fail");
-    assert!(matches!(
-        error,
-        CliError::Search(SearchError::MissingTrustedIndex)
-    ));
-}
-
-#[test]
-fn search_rejects_incompatible_heading_fts_schema() {
-    let (_test_dir, config_path, db_path) = build_search_fixture(
-        "search-incompatible-heading-fts",
-        &[("notes.org", "* Searchable Heading\nBody phrase.\n")],
-        true,
-    );
-
-    let connection = open_database(&db_path).expect("database should open");
-    connection
-        .execute_batch(
-            "DROP TABLE heading_fts;
-             CREATE TABLE heading_fts (title TEXT, body TEXT);",
-        )
-        .expect("incompatible fts table should install");
-    drop(connection);
-
-    let error = search_json_rows(CliSearchScope::All, "Searchable", Some(&config_path))
-        .expect_err("incompatible schema should fail");
-    assert!(matches!(
-        error,
-        CliError::Search(SearchError::IncompatibleIndexSchema)
-    ));
-}
-
-#[test]
-fn search_rejects_invalid_fts_expression_without_raw_sqlite_leak() {
-    let (_test_dir, config_path, _) = build_search_fixture(
-        "search-invalid-expression",
-        &[("notes.org", "* Searchable Heading\nBody phrase.\n")],
-        true,
-    );
-
-    let error = search_json_rows(CliSearchScope::All, "AND", Some(&config_path))
-        .expect_err("invalid expression should fail");
-    match error {
-        CliError::Search(SearchError::InvalidExpression { .. }) => {}
-        other => panic!("unexpected error: {other}"),
-    }
-    assert_eq!(error.to_string(), "invalid SQLite FTS5 search expression");
-}
-
-#[test]
-fn search_is_read_only_and_does_not_scan_org_files() {
-    let (test_dir, config_path, db_path) = build_search_fixture(
-        "search-read-only",
-        &[("notes.org", "* Searchable Heading\nBody phrase.\n")],
-        true,
-    );
-
-    let writable = open_database(&db_path).expect("database should open");
-    let version_before: u32 = writable
-        .pragma_query_value(None, "user_version", |row| row.get(0))
-        .expect("user_version should load");
-    let metadata_before: Vec<(String, String)> = {
-        let mut stmt = writable
-            .prepare("SELECT key, value FROM db_metadata ORDER BY key")
-            .expect("metadata query should prepare");
-        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-            .expect("metadata query should run")
-            .collect::<Result<Vec<_>, _>>()
-            .expect("metadata rows should collect")
-    };
-    let heading_fts_rows_before: i64 = writable
-        .query_row("SELECT COUNT(*) FROM heading_fts", [], |row| row.get(0))
-        .expect("fts row count should load");
-    drop(writable);
-
-    fs::remove_file(test_dir.path().join("notes.org")).expect("source org file should delete");
-
-    let rows = search_json_rows(CliSearchScope::All, "Searchable", Some(&config_path))
-        .expect("search should succeed without source file");
-    assert_eq!(rows.len(), 1);
-
-    let reopened = Connection::open(&db_path).expect("database should reopen");
-    let version_after: u32 = reopened
-        .pragma_query_value(None, "user_version", |row| row.get(0))
-        .expect("user_version should reload");
-    let metadata_after: Vec<(String, String)> = {
-        let mut stmt = reopened
-            .prepare("SELECT key, value FROM db_metadata ORDER BY key")
-            .expect("metadata query should prepare");
-        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-            .expect("metadata query should run")
-            .collect::<Result<Vec<_>, _>>()
-            .expect("metadata rows should collect")
-    };
-    let heading_fts_rows_after: i64 = reopened
-        .query_row("SELECT COUNT(*) FROM heading_fts", [], |row| row.get(0))
-        .expect("fts row count should reload");
-
-    assert_eq!(version_after, version_before);
-    assert_eq!(metadata_after, metadata_before);
-    assert_eq!(heading_fts_rows_after, heading_fts_rows_before);
-}
-
-#[test]
-fn search_orders_equal_rank_results_deterministically_by_heading_id() {
-    let (_test_dir, config_path, _) = build_search_fixture(
-        "search-deterministic-order",
-        &[
-            ("a.org", "* Shared\nsqlite\n"),
-            ("b.org", "* Shared\nsqlite\n"),
-        ],
-        true,
-    );
-
-    let rows = search_json_rows(CliSearchScope::All, "Shared", Some(&config_path))
-        .expect("search should succeed");
-    assert_eq!(rows.len(), 2);
-    assert!(rows[0].rank <= rows[1].rank);
-    if (rows[0].rank - rows[1].rank).abs() < f64::EPSILON {
-        assert!(rows[0].heading.id < rows[1].heading.id);
-    }
-}
-
-#[test]
 fn query_cli_rejects_unknown_include_value() {
     let error = Cli::try_parse_from([
         "orgfdb",
@@ -2375,70 +1991,42 @@ fn query_json_heading_title_root_matches_return_root_kind() {
     let test_dir = TestDir::new("query-title-root-match");
     let config_path = test_dir.path().join("config.toml");
     let org_path = test_dir.path().join("projects.org");
+    let untitled_path = test_dir.path().join("no-title-set.org");
     let db_path = test_dir.path().join("org-files.sqlite");
 
     write_file(&org_path, "#+TITLE: Projects\n* Projects overview\n");
+    write_file(&untitled_path, "* Heading\n");
     write_file(
         &config_path,
         &format!(
-            "db_path = {:?}\nfiles = [{:?}]\n\n[search]\nfts5_enabled = false\nindex_body_text = false\n",
-            db_path, org_path
+            "db_path = {:?}\nfiles = [{:?}, {:?}]\n\n[search]\nfts5_enabled = false\nindex_body_text = false\n",
+            db_path, org_path, untitled_path
         ),
     );
 
     rebuild(&config_path).expect("rebuild should succeed");
 
-    let response = query_json_response(
-        "(headings (title \"Projects\" :exact t))",
-        CliQueryOutput::Flat,
-        &[],
-        Some(&config_path),
-    )
-    .expect("root title query should succeed");
+    // Explicit `#+TITLE` and a title derived from the file name both match as root rows.
+    for (title, raw_is_null) in [("Projects", false), ("no-title-set", true)] {
+        let response = query_json_response(
+            &format!("(headings (title \"{title}\" :exact t))"),
+            CliQueryOutput::Flat,
+            &[],
+            Some(&config_path),
+        )
+        .expect("root title query should succeed");
 
-    let value: serde_json::Value =
-        serde_json::to_value(&response).expect("json output should serialize");
-    assert_eq!(value["target"], "headings");
-    assert_eq!(value["results"].as_array().expect("results array").len(), 1);
-    let file = &value["results"][0];
-    assert_eq!(file["kind"], "root");
-    assert_eq!(file["title"], "Projects");
-}
-
-#[test]
-fn query_json_heading_title_root_matches_fallback_file_titles() {
-    let test_dir = TestDir::new("query-title-root-fallback");
-    let config_path = test_dir.path().join("config.toml");
-    let org_path = test_dir.path().join("no-title-set.org");
-
-    write_file(&org_path, "* Heading\n");
-    write_file(
-        &config_path,
-        r#"
-db_path = "./db.sqlite"
-files = ["./no-title-set.org"]
-
-[search]
-fts5_enabled = false
-index_body_text = false
-"#,
-    );
-
-    rebuild(&config_path).expect("rebuild should succeed");
-
-    let response = query_json_response(
-        "(headings (title \"no-title-set\" :exact t))",
-        CliQueryOutput::Flat,
-        &[],
-        Some(&config_path),
-    )
-    .expect("fallback root title query should succeed");
-
-    let value = serde_json::to_value(&response).expect("response should serialize");
-    let file = &value["results"][0];
-    assert_eq!(file["kind"], "root");
-    assert_eq!(file["title"], "no-title-set");
-    assert!(file["title_raw"].is_null());
+        let value: serde_json::Value =
+            serde_json::to_value(&response).expect("json output should serialize");
+        assert_eq!(value["target"], "headings");
+        assert_eq!(value["results"].as_array().expect("results array").len(), 1);
+        let file = &value["results"][0];
+        assert_eq!(file["kind"], "root", "{title}");
+        assert_eq!(file["title"], title);
+        if raw_is_null {
+            assert!(file["title_raw"].is_null());
+        }
+    }
 }
 
 #[test]
@@ -2587,51 +2175,6 @@ fn query_json_is_read_only_and_does_not_reparse_files() {
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("user_version should load after read-only query");
     assert_eq!(version_after, CURRENT_SCHEMA_VERSION);
-}
-
-#[test]
-fn query_json_read_only_open_rejects_outdated_schema_without_mutation() {
-    let test_dir = TestDir::new("query-outdated-db");
-    let config_path = write_query_fixture(&test_dir);
-    let db_path = test_dir.path().join("db.sqlite");
-
-    let connection = Connection::open(&db_path).expect("query database should open");
-    connection
-        .pragma_update(None, "user_version", i64::from(CURRENT_SCHEMA_VERSION - 1))
-        .expect("outdated user_version should seed");
-    drop(connection);
-
-    let error = query_json_response(
-        "(todo \"NEXT\")",
-        CliQueryOutput::Flat,
-        &[],
-        Some(&config_path),
-    )
-    .expect_err("outdated read-only query database should fail before execution");
-
-    let message = error.to_string();
-    match error {
-        CliError::Database(DbError::OutdatedSchemaVersion {
-            on_disk_version,
-            required_version,
-            ..
-        }) => {
-            assert_eq!(on_disk_version, CURRENT_SCHEMA_VERSION - 1);
-            assert_eq!(required_version, CURRENT_SCHEMA_VERSION);
-        }
-        other => panic!("expected OutdatedSchemaVersion, got {other}"),
-    }
-
-    assert!(message.contains(&format!(
-        "run an indexing command to migrate it to version {}",
-        CURRENT_SCHEMA_VERSION
-    )));
-
-    let reopened = Connection::open(&db_path).expect("outdated database should reopen");
-    let version_after: u32 = reopened
-        .pragma_query_value(None, "user_version", |row| row.get(0))
-        .expect("outdated schema version should remain unchanged");
-    assert_eq!(version_after, CURRENT_SCHEMA_VERSION - 1);
 }
 
 #[test]
@@ -2819,27 +2362,140 @@ fn headings_json_excludes_level_zero_rows_with_no_root() {
     assert_eq!(rows[0].all_tags, vec!["rust".to_string()]);
 }
 
+/// Read-only commands that open the database through a configured `db_path`.
+const READ_ONLY_COMMANDS: &[&str] = &["headings", "links", "query", "status"];
+
+fn run_read_only_command(command: &str, config_path: &Path) -> Result<(), CliError> {
+    match command {
+        "headings" => headings_json_rows(false, Some(config_path)).map(drop),
+        "links" => links_json_rows(Some(config_path)).map(drop),
+        "query" => query_json_response(
+            "(todo \"NEXT\")",
+            CliQueryOutput::Flat,
+            &[],
+            Some(config_path),
+        )
+        .map(drop),
+        "status" => run_cli_output(vec![
+            "orgfdb".to_string(),
+            "status".to_string(),
+            "--config".to_string(),
+            config_path.display().to_string(),
+        ])
+        .map(drop),
+        other => panic!("unknown read-only command {other}"),
+    }
+}
+
+/// Writes a config with `db_path = "./db.sqlite"` and returns it with the database path.
+fn write_db_path_config(test_dir: &TestDir) -> (PathBuf, PathBuf) {
+    let config_path = test_dir.path().join("config.toml");
+    write_file(&config_path, "db_path = \"./db.sqlite\"\n");
+    (config_path, test_dir.path().join("db.sqlite"))
+}
+
+fn user_version(db_path: &Path) -> u32 {
+    Connection::open(db_path)
+        .expect("database should reopen")
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .expect("user_version should be readable")
+}
+
+fn seed_user_version(db_path: &Path, version: u32) {
+    Connection::open(db_path)
+        .expect("database should open")
+        .pragma_update(None, "user_version", i64::from(version))
+        .expect("user_version should seed");
+}
+
 #[test]
-fn headings_uses_configured_db_path_when_config_is_provided() {
-    let test_dir = TestDir::new("headings-config");
-    let config_dir = test_dir.path().join("nested/config");
-    let db_path = config_dir.join("../db.sqlite");
-    let config_path = config_dir.join("config.toml");
-    let file_path = config_dir.join("notes.org");
+fn read_only_commands_do_not_create_a_missing_database() {
+    for command in READ_ONLY_COMMANDS {
+        let test_dir = TestDir::new("read-only-missing-db");
+        let (config_path, db_path) = write_db_path_config(&test_dir);
 
-    write_file(
-        &config_path,
-        r#"
-db_path = "../db.sqlite"
-"#,
-    );
-    write_file(&file_path, "* Heading\n");
+        let error =
+            run_read_only_command(command, &config_path).expect_err("missing database should fail");
+        assert!(
+            matches!(error, CliError::Database(DbError::Open { .. })),
+            "{command}: expected read-only open error, got {error}"
+        );
+        assert!(
+            !db_path.exists(),
+            "read-only {command} should not create a database"
+        );
+    }
+}
 
-    let mut configured_db = open_database(&db_path).expect("configured database should open");
+#[test]
+fn read_only_commands_reject_future_schema_versions_without_mutation() {
+    for command in READ_ONLY_COMMANDS {
+        let test_dir = TestDir::new("read-only-future-db");
+        let (config_path, db_path) = write_db_path_config(&test_dir);
+        seed_user_version(&db_path, CURRENT_SCHEMA_VERSION + 1);
+
+        let error = run_read_only_command(command, &config_path)
+            .expect_err("future schema version should fail closed");
+        match error {
+            CliError::Database(DbError::UnsupportedFutureSchemaVersion {
+                on_disk_version,
+                supported_version,
+                ..
+            }) => {
+                assert_eq!(on_disk_version, CURRENT_SCHEMA_VERSION + 1, "{command}");
+                assert_eq!(supported_version, CURRENT_SCHEMA_VERSION, "{command}");
+            }
+            other => panic!("{command}: expected UnsupportedFutureSchemaVersion, got {other}"),
+        }
+        assert_eq!(
+            user_version(&db_path),
+            CURRENT_SCHEMA_VERSION + 1,
+            "{command}"
+        );
+    }
+}
+
+#[test]
+fn read_only_commands_reject_outdated_schema_versions_without_migrating() {
+    for (command, outdated_version) in [
+        ("headings", CURRENT_SCHEMA_VERSION - 1),
+        ("links", CURRENT_SCHEMA_VERSION - 1),
+        ("query", CURRENT_SCHEMA_VERSION - 1),
+        ("status", 11),
+    ] {
+        let test_dir = TestDir::new("read-only-outdated-db");
+        let (config_path, db_path) = write_db_path_config(&test_dir);
+        seed_user_version(&db_path, outdated_version);
+
+        let error = run_read_only_command(command, &config_path)
+            .expect_err("outdated database should fail before execution");
+        let message = error.to_string();
+        match error {
+            CliError::Database(DbError::OutdatedSchemaVersion {
+                on_disk_version,
+                required_version,
+                ..
+            }) => {
+                assert_eq!(on_disk_version, outdated_version, "{command}");
+                assert_eq!(required_version, CURRENT_SCHEMA_VERSION, "{command}");
+            }
+            other => panic!("{command}: expected OutdatedSchemaVersion, got {other}"),
+        }
+        assert!(
+            message.contains(&format!(
+                "run an indexing command to migrate it to version {CURRENT_SCHEMA_VERSION}"
+            )),
+            "{command}: {message}"
+        );
+        assert_eq!(user_version(&db_path), outdated_version, "{command}");
+    }
+}
+
+fn seed_configured_headings_db(configured_db: &mut Connection, file_path: &Path) {
     DbWriter::rebuild_file(
-        &mut configured_db,
+        configured_db,
         &FileRecordInput {
-            path: file_path.clone(),
+            path: file_path.to_path_buf(),
             identity: None,
             mtime_ns: 10,
             size: 100,
@@ -2907,15 +2563,85 @@ db_path = "../db.sqlite"
         },
     )
     .expect("configured db should be populated");
+}
 
-    drop(configured_db);
+fn seed_configured_links_db(configured_db: &mut Connection, _file_path: &Path) {
+    seed_links_fixture(
+        configured_db,
+        "/tmp/configured.org",
+        "Configured",
+        "Heading",
+        &[SeedLink {
+            id: 1,
+            heading_kind: HeadingKind::Root,
+            byte_start: 0,
+            byte_end: 16,
+            line: 1,
+            source_context: "normal",
+            format: "bracket",
+            raw: "[[id:config]]",
+            raw_target: "id:config",
+            raw_description: None,
+            link_type: "id",
+            path: "config",
+            search_option: None,
+            path_absolute: None,
+            target_file_id: None,
+            target_heading_id: None,
+            target_custom_id: None,
+            target_id: None,
+            resolution_status: None,
+            resolution_diagnostic: None,
+        }],
+    );
+}
 
+fn check_configured_headings(config_path: &Path) {
     let rows =
-        headings_json_rows(false, Some(&config_path)).expect("rows should load from configured db");
+        headings_json_rows(false, Some(config_path)).expect("rows should load from configured db");
 
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].level, 0);
     assert_eq!(rows[1].title, "Heading");
+}
+
+fn check_configured_links(config_path: &Path) {
+    let rows = links_json_rows(Some(config_path)).expect("rows should load from db");
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].file_path, "/tmp/configured.org");
+    assert_eq!(rows[0].heading_level, 0);
+}
+
+#[test]
+fn listing_commands_use_the_configured_db_path() {
+    type Seed = fn(&mut Connection, &Path);
+    type Check = fn(&Path);
+    let cases: [(&str, Seed, Check); 2] = [
+        (
+            "headings",
+            seed_configured_headings_db,
+            check_configured_headings,
+        ),
+        ("links", seed_configured_links_db, check_configured_links),
+    ];
+
+    for (command, seed, check) in cases {
+        let test_dir = TestDir::new(&format!("{command}-config"));
+        let config_dir = test_dir.path().join("nested/config");
+        let db_path = config_dir.join("../db.sqlite");
+        let config_path = config_dir.join("config.toml");
+        let file_path = config_dir.join("notes.org");
+
+        write_file(&config_path, "db_path = \"../db.sqlite\"\n");
+        write_file(&file_path, "* Heading\n");
+
+        let mut configured_db = open_database(&db_path).expect("configured database should open");
+        seed(&mut configured_db, &file_path);
+        drop(configured_db);
+
+        check(&config_path);
+    }
 }
 
 #[test]
@@ -2987,31 +2713,6 @@ index_body_text = false
         .query_row("SELECT COUNT(*) FROM headings", [], |row| row.get(0))
         .expect("heading count should load");
     assert_eq!(heading_count, 2);
-}
-
-#[test]
-fn headings_json_read_only_open_does_not_create_missing_database() {
-    let test_dir = TestDir::new("headings-missing-db");
-    let config_path = test_dir.path().join("config.toml");
-    let db_path = test_dir.path().join("missing.sqlite");
-
-    write_file(
-        &config_path,
-        r#"
-db_path = "./missing.sqlite"
-"#,
-    );
-
-    let error =
-        headings_json_rows(false, Some(&config_path)).expect_err("missing database should fail");
-    assert!(
-        matches!(error, CliError::Database(DbError::Open { .. })),
-        "expected read-only open error, got {error}"
-    );
-    assert!(
-        !db_path.exists(),
-        "read-only headings should not create a database"
-    );
 }
 
 #[test]
@@ -3136,46 +2837,6 @@ db_path = "./db.sqlite"
     assert_eq!(version_before, CURRENT_SCHEMA_VERSION);
     assert_eq!(version_after, version_before);
     assert_eq!(heading_fts_after, heading_fts_before);
-}
-
-#[test]
-fn headings_json_read_only_open_rejects_future_schema_versions() {
-    let test_dir = TestDir::new("headings-future-db");
-    let config_path = test_dir.path().join("config.toml");
-    let db_path = test_dir.path().join("future.sqlite");
-
-    write_file(
-        &config_path,
-        r#"
-db_path = "./future.sqlite"
-"#,
-    );
-
-    let connection = Connection::open(&db_path).expect("future database should open");
-    connection
-        .pragma_update(None, "user_version", i64::from(CURRENT_SCHEMA_VERSION + 1))
-        .expect("future user_version should seed");
-    drop(connection);
-
-    let error = headings_json_rows(false, Some(&config_path))
-        .expect_err("future schema version should fail closed");
-    match error {
-        CliError::Database(DbError::UnsupportedFutureSchemaVersion {
-            on_disk_version,
-            supported_version,
-            ..
-        }) => {
-            assert_eq!(on_disk_version, CURRENT_SCHEMA_VERSION + 1);
-            assert_eq!(supported_version, CURRENT_SCHEMA_VERSION);
-        }
-        other => panic!("expected UnsupportedFutureSchemaVersion, got {other}"),
-    }
-
-    let reopened = Connection::open(&db_path).expect("future database should reopen");
-    let version_after: u32 = reopened
-        .pragma_query_value(None, "user_version", |row| row.get(0))
-        .expect("future schema version should remain unchanged");
-    assert_eq!(version_after, CURRENT_SCHEMA_VERSION + 1);
 }
 
 #[test]
@@ -3464,58 +3125,6 @@ fn links_json_includes_resolution_fields_for_all_resolution_states() {
 }
 
 #[test]
-fn links_uses_configured_db_path_when_config_is_provided() {
-    let test_dir = TestDir::new("links-config");
-    let config_dir = test_dir.path().join("nested/config");
-    let db_path = config_dir.join("../db.sqlite");
-    let config_path = config_dir.join("config.toml");
-
-    write_file(
-        &config_path,
-        r#"
-db_path = "../db.sqlite"
-"#,
-    );
-
-    let mut configured_db = open_database(&db_path).expect("configured database should open");
-    seed_links_fixture(
-        &mut configured_db,
-        "/tmp/configured.org",
-        "Configured",
-        "Heading",
-        &[SeedLink {
-            id: 1,
-            heading_kind: HeadingKind::Root,
-            byte_start: 0,
-            byte_end: 16,
-            line: 1,
-            source_context: "normal",
-            format: "bracket",
-            raw: "[[id:config]]",
-            raw_target: "id:config",
-            raw_description: None,
-            link_type: "id",
-            path: "config",
-            search_option: None,
-            path_absolute: None,
-            target_file_id: None,
-            target_heading_id: None,
-            target_custom_id: None,
-            target_id: None,
-            resolution_status: None,
-            resolution_diagnostic: None,
-        }],
-    );
-    drop(configured_db);
-
-    let rows = links_json_rows(Some(&config_path)).expect("rows should load from db");
-
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].file_path, "/tmp/configured.org");
-    assert_eq!(rows[0].heading_level, 0);
-}
-
-#[test]
 fn rebuild_and_links_json_read_stored_source_facts_without_rebuild() {
     let test_dir = TestDir::new("links-read-only");
     let config_path = test_dir.path().join("config.toml");
@@ -3557,64 +3166,6 @@ index_body_text = false
 
     let stored_rows = links_json_rows(Some(&config_path)).expect("stored rows should load");
     assert_eq!(stored_rows, initial_rows);
-}
-
-#[test]
-fn links_json_read_only_open_does_not_create_missing_database() {
-    let test_dir = TestDir::new("links-missing-db");
-    let config_path = test_dir.path().join("config.toml");
-    let db_path = test_dir.path().join("missing.sqlite");
-
-    write_file(
-        &config_path,
-        r#"
-db_path = "./missing.sqlite"
-"#,
-    );
-
-    let error = links_json_rows(Some(&config_path)).expect_err("missing database should fail");
-    assert!(
-        matches!(error, CliError::Database(DbError::Open { .. })),
-        "expected read-only open error, got {error}"
-    );
-    assert!(
-        !db_path.exists(),
-        "read-only links should not create a database"
-    );
-}
-
-#[test]
-fn links_json_read_only_open_rejects_future_schema_versions() {
-    let test_dir = TestDir::new("links-future-db");
-    let config_path = test_dir.path().join("config.toml");
-    let db_path = test_dir.path().join("future.sqlite");
-
-    write_file(
-        &config_path,
-        r#"
-db_path = "./future.sqlite"
-"#,
-    );
-
-    let connection = Connection::open(&db_path).expect("future database should open");
-    connection
-        .pragma_update(None, "user_version", i64::from(CURRENT_SCHEMA_VERSION + 1))
-        .expect("future user_version should seed");
-    drop(connection);
-
-    let error =
-        links_json_rows(Some(&config_path)).expect_err("future schema version should fail closed");
-    match error {
-        CliError::Database(DbError::UnsupportedFutureSchemaVersion {
-            on_disk_version,
-            supported_version,
-            ..
-        }) => {
-            assert_eq!(on_disk_version, CURRENT_SCHEMA_VERSION + 1);
-            assert_eq!(supported_version, CURRENT_SCHEMA_VERSION);
-        }
-        other => panic!("expected UnsupportedFutureSchemaVersion, got {other}"),
-    }
 }
 
 #[test]
@@ -3678,42 +3229,6 @@ fn status_and_changes_commands_return_the_committed_generation_contract() {
     assert_eq!(initial["cache_action"], "rebuild");
     assert_eq!(initial["reason"], "full-invalidation");
     assert_eq!(initial["complete"], true);
-}
-
-#[test]
-fn status_requires_the_index_state_schema_without_migrating_read_only() {
-    let test_dir = TestDir::new("status-old-schema");
-    let config_path = test_dir.path().join("config.toml");
-    let db_path = test_dir.path().join("old.sqlite");
-    write_file(
-        &config_path,
-        r#"
-db_path = "./old.sqlite"
-"#,
-    );
-    let connection = Connection::open(&db_path).expect("legacy database should open");
-    connection
-        .pragma_update(None, "user_version", 11_u32)
-        .expect("legacy schema version should seed");
-    drop(connection);
-
-    let error = run_cli_output(vec![
-        "orgfdb".to_string(),
-        "status".to_string(),
-        "--config".to_string(),
-        config_path.display().to_string(),
-    ])
-    .expect_err("status should not migrate an old database");
-    assert!(error.to_string().contains(&format!(
-        "run an indexing command to migrate it to version {}",
-        CURRENT_SCHEMA_VERSION
-    )));
-
-    let version = Connection::open(&db_path)
-        .expect("legacy database should reopen")
-        .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
-        .expect("legacy schema version should remain readable");
-    assert_eq!(version, 11);
 }
 
 #[test]
