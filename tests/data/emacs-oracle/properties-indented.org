@@ -1,0 +1,9 @@
+* Indented drawer
+  :PROPERTIES:
+  :ID: indented
+  :END:
+* Indented after planning
+  SCHEDULED: <2026-03-20 Fri>
+  :PROPERTIES:
+  :ID: indented-planning
+  :END:

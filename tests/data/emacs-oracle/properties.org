@@ -1,0 +1,67 @@
+:PROPERTIES:
+:ID: file-level-id
+:END:
+#+TITLE: Properties oracle
+
+* Valid drawer
+:PROPERTIES:
+:ID: one
+:CUSTOM_ID: c1
+:EMPTY:
+:BLANKVAL:
+:mixed_Case: v
+:END:
+* Drawer after planning
+SCHEDULED: <2026-03-20 Fri>
+:PROPERTIES:
+:A: 1
+:END:
+* Drawer after body text
+text first
+:PROPERTIES:
+:B: 2
+:END:
+* Drawer after blank line
+
+:PROPERTIES:
+:C: 3
+:END:
+* Drawer after comment
+# a comment
+:PROPERTIES:
+:D: 4
+:END:
+* Drawer after other drawer
+:LOGBOOK:
+- note
+:END:
+:PROPERTIES:
+:E: 5
+:END:
+* Duplicate and append
+:PROPERTIES:
+:F: first
+:F: second
+:G: base
+:G+: extra
+:END:
+* Drawer in block
+#+begin_example
+:PROPERTIES:
+:H: 6
+:END:
+#+end_example
+* Unclosed drawer
+:PROPERTIES:
+:I: 7
+* Property with spaces in value
+:PROPERTIES:
+:J:   spaced   value   
+:END:
+* Two drawers
+:PROPERTIES:
+:K: 8
+:END:
+:PROPERTIES:
+:L: 9
+:END:

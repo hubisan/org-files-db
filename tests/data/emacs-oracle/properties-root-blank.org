@@ -1,0 +1,9 @@
+
+# a comment
+
+:PROPERTIES:
+:ID: root-after-blank
+:END:
+#+TITLE: Root drawer after blank and comment
+
+* H
