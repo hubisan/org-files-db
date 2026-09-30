@@ -74,28 +74,140 @@ struct KnownFiles {
     by_path: HashMap<PathBuf, i64>,
 }
 
-#[derive(Debug)]
-struct HeadingCandidate {
-    id: i64,
-    title: String,
+#[derive(Debug, Default)]
+struct ResolutionIndex {
+    global_ids: HashMap<String, Vec<(i64, i64)>>,
+    titles: HashMap<(i64, String), Vec<i64>>,
+    custom_ids: HashMap<(i64, String), Vec<i64>>,
+    roots: HashMap<i64, Vec<i64>>,
 }
 
-#[derive(Debug)]
-struct PropertyCandidate {
-    heading_id: i64,
-    value: Option<String>,
-}
+impl ResolutionIndex {
+    fn load(connection: &Connection) -> Result<Self, DbWriteError> {
+        let mut index = Self::default();
+        let err = |operation| move |source| DbWriteError::Write { operation, source };
+        let mut statement = connection
+            .prepare(
+                "SELECT headings.file_id, headings.id, properties.value
+                 FROM properties
+                 INNER JOIN headings ON headings.id = properties.heading_id
+                 WHERE headings.level > 0 AND properties.key = 'ID'
+                 ORDER BY headings.file_id, headings.byte_start, headings.id, properties.id",
+            )
+            .map_err(err("link_resolver.index.ids.prepare"))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })
+            .map_err(err("link_resolver.index.ids.query"))?;
+        for row in rows {
+            let (file_id, heading_id, value) = row.map_err(err("link_resolver.index.ids.row"))?;
+            if let Some(value) = value {
+                index
+                    .global_ids
+                    .entry(unicode_lowercase(&value))
+                    .or_default()
+                    .push((file_id, heading_id));
+            }
+        }
+        drop(statement);
 
-#[derive(Debug)]
-struct GlobalPropertyCandidate {
-    file_id: i64,
-    heading_id: i64,
-    value: Option<String>,
-}
+        let mut statement = connection
+            .prepare(
+                "SELECT file_id, id, title FROM headings
+                 WHERE level > 0 ORDER BY file_id, byte_start, id",
+            )
+            .map_err(err("link_resolver.index.titles.prepare"))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(err("link_resolver.index.titles.query"))?;
+        for row in rows {
+            let (file_id, id, title) = row.map_err(err("link_resolver.index.titles.row"))?;
+            index
+                .titles
+                .entry((file_id, unicode_lowercase(&title)))
+                .or_default()
+                .push(id);
+        }
+        drop(statement);
 
-#[derive(Debug)]
-struct RootHeadingCandidate {
-    heading_id: i64,
+        let mut statement = connection
+            .prepare(
+                "SELECT headings.file_id, headings.id, properties.value
+                 FROM properties
+                 INNER JOIN headings ON headings.id = properties.heading_id
+                 WHERE headings.level > 0 AND properties.key = 'CUSTOM_ID'
+                 ORDER BY headings.file_id, headings.byte_start, headings.id, properties.id",
+            )
+            .map_err(err("link_resolver.index.custom_ids.prepare"))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })
+            .map_err(err("link_resolver.index.custom_ids.query"))?;
+        for row in rows {
+            let (file_id, id, value) = row.map_err(err("link_resolver.index.custom_ids.row"))?;
+            if let Some(value) = value {
+                index
+                    .custom_ids
+                    .entry((file_id, unicode_lowercase(&value)))
+                    .or_default()
+                    .push(id);
+            }
+        }
+        drop(statement);
+
+        let mut statement = connection
+            .prepare(
+                "SELECT file_id, id FROM headings
+                 WHERE level = 0 AND parent_id IS NULL ORDER BY file_id, byte_start, id",
+            )
+            .map_err(err("link_resolver.index.roots.prepare"))?;
+        let rows = statement
+            .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
+            .map_err(err("link_resolver.index.roots.query"))?;
+        for row in rows {
+            let (file_id, id) = row.map_err(err("link_resolver.index.roots.row"))?;
+            index.roots.entry(file_id).or_default().push(id);
+        }
+        Ok(index)
+    }
+
+    fn global_id_targets(&self, target: &str) -> &[(i64, i64)] {
+        self.global_ids
+            .get(&unicode_lowercase(target))
+            .map_or(&[], Vec::as_slice)
+    }
+
+    fn headings_by_title(&self, file_id: i64, title: &str) -> &[i64] {
+        self.titles
+            .get(&(file_id, unicode_lowercase(title)))
+            .map_or(&[], Vec::as_slice)
+    }
+
+    fn custom_id_headings(&self, file_id: i64, target: &str) -> &[i64] {
+        self.custom_ids
+            .get(&(file_id, unicode_lowercase(target)))
+            .map_or(&[], Vec::as_slice)
+    }
+
+    fn root_headings(&self, file_id: i64) -> &[i64] {
+        self.roots.get(&file_id).map_or(&[], Vec::as_slice)
+    }
 }
 
 impl LinkResolver {
@@ -107,8 +219,9 @@ impl LinkResolver {
         Self::reset_resolution_fields(connection)?;
         let known_files = Self::load_known_files(connection)?;
         let links = Self::load_links(connection)?;
+        let index = ResolutionIndex::load(connection)?;
         for link in links {
-            Self::resolve_link(connection, &link, indexed_universe, &known_files)?;
+            Self::resolve_link(connection, &link, indexed_universe, &known_files, &index)?;
         }
         let after = Self::load_resolution_states(connection)?;
         let changed_source_paths = after
@@ -271,18 +384,19 @@ impl LinkResolver {
         link: &StoredLink,
         indexed_universe: &IndexedUniverse,
         known_files: &KnownFiles,
+        index: &ResolutionIndex,
     ) -> Result<(), DbWriteError> {
         if link.link_type == "file" {
-            return Self::resolve_file_link(connection, link, indexed_universe, known_files);
+            return Self::resolve_file_link(connection, link, indexed_universe, known_files, index);
         }
         if link.link_type == "custom-id" {
-            return Self::resolve_same_file_custom_id_link(connection, link);
+            return Self::resolve_same_file_custom_id_link(connection, link, index);
         }
         if link.link_type == "id" {
-            return Self::resolve_org_id_link(connection, link);
+            return Self::resolve_org_id_link(connection, link, index);
         }
         if link.link_type == "fuzzy" {
-            return Self::resolve_same_file_fuzzy_link(connection, link);
+            return Self::resolve_same_file_fuzzy_link(connection, link, index);
         }
 
         Self::mark_unsupported(connection, link.id)
@@ -293,6 +407,7 @@ impl LinkResolver {
         link: &StoredLink,
         indexed_universe: &IndexedUniverse,
         known_files: &KnownFiles,
+        index: &ResolutionIndex,
     ) -> Result<(), DbWriteError> {
         let home_dir = current_home_dir();
         let Some(path_absolute) = normalize_file_target_path(
@@ -304,7 +419,13 @@ impl LinkResolver {
         };
 
         if let Some(target_file_id) = known_files.by_path.get(&path_absolute).copied() {
-            return Self::resolve_file_target(connection, link, &path_absolute, target_file_id);
+            return Self::resolve_file_target(
+                connection,
+                link,
+                &path_absolute,
+                target_file_id,
+                index,
+            );
         }
 
         if indexed_universe.contains(&path_absolute) {
@@ -317,21 +438,23 @@ impl LinkResolver {
     fn resolve_same_file_fuzzy_link(
         connection: &Connection,
         link: &StoredLink,
+        index: &ResolutionIndex,
     ) -> Result<(), DbWriteError> {
         if let Some(custom_id_target) = same_file_fuzzy_custom_id_target(link.path.as_str()) {
-            return Self::resolve_same_file_custom_id_target(connection, link, &custom_id_target);
+            return Self::resolve_same_file_custom_id_target(
+                connection,
+                link,
+                &custom_id_target,
+                index,
+            );
         }
 
         let Some(heading_title) = same_file_fuzzy_star_heading_target(link.path.as_str()) else {
             return Self::mark_unsupported(connection, link.id);
         };
 
-        let heading_ids = Self::load_matching_heading_ids(
-            connection,
-            link.source_file_id,
-            heading_title.as_str(),
-        )?;
-        match heading_ids.as_slice() {
+        let heading_ids = index.headings_by_title(link.source_file_id, heading_title.as_str());
+        match heading_ids {
             [target_heading_id] => Self::mark_resolved_same_file_heading(
                 connection,
                 link.id,
@@ -351,24 +474,21 @@ impl LinkResolver {
     fn resolve_same_file_custom_id_link(
         connection: &Connection,
         link: &StoredLink,
+        index: &ResolutionIndex,
     ) -> Result<(), DbWriteError> {
         let custom_id_target = normalize_custom_id_lookup_target(link.path.as_str());
 
-        Self::resolve_same_file_custom_id_target(connection, link, &custom_id_target)
+        Self::resolve_same_file_custom_id_target(connection, link, &custom_id_target, index)
     }
 
     fn resolve_same_file_custom_id_target(
         connection: &Connection,
         link: &StoredLink,
         custom_id_target: &str,
+        index: &ResolutionIndex,
     ) -> Result<(), DbWriteError> {
-        let heading_ids = Self::load_matching_property_heading_ids(
-            connection,
-            link.source_file_id,
-            "CUSTOM_ID",
-            custom_id_target,
-        )?;
-        match heading_ids.as_slice() {
+        let heading_ids = index.custom_id_headings(link.source_file_id, custom_id_target);
+        match heading_ids {
             [target_heading_id] => Self::mark_resolved_same_file_custom_id(
                 connection,
                 link.id,
@@ -392,11 +512,15 @@ impl LinkResolver {
         }
     }
 
-    fn resolve_org_id_link(connection: &Connection, link: &StoredLink) -> Result<(), DbWriteError> {
+    fn resolve_org_id_link(
+        connection: &Connection,
+        link: &StoredLink,
+        index: &ResolutionIndex,
+    ) -> Result<(), DbWriteError> {
         let target_id = normalize_id_target(link.path.as_str());
-        let matches = Self::load_matching_global_property_targets(connection, "ID", &target_id)?;
+        let matches = index.global_id_targets(&target_id);
 
-        match matches.as_slice() {
+        match matches {
             [(target_file_id, target_heading_id)] => Self::mark_resolved_org_id(
                 connection,
                 link.id,
@@ -414,6 +538,7 @@ impl LinkResolver {
         link: &StoredLink,
         path_absolute: &Path,
         target_file_id: i64,
+        index: &ResolutionIndex,
     ) -> Result<(), DbWriteError> {
         if let Some(custom_id_target) = file_custom_id_search_target(link.search_option.as_deref())
         {
@@ -423,6 +548,7 @@ impl LinkResolver {
                 path_absolute,
                 target_file_id,
                 &custom_id_target,
+                index,
             );
         }
 
@@ -433,14 +559,14 @@ impl LinkResolver {
                     link.id,
                     path_absolute,
                     target_file_id,
+                    index,
                 );
             }
             return Self::mark_resolved_file(connection, link.id, path_absolute, target_file_id);
         };
 
-        let heading_ids =
-            Self::load_matching_heading_ids(connection, target_file_id, heading_title.as_str())?;
-        match heading_ids.as_slice() {
+        let heading_ids = index.headings_by_title(target_file_id, heading_title.as_str());
+        match heading_ids {
             [target_heading_id] => Self::mark_resolved_heading(
                 connection,
                 link.id,
@@ -467,14 +593,10 @@ impl LinkResolver {
         path_absolute: &Path,
         target_file_id: i64,
         custom_id_target: &str,
+        index: &ResolutionIndex,
     ) -> Result<(), DbWriteError> {
-        let heading_ids = Self::load_matching_property_heading_ids(
-            connection,
-            target_file_id,
-            "CUSTOM_ID",
-            custom_id_target,
-        )?;
-        match heading_ids.as_slice() {
+        let heading_ids = index.custom_id_headings(target_file_id, custom_id_target);
+        match heading_ids {
             [target_heading_id] => Self::mark_resolved_file_custom_id(
                 connection,
                 link.id,
@@ -501,191 +623,15 @@ impl LinkResolver {
         }
     }
 
-    fn load_matching_heading_ids(
-        connection: &Connection,
-        file_id: i64,
-        title: &str,
-    ) -> Result<Vec<i64>, DbWriteError> {
-        let normalized_title = unicode_lowercase(title);
-        let mut statement = connection
-            .prepare(
-                "SELECT id, title
-                 FROM headings
-                 WHERE file_id = ?1
-                   AND level > 0
-                 ORDER BY byte_start, id",
-            )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.load_matching_heading_ids.prepare",
-                source,
-            })?;
-        let rows = statement
-            .query_map(params![file_id], |row| {
-                Ok(HeadingCandidate {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                })
-            })
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.load_matching_heading_ids.query",
-                source,
-            })?;
-        let candidates =
-            rows.collect::<Result<Vec<_>, _>>()
-                .map_err(|source| DbWriteError::Write {
-                    operation: "link_resolver.load_matching_heading_ids.collect",
-                    source,
-                })?;
-        Ok(candidates
-            .into_iter()
-            .filter(|candidate| unicode_lowercase(candidate.title.as_str()) == normalized_title)
-            .map(|candidate| candidate.id)
-            .collect())
-    }
-
-    fn load_matching_property_heading_ids(
-        connection: &Connection,
-        file_id: i64,
-        property_key: &str,
-        property_target: &str,
-    ) -> Result<Vec<i64>, DbWriteError> {
-        let normalized_target = unicode_lowercase(property_target);
-        let mut statement = connection
-            .prepare(
-                "SELECT headings.id, properties.value
-                 FROM properties
-                 INNER JOIN headings ON headings.id = properties.heading_id
-                 WHERE headings.file_id = ?1
-                   AND headings.level > 0
-                   AND properties.key = ?2
-                 ORDER BY headings.byte_start, headings.id, properties.id",
-            )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.load_matching_property_heading_ids.prepare",
-                source,
-            })?;
-        let rows = statement
-            .query_map(params![file_id, property_key], |row| {
-                Ok(PropertyCandidate {
-                    heading_id: row.get(0)?,
-                    value: row.get(1)?,
-                })
-            })
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.load_matching_property_heading_ids.query",
-                source,
-            })?;
-        let candidates =
-            rows.collect::<Result<Vec<_>, _>>()
-                .map_err(|source| DbWriteError::Write {
-                    operation: "link_resolver.load_matching_property_heading_ids.collect",
-                    source,
-                })?;
-        Ok(candidates
-            .into_iter()
-            .filter(|candidate| {
-                candidate.value.as_deref().map(unicode_lowercase).as_deref()
-                    == Some(normalized_target.as_str())
-            })
-            .map(|candidate| candidate.heading_id)
-            .collect())
-    }
-
-    fn load_matching_global_property_targets(
-        connection: &Connection,
-        property_key: &str,
-        property_target: &str,
-    ) -> Result<Vec<(i64, i64)>, DbWriteError> {
-        let normalized_target = unicode_lowercase(property_target);
-        let mut statement = connection
-            .prepare(
-                "SELECT headings.file_id, headings.id, properties.value
-                 FROM properties
-                 INNER JOIN headings ON headings.id = properties.heading_id
-                 INNER JOIN files ON files.id = headings.file_id
-                 WHERE headings.level > 0
-                   AND properties.key = ?1
-                 ORDER BY files.path, headings.byte_start, headings.id, properties.id",
-            )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.load_matching_global_property_targets.prepare",
-                source,
-            })?;
-        let rows = statement
-            .query_map(params![property_key], |row| {
-                Ok(GlobalPropertyCandidate {
-                    file_id: row.get(0)?,
-                    heading_id: row.get(1)?,
-                    value: row.get(2)?,
-                })
-            })
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.load_matching_global_property_targets.query",
-                source,
-            })?;
-        let candidates =
-            rows.collect::<Result<Vec<_>, _>>()
-                .map_err(|source| DbWriteError::Write {
-                    operation: "link_resolver.load_matching_global_property_targets.collect",
-                    source,
-                })?;
-        Ok(candidates
-            .into_iter()
-            .filter(|candidate| {
-                candidate.value.as_deref().map(unicode_lowercase).as_deref()
-                    == Some(normalized_target.as_str())
-            })
-            .map(|candidate| (candidate.file_id, candidate.heading_id))
-            .collect())
-    }
-
-    fn load_root_heading_ids(
-        connection: &Connection,
-        file_id: i64,
-    ) -> Result<Vec<i64>, DbWriteError> {
-        let mut statement = connection
-            .prepare(
-                "SELECT id
-                 FROM headings
-                 WHERE file_id = ?1
-                   AND level = 0
-                   AND parent_id IS NULL
-                 ORDER BY byte_start, id",
-            )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.load_root_heading_ids.prepare",
-                source,
-            })?;
-        let rows = statement
-            .query_map(params![file_id], |row| {
-                Ok(RootHeadingCandidate {
-                    heading_id: row.get(0)?,
-                })
-            })
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.load_root_heading_ids.query",
-                source,
-            })?;
-        let candidates =
-            rows.collect::<Result<Vec<_>, _>>()
-                .map_err(|source| DbWriteError::Write {
-                    operation: "link_resolver.load_root_heading_ids.collect",
-                    source,
-                })?;
-        Ok(candidates
-            .into_iter()
-            .map(|candidate| candidate.heading_id)
-            .collect())
-    }
-
     fn resolve_file_root_target(
         connection: &Connection,
         link_id: i64,
         path_absolute: &Path,
         target_file_id: i64,
+        index: &ResolutionIndex,
     ) -> Result<(), DbWriteError> {
-        let root_heading_ids = Self::load_root_heading_ids(connection, target_file_id)?;
-        match root_heading_ids.as_slice() {
+        let root_heading_ids = index.root_headings(target_file_id);
+        match root_heading_ids {
             [target_heading_id] => Self::mark_resolved_heading(
                 connection,
                 link_id,
