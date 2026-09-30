@@ -274,7 +274,7 @@ orgfdb headings [--config PATH] [--no-root] [--format json | --json]
 
 ** Root rows
 
-Synthetic level-0 file roots are included by default. Use ~--no-root~ to remove them from this inspection output.
+Synthetic level-0 file roots (see [[./architecture.org][Architecture]]) are included by default. Use ~--no-root~ to remove them from this inspection output.
 
 ~--include-root~ is a deprecated compatibility no-op. Root rows are already included by default.
 
