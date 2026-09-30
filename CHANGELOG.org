@@ -6,6 +6,8 @@ This file records completed changes.
 
 - =FIXED= ~--help~ and ~--version~ now print to standard output and exit with code ~0~ instead of writing to standard error with exit code ~2~.
 
+- =CHANGED= Parsing large Org files is now linear in file size: line numbers use a per-document line index, and link scanning no longer rescans ignored ranges or context spans per position.
+
 - =FIXED= Parsing no longer panics when an in-buffer ~#+TODO:~ keyword contains a bracket link (e.g. ~#+TODO: [[b]] | DONE~).
 
 - =FIXED= Discovery now skips dangling symlinks, such as Emacs lock files (~.#notes.org~), instead of aborting ~rebuild~ and ~watch~.
