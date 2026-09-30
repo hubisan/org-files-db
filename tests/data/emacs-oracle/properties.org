@@ -65,3 +65,14 @@ text first
 :PROPERTIES:
 :L: 9
 :END:
+* Empty and append-only components
+:PROPERTIES:
+:M:
+:M+: x
+:N: v
+:N+:
+:O+: a
+:O+: b
+:Q+: pre
+:Q: base
+:END:

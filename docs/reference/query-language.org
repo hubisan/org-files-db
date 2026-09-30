@@ -232,9 +232,9 @@ File queries use direct file-root property rows. They do not accept ~:inherit~.
 
 Effective values use one consistent rule for property drawer rows and file-level ~#+PROPERTY~ rows.
 
-Property values are trimmed of leading and trailing spaces and tabs, as in Org. In a property drawer the first non-append definition of a key supplies the base value, as in Emacs ~org-entry-get~ and ~org-entry-properties~. For ~#+PROPERTY~ rows the last non-append definition supplies the base value. All append definitions for the same key are added in source order.
+Property values are trimmed of leading and trailing spaces and tabs, as in Org. In a property drawer the first non-append definition of a key supplies the base value and all append definitions are added after it in source order, even when an append precedes the base, as in Emacs ~org-entry-get~ and ~org-entry-properties~. ~#+PROPERTY~ rows are processed in source order: a later non-append definition replaces the earlier one together with the appends before it. Components are joined with a single space and empty components are kept, so an empty base plus ~x~ is ~" x"~ and ~v~ plus an empty append is ~"v "~, exactly as in Emacs. A drawer append extends the inherited or file-level value.
 
-This rule can differ from Emacs Org for some repeated file-level ~#+PROPERTY~ sequences and for empty append values, which Org joins with a space. Raw ~properties~ include data keeps every row, including duplicates, with source and append metadata.
+Raw ~properties~ include data keeps every row, including duplicates, with source and append metadata.
 
 Examples:
 
