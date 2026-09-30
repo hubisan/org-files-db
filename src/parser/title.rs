@@ -262,3 +262,195 @@ mod range_tests {
         assert!(!link_contains_range(&links, &(40..41)));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ADVERSARIAL: &[&str] = &[
+        "",
+        " ",
+        "\t\n",
+        "[",
+        "[#",
+        "[#]",
+        "[#é]",
+        "é[#A]é",
+        "é [#A] é",
+        "[#A]é",
+        "[#Aé]",
+        "TODOé [#A]",
+        "TODO\u{a0}[#A] x",
+        "COMMENT\u{a0}[#A]",
+        "é:tag:é",
+        ":é:",
+        "é :a:",
+        "x :é:",
+        ":::",
+        "::",
+        ":a::b:",
+        "日本語 :日本:",
+        "😀[#A]😀 :😀:",
+    ];
+
+    fn assert_boundary(s: &str, i: usize) {
+        assert!(s.is_char_boundary(i), "offset {i} splits {s:?}");
+    }
+
+    #[test]
+    fn infer_todo_keyword_needs_whitespace_after_keyword() {
+        let cfg = TodoKeywordConfig::default();
+        let rows = [
+            ("TODO write", Some(("TODO", "write"))),
+            ("DONE\t x", Some(("DONE", "x"))),
+            ("TODO", None),
+            ("TODO ", Some(("TODO", ""))),
+            ("TODOx y", None),
+            ("todo x", None),
+            ("", None),
+            ("TODOé x", None),
+        ];
+        for (input, want) in rows {
+            let want = want.map(|(k, t)| (k.to_string(), t.to_string()));
+            assert_eq!(infer_todo_keyword(input, &cfg), want, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn placeholder_title_after_todo_prefix_slices_by_prefix_len() {
+        let rows = [
+            ("TODO x", "TODO y", "x", Some("y")),
+            ("TODO x", "TODO ", "x", Some("")),
+            ("TODO x", "TODO", "x", None),
+            ("TODO x", "DONE y", "x", None),
+            ("é x", "é y", "x", Some("y")),
+            ("é x", "e\u{301} y", "x", None),
+            ("é x", "ab y", "x", None),
+            ("x", "x", "longer than source", None),
+            ("", "", "", Some("")),
+            ("TODO x", "", "x", None),
+        ];
+        for (source, placeholder, stripped, want) in rows {
+            let got = placeholder_title_after_todo_prefix(source, placeholder, stripped);
+            assert_eq!(got, want, "{source:?} {placeholder:?}");
+        }
+    }
+
+    #[test]
+    fn priority_cookie_helpers_follow_org_rules() {
+        let rows = [
+            ("[#A] x", Some("A")),
+            ("  [#A]", Some("A")),
+            ("TODO [#B] x", Some("B")),
+            ("[#10] x", Some("10")),
+            ("[#0]", Some("0")),
+            ("[#] x", None),
+            ("[#Ab] x", None),
+            ("[#a] x", None), // Emacs reads lowercase priorities; see report
+            ("[#A]x", None),  // Emacs reads priority A here; see report
+            ("[#A", None),
+            ("x [#A]", Some("A")), // first word may be a TODO keyword
+            ("A B [#C]", None),
+            ("[#é] x", None),
+            ("", None),
+            ("   ", None),
+        ];
+        for (input, want) in rows {
+            let want = want.map(str::to_string);
+            assert_eq!(priority_from_source_title(input), want, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn strip_leading_priority_cookie_needs_matching_cookie_and_space() {
+        let rows = [
+            (" [#A]  x y", Some("A"), "x y"),
+            ("[#A]", Some("A"), ""),
+            ("[#A]x", Some("A"), "[#A]x"),
+            ("[#B] x", Some("A"), "[#B] x"),
+            ("[#A] x", None, "[#A] x"),
+            ("[#10] x", Some("10"), "x"),
+            ("[#é] é", Some("é"), "é"),
+            ("", Some("A"), ""),
+        ];
+        for (input, priority, want) in rows {
+            assert_eq!(
+                strip_leading_priority_cookie(input, priority),
+                want,
+                "{input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn cookie_follows_comment_only_after_comment_word() {
+        let rows = [
+            ("COMMENT [#A] x", None, true),
+            ("COMMENT [#A]", None, true),
+            ("TODO COMMENT [#A] x", Some("TODO"), true),
+            ("COMMENT [#A] x", Some("TODO"), false),
+            ("COMMENT x [#A]", None, false),
+            ("COMMENT [#] x", None, false),
+            ("COMMENT", None, false),
+            ("COMMENTS [#A]", None, false),
+            ("[#A] COMMENT", None, false),
+            ("", None, false),
+            ("é", Some("é"), false),
+        ];
+        for (input, keyword, want) in rows {
+            assert_eq!(cookie_follows_comment(input, keyword), want, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn strip_trailing_org_tags_only_removes_valid_tag_block() {
+        let rows = [
+            ("Title :a:b:", "Title"),
+            ("Title   :a_b@c#d%e:  ", "Title"),
+            ("Title :日本:", "Title"),
+            (":a:", ""),
+            ("Title :a b:", "Title :a b:"),
+            ("Title :a-b:", "Title :a-b:"),
+            ("Title ::", "Title ::"),
+            ("Title :::", "Title :::"),
+            ("Title :a::b:", "Title :a::b:"),
+            ("Title :a:b", "Title :a:b"),
+            ("Title:a:", "Title:a:"),
+            ("Title : a:", "Title : a:"),
+            ("é :é:", "é"),
+            ("", ""),
+            ("   ", ""),
+        ];
+        for (input, want) in rows {
+            assert_eq!(strip_trailing_org_tags(input), want, "{input:?}");
+        }
+        let long = format!("{} :{}:", "x".repeat(50_000), "t".repeat(50_000));
+        assert_eq!(strip_trailing_org_tags(&long).len(), 50_000);
+    }
+
+    #[test]
+    fn helpers_never_panic_and_return_char_boundaries() {
+        let cfg = TodoKeywordConfig::default();
+        for s in ADVERSARIAL {
+            infer_todo_keyword(s, &cfg);
+            priority_from_source_title(s);
+            strip_leading_priority_cookie(s, Some("A"));
+            strip_leading_priority_cookie(s, Some("é"));
+            cookie_follows_comment(s, Some("TODO"));
+            cookie_follows_comment(s, None);
+            let tail = strip_trailing_org_tags(s);
+            assert!(s.contains(tail));
+            for (i, _) in s.char_indices().chain([(s.len(), ' ')]) {
+                for other in ADVERSARIAL {
+                    if let Some(rest) = placeholder_title_after_todo_prefix(s, other, &s[i..]) {
+                        assert_boundary(other, other.len() - rest.len());
+                    }
+                }
+            }
+            // Non-boundary-aligned lengths must yield None rather than panic.
+            for stripped in ADVERSARIAL {
+                let _ = placeholder_title_after_todo_prefix(s, s, stripped);
+            }
+        }
+    }
+}

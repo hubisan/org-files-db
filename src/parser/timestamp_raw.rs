@@ -404,3 +404,254 @@ fn days_from_civil(year: i32, month: u32, day: u32) -> Option<i64> {
     let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
     Some(era * 146_097 + day_of_era - 719_468)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ParsedTimestampModifierType as T;
+    use ParsedTimestampRangeType as R;
+    use ParsedTimestampRole as Role;
+    use ParsedTimestampUnit as U;
+
+    type Entry = (Role, &'static str, usize);
+    type Sig = (ParsedTimestampModifierKind, T, i64, U, Option<(i64, U)>);
+
+    const ADVERSARIAL: &[&str] = &[
+        "",
+        " ",
+        "<",
+        ">",
+        "[",
+        "]",
+        "<>",
+        "<é>",
+        "é<2024-01-01>é",
+        "<2024-01-01",
+        "<2024-01-01 é>",
+        "<2024-01-01 10:é>",
+        "<2024-01-01 é:30>",
+        "<2024-01-01 10:00-é>",
+        "<2024-01-01 é+1w>",
+        "<2024-01-01 +1é>",
+        "<2024-01-01 +1\u{e9}>",
+        "<2024-01-01 -é>",
+        "<2024-01-01 +1w/é>",
+        "<%%(é)>",
+        "<%%(",
+        "<%%()>",
+        "[%%(é)]",
+        "<é-01-01>",
+        "SCHEDULED:é<2024-01-01>",
+        "SCHEDULED: é<2024-01-01>",
+        "é SCHEDULED: <2024-01-01>",
+        "SCHEDULED: <2024-01-01>é DEADLINE: [2024-01-02]é",
+        "CLOSED: [2024-01-01 Mon]\nDEADLINE: <2024-01-01>",
+        "日本語<2024-01-01>日本語",
+        "😀<2024-01-01 +1w>😀",
+        "<99999999999999999999-01-01>",
+        "<2024-01-01 +99999999999999999999d>",
+    ];
+
+    fn sig(m: &ParsedTimestampModifier) -> Sig {
+        let deadline = m.repeater_deadline_value.zip(m.repeater_deadline_unit);
+        (m.kind, m.modifier_type, m.value, m.unit, deadline)
+    }
+
+    #[test]
+    fn planning_fallback_entries_report_role_raw_and_offset() {
+        let sched = "<%%(diary-float t 42)>";
+        let rows: [(&str, Vec<Entry>); 11] = [
+            ("", vec![]),
+            ("   ", vec![]),
+            ("nothing", vec![]),
+            (
+                "SCHEDULED: <2024-01-01 Mon +1w>",
+                vec![(Role::Scheduled, "<2024-01-01 Mon +1w>", 11)],
+            ),
+            (
+                "  DEADLINE: <2024-01-01> CLOSED: [2024-01-02]",
+                vec![
+                    (Role::Deadline, "<2024-01-01>", 12),
+                    (Role::Closed, "[2024-01-02]", 33),
+                ],
+            ),
+            (
+                "SCHEDULED:<2024-01-01>",
+                vec![(Role::Scheduled, "<2024-01-01>", 10)],
+            ),
+            (
+                "SCHEDULED: <%%(diary-float t 42)>",
+                vec![(Role::Scheduled, sched, 11)],
+            ),
+            ("SCHEDULED: garbage", vec![]),
+            (
+                "SCHEDULED: <2024-01-01> junk DEADLINE: <2024-01-02>",
+                vec![(Role::Scheduled, "<2024-01-01>", 11)],
+            ),
+            ("SCHEDULED: <2024-01-01", vec![]),
+            ("scheduled: <2024-01-01>", vec![]),
+        ];
+        for (line, want) in rows {
+            let got = parse_planning_fallback_entries(line);
+            let want: Vec<_> = want
+                .into_iter()
+                .map(|(r, s, o)| (r, s.to_string(), o))
+                .collect();
+            assert_eq!(got, want, "{line:?}");
+            for (_, raw, off) in &got {
+                assert_eq!(&line[*off..*off + raw.len()], raw);
+            }
+        }
+        let long = format!("SCHEDULED: <2024-01-01> {}", "x".repeat(100_000));
+        assert_eq!(parse_planning_fallback_entries(&long).len(), 1);
+    }
+
+    #[test]
+    fn raw_timestamp_bounds_cover_time_ranges_and_unknowns() {
+        let day = 1_704_067_200;
+        let rows = [
+            ("<2024-01-01 Mon>", Some(day), None, R::None),
+            ("[2024-01-01]", Some(day), None, R::None),
+            ("<2024-01-01 Mon 10:30>", Some(day + 37_800), None, R::None),
+            ("<2024-01-01 10:30>", Some(day + 37_800), None, R::None),
+            (
+                "<2024-01-01 Mon 10:30-11:45>",
+                Some(day + 37_800),
+                Some(day + 42_300),
+                R::TimeRange,
+            ),
+            (
+                "<2024-01-01 Mon 10:30 +1w -3d>",
+                Some(day + 37_800),
+                None,
+                R::None,
+            ),
+            ("<2024-01-01 Mon +1w>", Some(day), None, R::None),
+            ("<%%(diary-float t 42)>", None, None, R::None),
+            ("[%%(x)]", None, None, R::None),
+            ("<>", None, None, R::Unknown),
+            ("", None, None, R::Unknown),
+            ("   ", None, None, R::Unknown),
+            ("<garbage>", None, None, R::Unknown),
+            ("<2024-01>", None, None, R::Unknown),
+            ("<2024-01-01-02>", None, None, R::Unknown),
+            ("<é>", None, None, R::Unknown),
+            ("<2024-01-01 Mon 10:xx>", Some(day), None, R::None),
+        ];
+        for (raw, start, end, range) in rows {
+            assert_eq!(
+                normalize_raw_timestamp_bounds(raw),
+                (start, end, range),
+                "{raw:?}"
+            );
+        }
+        let long = format!("<2024-01-01 {}>", "9".repeat(100_000));
+        let _ = normalize_raw_timestamp_bounds(&long);
+    }
+
+    #[test]
+    fn time_range_token_and_explicit_time() {
+        let t = |h, m| Some((h, m));
+        let rows = [
+            ("10:30", Some((t(10, 30), None))),
+            ("10:30-11:45", Some((t(10, 30), t(11, 45)))),
+            ("9:05", Some((t(9, 5), None))),
+            ("10:30-", None),
+            ("-11:45", None),
+            ("10", None),
+            ("10:", None),
+            (":30", None),
+            ("Mon", None),
+            ("", None),
+            ("é:30", None),
+            ("10:30-11:45-12:00", None),
+        ];
+        for (token, want) in rows {
+            assert_eq!(parse_time_range_token(token), want, "{token:?}");
+        }
+        let rows = [
+            ("<2024-01-01 Mon>", Some(false)),
+            ("<2024-01-01 Mon 10:30>", Some(true)),
+            ("<2024-01-01 Mon 10:30-11:00 +1w>", Some(true)),
+            ("<%%(x)>", None),
+            ("", Some(false)),
+        ];
+        for (raw, want) in rows {
+            assert_eq!(raw_timestamp_has_explicit_time(raw), want, "{raw:?}");
+        }
+    }
+
+    #[test]
+    fn modifiers_parse_repeaters_and_warnings() {
+        use ParsedTimestampModifierKind::{Repeater as Rep, Warning as Warn};
+        let rows: [(&str, Vec<_>); 14] = [
+            ("<2024-01-01 Mon>", vec![]),
+            (
+                "<2024-01-01 Mon +1w>",
+                vec![(Rep, T::Cumulate, 1, U::Week, None)],
+            ),
+            (
+                "<2024-01-01 .+1d>",
+                vec![(Rep, T::Restart, 1, U::Day, None)],
+            ),
+            (
+                "<2024-01-01 ++2m>",
+                vec![(Rep, T::CatchUp, 2, U::Month, None)],
+            ),
+            ("<2024-01-01 -3d>", vec![(Warn, T::All, 3, U::Day, None)]),
+            (
+                "<2024-01-01 --1w>",
+                vec![(Warn, T::First, 1, U::Week, None)],
+            ),
+            (
+                "<2024-01-01 +1w/2d>",
+                vec![(Rep, T::Cumulate, 1, U::Week, Some((2, U::Day)))],
+            ),
+            (
+                "<2024-01-01 10:00 +1y -2h>",
+                vec![
+                    (Rep, T::Cumulate, 1, U::Year, None),
+                    (Warn, T::All, 2, U::Hour, None),
+                ],
+            ),
+            ("<2024-01-01 +0d>", vec![]),
+            ("<2024-01-01 +1x>", vec![]),
+            ("<2024-01-01 +1w/>", vec![]),
+            ("<2024-01-01 +1wx +w +>", vec![]),
+            ("<%%(diary +1w)>", vec![]),
+            ("", vec![]),
+        ];
+        for (raw, want) in rows {
+            let got: Vec<_> = parse_timestamp_modifiers_from_raw(raw)
+                .unwrap()
+                .iter()
+                .map(sig)
+                .collect();
+            assert_eq!(got, want, "{raw:?}");
+        }
+    }
+
+    #[test]
+    fn helpers_never_panic_and_return_char_boundaries() {
+        for s in ADVERSARIAL {
+            if let Some((i, raw)) = extract_first_raw_timestamp(s) {
+                assert!(s.is_char_boundary(i) && s.is_char_boundary(i + raw.len()));
+                assert_eq!(&s[i..i + raw.len()], raw);
+            }
+            for (role, raw, off) in parse_planning_fallback_entries(s) {
+                let _ = role;
+                assert!(
+                    s.is_char_boundary(off) && s.is_char_boundary(off + raw.len()),
+                    "{s:?}"
+                );
+            }
+            normalize_raw_timestamp_bounds(s);
+            raw_timestamp_has_explicit_time(s);
+            parse_timestamp_modifiers_from_raw(s);
+            timestamp_type_from_raw(s);
+            for token in s.split_whitespace() {
+                parse_time_range_token(token);
+            }
+        }
+    }
+}
