@@ -411,7 +411,8 @@ fn collect_headlines(
                         &source_title_raw,
                         &title_for_normalization,
                         stripped_source,
-                    );
+                    )
+                    .unwrap_or(stripped_source);
                     parsed.title = normalize_title_from_raw(stripped, parsed.priority.as_deref());
                 }
             }
@@ -432,7 +433,8 @@ fn collect_headlines(
                     &source_title_raw,
                     &title_for_normalization,
                     &stripped_title_raw,
-                );
+                )
+                .unwrap_or(&stripped_title_raw);
                 parsed.title = normalize_title_from_raw(
                     stripped_placeholder_title,
                     parsed.priority.as_deref(),
@@ -1595,24 +1597,16 @@ fn placeholder_title_after_todo_prefix<'a>(
     source_title: &str,
     placeholder_title: &'a str,
     stripped_source_title: &str,
-) -> &'a str {
+) -> Option<&'a str> {
     let prefix_len = source_title
         .len()
-        .checked_sub(stripped_source_title.len())
-        .expect("stripped TODO title must be a source suffix");
-    let source_prefix = source_title
-        .get(..prefix_len)
-        .expect("TODO prefix must end on a UTF-8 boundary");
-    let placeholder_prefix = placeholder_title
-        .get(..prefix_len)
-        .expect("TODO prefix must end on the same UTF-8 boundary");
-    assert_eq!(
-        placeholder_prefix, source_prefix,
-        "link placeholders must not alter the TODO prefix"
-    );
-    placeholder_title
-        .get(prefix_len..)
-        .expect("TODO prefix must end on the same UTF-8 boundary")
+        .checked_sub(stripped_source_title.len())?;
+    let source_prefix = source_title.get(..prefix_len)?;
+    let placeholder_prefix = placeholder_title.get(..prefix_len)?;
+    if placeholder_prefix != source_prefix {
+        return None;
+    }
+    placeholder_title.get(prefix_len..)
 }
 
 fn strip_leading_priority_cookie<'a>(title_raw: &'a str, priority: Option<&str>) -> &'a str {

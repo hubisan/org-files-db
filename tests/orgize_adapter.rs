@@ -1407,6 +1407,25 @@ fn orgize_adapter_excludes_structured_metadata_from_body_text() {
 }
 
 #[test]
+fn orgize_adapter_does_not_panic_on_link_like_todo_keywords() {
+    for (content, keyword) in [
+        ("#+TODO: [[b]] | DONE\n* [[b]] title\n", "[[b]]"),
+        ("#+TODO: A[[b]] | DONE\n* A[[b]] title\n", "A[[b]]"),
+    ] {
+        let document = OrgizeAdapter::new()
+            .parse_document(
+                Path::new("link-keyword.org"),
+                content,
+                &ParseOptions::default(),
+            )
+            .expect("link-like todo keyword should parse");
+        let heading = &document.headings[1];
+        assert_eq!(heading.todo_keyword.as_deref(), Some(keyword), "{content}");
+        assert_eq!(heading.title, "title", "{content}");
+    }
+}
+
+#[test]
 fn orgize_adapter_supports_simplified_org_todo_keyword_lines() {
     let content = include_str!("data/parser/todo-keywords/simplified-file-local-lines/fixture.org");
     let options = ParseOptions {
