@@ -2082,3 +2082,85 @@ fn orgize_adapter_falls_back_to_file_stem_for_synthetic_level_zero_heading() {
     let json = serde_json::to_value(&document.headings[0]).expect("heading should serialize");
     assert!(json["title_raw"].is_null());
 }
+
+fn parse_planning_fixture(content: &str) -> org_files_db::parser::model::ParsedOrgDocument {
+    OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/planning-fallback.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("planning fallback fixture should parse")
+}
+
+#[test]
+fn planning_fallback_ignores_link_as_timestamp_candidate() {
+    let document = parse_planning_fixture("* H\nSCHEDULED: see [[file:a/b.org]]\n");
+    let planning = &document.headings[1].planning;
+    assert!(planning.scheduled_raw().is_none());
+    assert!(planning.scheduled_ts().is_none());
+}
+
+#[test]
+fn planning_fallback_keeps_time_range_with_repeater_deadline() {
+    let document = parse_planning_fixture("* H\nSCHEDULED: <2024-01-01 Mon 10:00-11:00 +1w/2d>\n");
+    let scheduled = document.headings[1]
+        .planning
+        .scheduled
+        .as_ref()
+        .expect("scheduled should be recorded");
+    assert_eq!(scheduled.start_ts, Some(1_704_103_200));
+    assert_eq!(scheduled.end_ts, Some(1_704_106_800));
+    assert_eq!(scheduled.range_type, ParsedTimestampRangeType::TimeRange);
+    assert_eq!(scheduled.has_time, Some(true));
+    assert_eq!(scheduled.modifiers[0].value, 1);
+    assert_eq!(scheduled.modifiers[0].repeater_deadline_value, Some(2));
+}
+
+#[test]
+fn planning_fallback_keeps_single_time_with_repeater_deadline() {
+    let document = parse_planning_fixture("* H\nSCHEDULED: <2024-01-01 Mon 10:00 +1w/2d>\n");
+    let scheduled = document.headings[1]
+        .planning
+        .scheduled
+        .as_ref()
+        .expect("scheduled should be recorded");
+    assert_eq!(scheduled.start_ts, Some(1_704_103_200));
+    assert!(scheduled.end_ts.is_none());
+    assert_eq!(scheduled.modifiers[0].repeater_deadline_value, Some(2));
+}
+
+fn parse_single_heading_for_tags(line: &str) -> (String, Vec<String>) {
+    let content = format!("{line}\nBody.\n");
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/tag-chars.org"),
+            &content,
+            &ParseOptions::default(),
+        )
+        .expect("tag character fixture should parse");
+    let heading = document.headings.last().expect("heading");
+    (heading.title.clone(), heading.tags.clone())
+}
+
+#[test]
+fn orgize_adapter_keeps_invalid_tag_block_in_title() {
+    let (title, tags) = parse_single_heading_for_tags("* Title :foo/bar:");
+    assert_eq!(title, "Title :foo/bar:");
+    assert!(tags.is_empty());
+}
+
+#[test]
+fn orgize_adapter_strips_valid_org_tag_characters() {
+    let (title, tags) = parse_single_heading_for_tags("* Title :a_b@c#d%e:");
+    assert_eq!(title, "Title");
+    assert_eq!(tags, vec!["a_b@c#d%e".to_string()]);
+
+    let (title, tags) = parse_single_heading_for_tags("* Titel :Übersicht:");
+    assert_eq!(title, "Titel");
+    assert_eq!(tags, vec!["Übersicht".to_string()]);
+
+    let (title, tags) = parse_single_heading_for_tags("* Title :a:b:");
+    assert_eq!(title, "Title");
+    assert_eq!(tags, vec!["a".to_string(), "b".to_string()]);
+}

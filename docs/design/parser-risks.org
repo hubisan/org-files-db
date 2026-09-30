@@ -81,6 +81,8 @@ The adapter reads Orgize timestamp nodes for normal planning and body timestamps
 
 It also contains local planning fallbacks for source forms that need project-specific recovery. Repeater and warning modifiers have dedicated raw-text handling.
 
+The planning fallback only accepts a candidate that starts with ~<~ or ~[~ immediately followed by an ISO date and has a closing bracket on the same line, so links such as ~[[file:a/b.org]]~ are never read as timestamps. The fallback also parses ~HH:MM-HH:MM~ time ranges and stores the range end.
+
 Do not remove these fallbacks only because common timestamp fixtures pass. Keep the targeted regression cases first.
 
 * Timezone limitation
@@ -124,6 +126,8 @@ Every new source-bearing parser structure needs byte-range regression coverage. 
 The parser stores normalized semantic titles and raw source title text separately where the model supports both values.
 
 TODO keywords, priority cookies, trailing tags, and Org inline markup can affect normalized heading titles.
+
+A trailing tag block is stripped from the title only when every tag is non-empty and consists of Unicode alphanumerics or ~_@#%~, matching Org's tag rule; otherwise the text stays in the title.
 
 Keep normalization tests tied to the same source ranges used for links and heading metadata. Parser changes must not shift unrelated byte coordinates.
 
