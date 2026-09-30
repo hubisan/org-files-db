@@ -99,13 +99,13 @@ def emacs_style_title(title_raw, todo, priority):
     t = title_raw or ""
     for prefix in ([todo] if todo else []):
         if t.startswith(prefix):
-            t = t[len(prefix):].lstrip()
+            t = t[len(prefix):].lstrip(" \t")
     if priority and t.startswith("[#%s]" % priority):
-        t = t[len(priority) + 3:].lstrip()
-    if t == "COMMENT" or t.startswith("COMMENT "):
-        t = t[7:].lstrip()
+        t = t[len(priority) + 3:].lstrip(" \t")
+    if t == "COMMENT" or t.startswith(("COMMENT ", "COMMENT\t")):
+        t = t[7:].lstrip(" \t")
     if priority and t.startswith("[#%s]" % priority):
-        t = t[len(priority) + 3:].lstrip()
+        t = t[len(priority) + 3:].lstrip(" \t")
     return t
 
 

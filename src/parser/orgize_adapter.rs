@@ -456,11 +456,21 @@ fn parse_headline(
     parsed.title_raw = Some(source_title_raw.clone());
     parsed.priority = parsed_priority;
     parsed.todo_keyword = headline.todo_keyword().map(|token| token.to_string());
-    if parsed
-        .todo_keyword
-        .as_deref()
-        .filter(|keyword| !todo_keyword_is_active(keyword, todo_keywords))
-        .is_some()
+    // Orgize also accepts a tab after the keyword; Org needs a space (parser-risks.org R21).
+    let keyword_bad_separator = parsed.todo_keyword.as_deref().is_some_and(|keyword| {
+        source_title_raw
+            .strip_prefix(keyword)
+            .is_some_and(|rest| !rest.is_empty() && !rest.starts_with(' '))
+    });
+    if keyword_bad_separator {
+        parsed.priority = None;
+    }
+    if keyword_bad_separator
+        || parsed
+            .todo_keyword
+            .as_deref()
+            .filter(|keyword| !todo_keyword_is_active(keyword, todo_keywords))
+            .is_some()
     {
         parsed.todo_keyword = None;
         parsed.title_raw = Some(source_title_raw.clone());
@@ -473,8 +483,8 @@ fn parse_headline(
         if let Some(keyword) = parsed.todo_keyword.as_deref() {
             let stripped_source = source_title_raw
                 .strip_prefix(keyword)
-                .filter(|remainder| remainder.starts_with(char::is_whitespace))
-                .map(str::trim_start);
+                .filter(|remainder| remainder.starts_with(' '))
+                .map(|remainder| remainder.trim_start_matches([' ', '\t']));
             if let Some(stripped_source) = stripped_source {
                 let stripped = placeholder_title_after_todo_prefix(
                     &source_title_raw,

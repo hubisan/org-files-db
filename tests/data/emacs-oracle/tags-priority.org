@@ -24,3 +24,15 @@
 * Heading with [2026-03-20 Fri] timestamp
 * TODO COMMENT [#B] Todo commented with priority
 * [#A] COMMENT [#B] Priority then comment then cookie
+* [#a] Lowercase priority again
+* [#A]No space after cookie
+* [#1] Digit priority
+* [#!] Symbol priority
+* [#z]	Tab after cookie
+* TODO [#A] Nbsp after keyword
+* COMMENT Nbsp after comment
+* [#A] Nbsp after cookie
+* COMMENT [#a]No space commented
+* TODO 	[#B] Tab after keyword space
+* TODO	[#A] Tab after keyword
+* TODO	Tab keyword no cookie
