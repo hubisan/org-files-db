@@ -6438,13 +6438,13 @@ index_body_text = false
                 ),
                 (
                     "<file+sys:~/sys/path::7>".to_string(),
-                    Some("unsupported".to_string()),
-                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+                    Some("unresolved".to_string()),
+                    Some(FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC.to_string()),
                 ),
                 (
                     "<file+emacs:~/emacs/path::*Target>".to_string(),
-                    Some("unsupported".to_string()),
-                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+                    Some("unresolved".to_string()),
+                    Some(FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC.to_string()),
                 ),
                 (
                     "<unknown:foo>".to_string(),
