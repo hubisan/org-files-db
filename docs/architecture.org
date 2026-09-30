@@ -53,6 +53,8 @@ Read [[./config.org][Configuration Reference]] and [[./design/incremental-indexi
 
 ~src/parser/~ defines the parser-facing data model and diagnostics. ~OrgizeAdapter~ is the current parser implementation.
 
+~OrgizeAdapter~ rejects files with a heading deeper than 100 levels with a parse error (naming level and line) because Orgize's recursive tree building would otherwise overflow the stack.
+
 The parser produces source facts. The indexer converts those facts into the persistent database model.
 
 Emacs Org mode acts as a reference oracle for difficult parser semantics. The implementation does not evaluate unsafe Emacs Lisp or diary expressions.

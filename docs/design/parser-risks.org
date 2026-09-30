@@ -376,10 +376,10 @@ Each entry records one known Orgize deviation or project workaround. The Orgize 
 ** R19 Deep headline nesting recursion
 
 - Repro: a file with many thousands of nested headings, ~*~ repeated to a very high level.
-- Orgize: parsing and the recursive headline tree walk use the call stack.
+- Orgize: parsing builds the headline tree recursively and overflows the stack (an abort) at roughly 400 to 500 levels on a 2 MiB debug-build thread and roughly 2,000 levels on an 8 MiB debug-build thread.
 - Org: no depth limit.
-- Workaround: none. ~collect_headlines~ in ~src/parser/orgize_adapter.rs~ recurses per level, so extreme depth risks a stack overflow.
-- Test: no direct test.
+- Workaround: ~OrgizeAdapter~ pre-scans for headings deeper than ~MAX_HEADING_LEVEL~ (100) and returns a parse error naming the level and line instead of calling Orgize. ~collect_headlines~ is iterative with an explicit stack.
+- Test: ~orgize_adapter_parses_max_heading_depth_on_small_stack~ and ~orgize_adapter_rejects_headings_deeper_than_limit_without_overflow~ in ~tests/orgize_adapter.rs~.
 - Tracked in #41 and #44.
 
 * Risk handling rules
