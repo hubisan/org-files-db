@@ -50,7 +50,7 @@ Read [[./config.org][Configuration Reference]] for all supported configuration k
 
 These commands do not initialize a missing database. They also do not apply schema migrations.
 
-A read-only command rejects a database whose schema version is not current. Run an indexing command to migrate or rebuild that database first.
+A read-only command rejects a database whose schema version is not current. Run an indexing command to migrate or rebuild that database first. A database older than schema version 10 cannot be migrated: delete the file and run ~orgfdb rebuild~.
 
 * ~orgfdb rebuild~
 

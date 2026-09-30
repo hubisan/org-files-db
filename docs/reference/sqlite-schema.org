@@ -6,7 +6,7 @@ This reference is for users who query the ~orgfdb~ database directly with SQL. F
 
 The file ~sql/schema.sql~ is authoritative. It documents every table and column in comments, so this page does not repeat column lists. Read the schema file for exact columns, constraints and indexes.
 
-The schema version is stored in ~PRAGMA user_version~. ~CURRENT_SCHEMA_VERSION~ in ~src/db/schema.rs~ is the code source of truth. See [[../architecture.org][Architecture]] for how versions are checked and rebuilt.
+The schema version is stored in ~PRAGMA user_version~. ~CURRENT_SCHEMA_VERSION~ in ~src/db/schema.rs~ is the code source of truth. Only versions 10 and later are upgraded in place; an older non-zero version fails to open and the database must be deleted and rebuilt with ~orgfdb rebuild~. See [[../architecture.org][Architecture]] for how versions are checked and rebuilt.
 
 * PRAGMAs set on open
 
