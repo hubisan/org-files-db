@@ -3666,7 +3666,7 @@ index_body_text = false
                 r#"(headings
                      (and
                        (title "Empty base followed by append" :exact t)
-                       (property "VALUE" "empty base followed by append" :inherit nil)))"#,
+                       (property "VALUE" " empty base followed by append" :inherit nil)))"#,
             )
             .expect("query should parse"),
             &QueryValidationOptions::default(),
@@ -3683,7 +3683,7 @@ index_body_text = false
                 r#"(headings
                      (and
                        (title "Base followed by empty append" :exact t)
-                       (property "VALUE" "base followed by empty append" :inherit nil)))"#,
+                       (property "VALUE" "base followed by empty append " :inherit nil)))"#,
             )
             .expect("query should parse"),
             &QueryValidationOptions::default(),

@@ -148,39 +148,38 @@ fn resolve_local_properties_with_flags(
 
 fn ordered_property_values(rows: &[&PropertyRow]) -> OrderedPropertyValues {
     let mut base = None;
-    let mut appended = Vec::new();
+    let mut appended: Vec<(bool, String)> = Vec::new();
 
     for row in rows {
         let value = row.value.clone().unwrap_or_default();
+        let keyword = row.source != DRAWER_SOURCE;
         if row.append {
-            appended.push(value);
-        } else if base.is_none() || row.source != DRAWER_SOURCE {
+            appended.push((keyword, value));
+        } else if base.is_none() || keyword {
             // Org (`org-entry-properties`): in a property drawer the first plain
-            // definition wins. `#+PROPERTY` keywords are collected in order, so the last
-            // one wins.
+            // definition wins and appends may precede it. `#+PROPERTY` keywords are
+            // processed in order, so a later plain definition replaces the earlier
+            // keyword definition and the keyword appends collected before it.
+            if keyword {
+                appended.retain(|(from_keyword, _)| !from_keyword);
+            }
             base = Some(value);
         }
     }
 
-    OrderedPropertyValues { base, appended }
+    OrderedPropertyValues {
+        base,
+        appended: appended.into_iter().map(|(_, value)| value).collect(),
+    }
 }
 
+/// Join components with a single space like Emacs, keeping empty components (an empty
+/// base or append still contributes its separator: `"" + "x"` is `" x"`).
 fn combine_property_values(base: Option<&str>, appended: &[String]) -> String {
-    let mut components = Vec::with_capacity(appended.len() + usize::from(base.is_some()));
-
-    if let Some(base) = base {
-        if !base.is_empty() {
-            components.push(base.to_string());
-        }
-    }
-
-    for value in appended {
-        if !value.is_empty() {
-            components.push(value.clone());
-        }
-    }
-
-    components.join(" ")
+    base.into_iter()
+        .chain(appended.iter().map(String::as_str))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[cfg(test)]
@@ -309,18 +308,66 @@ mod tests {
     }
 
     #[test]
-    fn resolves_empty_components_without_artificial_spaces() {
-        let resolved = resolve_local_properties(&[
-            row(1, 10, "VALUE", "", false, 1),
-            row(2, 10, "VALUE", "valid", true, 2),
-        ]);
-        assert_eq!(resolved.get("VALUE").map(String::as_str), Some("valid"));
+    fn matches_emacs_joining_of_empty_and_whitespace_components() {
+        // (rows as (value, append), expected) verified with Emacs 29.3 / Org 9.6.15.
+        let cases: &[(&[(&str, bool)], &str)] = &[
+            (&[("", false), ("x", true)], " x"),
+            (&[("v", false), ("", true)], "v "),
+            (&[("", false), ("", true)], " "),
+            (&[("a", true), ("b", true)], "a b"),
+            (&[("pre", true), ("base", false)], "base pre"),
+            (&[("", false)], ""),
+            (&[("", true)], ""),
+            (&[("a", false), ("", true)], "a "),
+        ];
+        for (rows, expected) in cases {
+            let rows = rows
+                .iter()
+                .enumerate()
+                .map(|(i, (value, append))| row(i as i64, 10, "VALUE", value, *append, i as i64))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                resolve_local_properties(&rows)
+                    .get("VALUE")
+                    .map(String::as_str),
+                Some(*expected),
+                "{rows:?}"
+            );
+        }
+    }
 
-        let resolved = resolve_local_properties(&[
-            row(1, 10, "VALUE", "valid", false, 1),
-            row(2, 10, "VALUE", "", true, 2),
+    #[test]
+    fn property_keywords_process_in_order_and_drawer_append_extends_inherited() {
+        let kw = |id, key: &str, value: &str, append| PropertyRow {
+            source: "property_keyword".to_string(),
+            ..row(id, 10, key, value, append, id)
+        };
+        let rows_by_heading = HashMap::from([
+            (
+                10,
+                vec![
+                    kw(1, "P", "c", true),
+                    kw(2, "P", "b", false),
+                    kw(3, "Q", "a", false),
+                    kw(4, "Q", "z", true),
+                    kw(5, "S", "s1", true),
+                    kw(6, "S", "s2", true),
+                ],
+            ),
+            (11, vec![row(7, 11, "P", "d", true, 9)]),
         ]);
-        assert_eq!(resolved.get("VALUE").map(String::as_str), Some("valid"));
+        let parents = HashMap::from([(10, None), (11, Some(10))]);
+        let derived = derive_effective_properties(&parents, &rows_by_heading);
+        let get = |heading: i64, key: &str| {
+            derived
+                .iter()
+                .find(|row| row.heading_id == heading && row.key == key)
+                .map(|row| row.effective_value.as_str())
+        };
+        assert_eq!(get(10, "P"), Some("b"));
+        assert_eq!(get(10, "Q"), Some("a z"));
+        assert_eq!(get(10, "S"), Some("s1 s2"));
+        assert_eq!(get(11, "P"), Some("b d"));
     }
 
     #[test]
