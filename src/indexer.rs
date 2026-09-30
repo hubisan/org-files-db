@@ -424,7 +424,6 @@ where
             invalidations,
             planning_context: context,
             fts_backend_available,
-            verification_policy: options,
             source_root_evidence: planned_root_evidence,
             expected_files,
             unchanged: Vec::new(),
@@ -478,7 +477,6 @@ where
 
     /// Converts a successful, failure-free planning result into the only input
     /// accepted by the transactional mutation boundary.
-    #[allow(dead_code)]
     pub(crate) fn actionable_plan(
         &self,
         result: ChangePlanningResult,
@@ -492,7 +490,6 @@ where
     }
 
     /// Applies one single-use actionable plan as one immediate SQLite transaction.
-    #[allow(dead_code)]
     pub(crate) fn apply_change_plan(
         &self,
         connection: &mut Connection,
@@ -1137,20 +1134,17 @@ pub(crate) struct ChangePlanningOptions {
     pub(crate) accept_source_root_changes: bool,
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub(crate) enum ChangePlanningResult {
     FullRebuildRequired,
     Ready(Box<ChangePlan>),
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub(crate) struct ChangePlan {
     pub(crate) invalidations: IndexInvalidationSet,
     planning_context: IndexingContext,
     fts_backend_available: bool,
-    verification_policy: ChangePlanningOptions,
     source_root_evidence: Option<SourceRootEvidenceSet>,
     expected_files: Vec<PersistedFileSnapshot>,
     pub(crate) unchanged: Vec<PlannedFile>,
@@ -1181,7 +1175,6 @@ impl ChangePlan {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub(crate) struct ActionableChangePlan {
     plan: ChangePlan,
@@ -1198,7 +1191,6 @@ impl TryFrom<ChangePlan> for ActionableChangePlan {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ChangeApplicationRejection {
     FullRebuildRequired,
@@ -1206,14 +1198,12 @@ pub(crate) enum ChangeApplicationRejection {
     Stale,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ChangeApplicationResult {
     Applied(ChangeApplicationReport),
     Rejected(ChangeApplicationRejection),
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct ChangeApplicationReport {
     pub(crate) unchanged: usize,
@@ -1235,7 +1225,6 @@ impl From<&ChangePlan> for ChangeApplicationReport {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PlannedFile {
     /// Existing row selected by identity (or the exact UTF-8 legacy display path).
@@ -1246,7 +1235,6 @@ pub(crate) struct PlannedFile {
     expected_file_record: FileRecordInput,
 }
 
-#[allow(dead_code)]
 impl PlannedFile {
     fn from_persisted(discovered: &DiscoveredOrgFile, persisted: &PersistedFileSnapshot) -> Self {
         Self {
@@ -1310,7 +1298,6 @@ fn persisted_file_record(persisted: &PersistedFileSnapshot, path: &Path) -> File
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub(crate) struct PlannedPreparedFile {
     /// `None` denotes a created source; otherwise application must update this row.
@@ -1319,7 +1306,6 @@ pub(crate) struct PlannedPreparedFile {
     pub(crate) prepared: PreparedFile,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DeletedFile {
     pub(crate) file_id: i64,
@@ -1328,7 +1314,6 @@ pub(crate) struct DeletedFile {
     sort_key: Vec<u8>,
 }
 
-#[allow(dead_code)]
 impl From<PersistedFileSnapshot> for DeletedFile {
     fn from(value: PersistedFileSnapshot) -> Self {
         let sort_key = value
@@ -1345,14 +1330,14 @@ impl From<PersistedFileSnapshot> for DeletedFile {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
+// `path` and `error` are not reported yet; see #34.
+#[allow(dead_code)]
 pub(crate) struct FailedChange {
     pub(crate) path: PathBuf,
     pub(crate) error: IndexerError,
 }
 
-#[allow(dead_code)]
 enum PlannedCurrentFile {
     Unchanged(PlannedFile),
     MetadataOnly(PlannedFile),
@@ -1360,7 +1345,6 @@ enum PlannedCurrentFile {
     Modified(PlannedPreparedFile),
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct PersistedFileSnapshot {
     file_id: i64,
@@ -1371,7 +1355,6 @@ struct PersistedFileSnapshot {
     content_hash: Option<String>,
 }
 
-#[allow(dead_code)]
 enum PersistedFileSnapshots {
     Valid(Vec<PersistedFileSnapshot>),
     InvalidIdentity,
@@ -1890,7 +1873,6 @@ fn decode_captured_source(path: &Path, bytes: Vec<u8>) -> Result<String, Indexer
     })
 }
 
-#[allow(dead_code)]
 fn qualified_sha256_hash(value: Option<&str>) -> Option<&str> {
     let value = value?;
     let digest = value.strip_prefix("sha256:")?;
@@ -1901,7 +1883,6 @@ fn qualified_sha256_hash(value: Option<&str>) -> Option<&str> {
     .then_some(value)
 }
 
-#[allow(dead_code)]
 fn sqlite_fts5_available_read_only(connection: &Connection) -> rusqlite::Result<bool> {
     connection
         .query_row(
@@ -1912,7 +1893,6 @@ fn sqlite_fts5_available_read_only(connection: &Connection) -> rusqlite::Result<
         .map(|value| value != 0)
 }
 
-#[allow(dead_code)]
 fn load_persisted_file_snapshots(
     connection: &Connection,
 ) -> Result<PersistedFileSnapshots, IndexerError> {
@@ -2012,7 +1992,6 @@ fn load_persisted_file_snapshots(
     Ok(PersistedFileSnapshots::Valid(snapshots))
 }
 
-#[allow(dead_code)]
 fn error_path(error: &IndexerError) -> PathBuf {
     match error {
         IndexerError::Discover { path, .. }
@@ -2093,7 +2072,6 @@ fn file_record_for_write(
     })
 }
 
-#[allow(dead_code)]
 fn snapshot_matches_record(path: &Path, record: &FileRecordInput) -> Result<bool, IndexerError> {
     let captured = capture_stable_source(path)?;
     Ok(captured.snapshot.mtime_ns == record.mtime_ns
@@ -2106,7 +2084,6 @@ fn metadata_matches_record(path: &Path, record: &FileRecordInput) -> Result<bool
     Ok(metadata.mtime_ns == record.mtime_ns && metadata.size == record.size)
 }
 
-#[allow(dead_code)]
 fn plan_baseline_matches(connection: &Connection, plan: &ChangePlan) -> Result<bool, IndexerError> {
     let PersistedFileSnapshots::Valid(current_files) = load_persisted_file_snapshots(connection)?
     else {
@@ -2169,7 +2146,6 @@ fn same_persisted_file_baseline(
         })
 }
 
-#[allow(dead_code)]
 fn row_matches_file_record(
     connection: &Connection,
     file_id: i64,
@@ -2206,7 +2182,6 @@ fn row_matches_file_record(
     }))
 }
 
-#[allow(dead_code)]
 fn update_existing_file_metadata(
     connection: &Connection,
     file: &PlannedFile,
@@ -2221,7 +2196,6 @@ fn update_existing_file_metadata(
     Ok(())
 }
 
-#[allow(dead_code)]
 fn replace_prepared_file(
     connection: &Connection,
     expected_file_id: Option<i64>,
