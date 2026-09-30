@@ -133,6 +133,57 @@ A trailing tag block is stripped from the title only when every tag is non-empty
 
 Keep normalization tests tied to the same source ranges used for links and heading metadata. Parser changes must not shift unrelated byte coordinates.
 
+* Emacs reference comparison
+
+~scripts/emacs-oracle.py~ compares the indexed facts of a file with what Emacs Org mode reports through ~org-element-parse-buffer~. It is a local check only. CI does not run it because Emacs is not installed there.
+
+Requirements: Emacs with Org (tested with Emacs 29.3 and Org 9.6.15), Python 3, and a built ~orgfdb~ binary. The runner finds ~target/release/orgfdb~ or ~target/debug/orgfdb~. Set ~ORGFDB_BIN~ or ~EMACS~ to override.
+
+#+begin_src sh
+scripts/emacs-oracle.py compare                       # all parser and oracle fixtures
+scripts/emacs-oracle.py compare path/to/file.org      # one file
+scripts/emacs-oracle.py emacs path/to/file.org        # Emacs facts as JSON
+scripts/emacs-oracle.py orgfdb path/to/file.org       # orgfdb facts as JSON
+#+end_src
+
+The default run covers every ~tests/data/parser/**/fixture.org~ and every file in ~tests/data/emacs-oracle/~. The oracle fixtures are small files for planning lines, link kinds, TODO defaults and custom sequences, tags, priorities, COMMENT and archived headings, and property drawer placement.
+
+~scripts/emacs-org-dump.el~ only parses. It disables file-local and directory-local variables, never follows links, evaluates no diary expressions or Babel blocks, and refuses files with ~#+SETUPFILE~. Do not weaken these settings, per the parser validation rule in ~AGENTS.md~.
+
+Compared facts per heading: level, raw title, TODO keyword and type, priority, direct tags, archived flag, direct properties, SCHEDULED, DEADLINE and CLOSED raw text, and links (type, path, search option, format, description, source text). File level: keywords, FILETAGS, TODO keyword set, file properties and preamble links.
+
+Harness normalizations, which are not differences:
+
+- ~title_raw~ keeps the TODO keyword, priority cookie and COMMENT (~docs/cli.org~), so the harness strips them before comparing with Emacs ~:raw-value~.
+- Property keys and keyword names are upper-cased. Emacs always reports a synthetic ~CATEGORY~ from the file name, so it counts only when declared.
+- TODO keywords compare as a set. Emacs orders them per sequence and repeats duplicates.
+- Direct tags compare sorted, because the ~tags~ table keeps no order.
+- An empty keyword value compares equal to NULL.
+
+Unclassified differences make the script exit with status 1. Classified ones live in ~scripts/emacs-oracle-known.json~. Categories: a is an orgfdb bug, b is an Orgize deviation that the adapter does not correct, c is an intentional model difference. The cause of the a rows was not traced to Orgize or to the adapter, so no row is marked b yet.
+
+Remaining differences (last run: 34 differences):
+
+| Difference | Emacs | orgfdb | Cat | DB relevance |
+|-
+| Fast key with logging cookies ~WAIT(w@/!)~ | keyword WAIT | keyword not parsed, headings lose state | a, #75 | High: wrong ~todo_keyword~ |
+| Property drawer after a blank line (file level) or after a comment (heading) | no properties | properties stored | a, #75 | Medium |
+| Indented ~:PROPERTIES:~ drawer | properties | none | a | Medium: properties lost |
+| Duplicate drawer key | first value wins | last value wins | a | Medium: wrong ~effective_properties~ |
+| Property value whitespace | trimmed | kept | a | Medium: exact-match queries fail |
+| ~[[test.org::Heading]]~ | fuzzy, path is whole target | type ~test.org~, path ~:Heading~ | a | Medium: wrong ~link_type~ and ~path~ |
+| ~SCHEDULED: <%%(diary ...)>~ | scheduled | body timestamp | a | Low: no instant can be computed |
+| Priority cookie after ~COMMENT~ | no priority | priority | a | Low |
+| Lowercase ~scheduled:~ | planning line, filed as closed | plain timestamp | c | Low: Org quirk |
+| ~file+sys:~, ~file+emacs:~ | type ~file~ | type kept whole | c | Medium: filter by ~link_type~ |
+| Unregistered scheme in a bracket link | fuzzy | typed | c | Low |
+| Links in property drawer values | none | ~source_context = property_drawer~ | c | Low |
+| Tag block with empty pieces ~::a::~ | tags ~""~, ~""~, ~a~ | title text, one tag ~a~ | c | Low |
+| Numeric priority ~[#10]~ | no priority | priority ~10~ | c | Low |
+| Bare ~* TODO~ | plain title in org-element, TODO in ~org-entry-get~ | TODO | c | Low |
+
+Everything else in the fixtures matched, including planning lines with repeaters, warnings and ranges, ~id:~, ~file:~, custom-id and plain links, default TODO behavior, archived and COMMENT headings, and FILETAGS.
+
 * Register
 
 Each entry records one known Orgize deviation or project workaround. The Orgize strategy is tracked in #41. Test names refer to ~tests/orgize_adapter.rs~ unless noted. Org behavior was verified against Emacs 29.3 / Org 9.6.15 for R13 and R17; other entries state Org behavior per Org syntax and were not verified against ~org-element-parse-buffer~.

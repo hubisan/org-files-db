@@ -1,0 +1,38 @@
+#+TITLE: Links oracle
+
+File level [[https://example.org/a][example]] and https://example.org/plain.
+
+* Bracket [[file:notes.org][notes]] and [[https://example.org]]
+Plain https://example.org/x?y=1 and <https://example.org/angle> here.
+- [[file:notes.org::*Heading][file heading]]
+- [[file:notes.org::42][file line]]
+- [[file+sys:notes.pdf][sys]]
+- [[file+emacs:notes.org][emacs]]
+- [[id:1234-abcd][by id]]
+- [[#custom-id][custom]]
+- [[*Bracket][fuzzy heading]]
+- [[Some fuzzy text]]
+- [[mailto:a@example.org][mail]]
+- [[shell:ls][shell not followed]]
+- [[elisp:(message "no")][elisp not evaluated]]
+- <mailto:a@example.org> and mailto:a@example.org
+- [[./relative.org][relative]] [[~/home.org]] [[/abs/path.org]]
+- [[https://example.org/a][desc with [[nested]] brackets]]
+- unknown:thing and [[unknown:thing][unknown bracket]]
+- [[file:a b.org][space in path]]
+* Links in drawers and blocks
+:PROPERTIES:
+:LINK: [[https://example.org/prop][prop]]
+:END:
+:LOGBOOK:
+- Note [[https://example.org/log][log]]
+:END:
+#+begin_quote
+[[https://example.org/quote][quote]]
+#+end_quote
+#+begin_src text
+[[https://example.org/src][src is not a link]]
+#+end_src
+#+begin_example
+[[https://example.org/example][example is not a link]]
+#+end_example

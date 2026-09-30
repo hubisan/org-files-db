@@ -1,0 +1,23 @@
+#+TITLE: Planning oracle
+
+* TODO Plain date
+SCHEDULED: <2026-03-20 Fri>
+* TODO Repeaters and warnings
+SCHEDULED: <2026-03-20 Fri +1w> DEADLINE: <2026-03-25 Wed -2d>
+* TODO Catch-up and restart
+DEADLINE: <2026-03-25 Wed 10:00 ++1m -3d>
+* TODO Restart with deadline repeater
+SCHEDULED: <2026-03-20 Fri .+2d/5d>
+* TODO Time range
+SCHEDULED: <2026-03-20 Fri 09:00-10:30>
+* TODO Date range
+DEADLINE: <2026-03-20 Fri>--<2026-03-22 Sun>
+* DONE Closed
+CLOSED: [2026-03-19 Thu 18:30] SCHEDULED: <2026-03-18 Wed>
+* TODO First warning
+DEADLINE: <2026-03-25 Wed --1d>
+* TODO Planning after body is text
+Some text
+SCHEDULED: <2026-03-20 Fri>
+* TODO Inactive is not scheduled
+SCHEDULED: [2026-03-20 Fri]
