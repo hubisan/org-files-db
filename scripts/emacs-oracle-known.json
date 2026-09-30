@@ -7,53 +7,6 @@
   "scope": "^L11 "
  },
  {
-  "fixture": "properties-indented",
-  "fact": "properties",
-  "category": "a",
-  "note": "Indented :PROPERTIES: drawer is not recognized; Org allows indentation"
- },
- {
-  "fixture": "emacs-oracle/properties\\.org",
-  "fact": "properties",
-  "category": "a",
-  "note": "Duplicate drawer key: Emacs uses the first definition, orgfdb the last (docs/design/parser-risks.org, fixture duplicate-and-append pins last-wins)",
-  "scope": "^L41 "
- },
- {
-  "fixture": "duplicate-and-append",
-  "fact": "properties",
-  "category": "a",
-  "note": "Duplicate drawer key: Emacs uses the first definition, orgfdb the last (fixture pins last-wins)"
- },
- {
-  "fixture": "properties\\.org",
-  "fact": "properties",
-  "category": "a",
-  "note": "Property value keeps leading and trailing whitespace; Org trims it",
-  "scope": "^L57 "
- },
- {
-  "fixture": "orgize-compatibility",
-  "fact": "link\\.(type|path)",
-  "category": "a",
-  "note": "[[test.org::Heading]] is classified as type 'test.org' with path ':Heading'; Org reads a fuzzy link with the whole target as path",
-  "text": "test\\.org::"
- },
- {
-  "fixture": "(structured-metadata-exclusion|planning-timestamp)",
-  "fact": "scheduled",
-  "category": "a",
-  "note": "SCHEDULED with a diary sexp is stored as a body timestamp, not as scheduled_raw (schema.sql allows scheduled_ts NULL for diary values; fixtures pin current behavior)",
-  "scope": "^L(21|39) "
- },
- {
-  "fixture": "tags-priority",
-  "fact": "priority|title",
-  "category": "a",
-  "note": "Priority cookie after COMMENT is read as priority; Org only reads the cookie before COMMENT",
-  "scope": "^L16 "
- },
- {
   "fixture": "planning-timestamp",
   "fact": "closed",
   "category": "c",

@@ -79,7 +79,7 @@ impl OrgParserCore for OrgizeAdapter {
 
         let mut level_zero = level_zero_heading(path, content, parsed.metadata.title.as_deref());
         level_zero.tags = file_level_tags_from_keywords(&parsed.metadata.keywords);
-        populate_heading_body(document.section(), content, &mut level_zero);
+        populate_heading_body(document.section(), content, &mut level_zero, &[]);
         if let Some(properties) = properties_drawer_node_in_document(&document, content) {
             level_zero.properties.extend(parsed_properties_from_drawer(
                 &properties,
@@ -507,6 +507,10 @@ fn parse_headline(
                 normalize_title_from_raw(stripped_placeholder_title, parsed.priority.as_deref());
         }
     }
+    if cookie_follows_comment(&source_title_raw, parsed.todo_keyword.as_deref()) {
+        // Org reads the priority cookie only before COMMENT; after it the cookie is title text.
+        parsed.priority = None;
+    }
     parsed.todo_type = parsed
         .todo_keyword
         .as_deref()
@@ -518,10 +522,15 @@ fn parse_headline(
     parsed.is_root = parent_index.is_none();
 
     parsed.title = restore_title_link_placeholders(parsed.title, &title_placeholders);
-    populate_heading_timestamps(headline, content, lines, links, &mut parsed);
-    populate_heading_body(headline.section(), content, &mut parsed);
+    let text_planning_line =
+        populate_heading_timestamps(headline, content, lines, links, &mut parsed);
+    let properties_drawer =
+        properties_drawer_node_in_headline(headline, text_planning_line.as_ref());
+    let mut excluded = text_planning_line.into_iter().collect::<Vec<_>>();
+    excluded.extend(properties_drawer.as_ref().map(node_byte_range));
+    populate_heading_body(headline.section(), content, &mut parsed, &excluded);
 
-    if let Some(properties) = properties_drawer_node_in_headline(headline) {
+    if let Some(properties) = properties_drawer {
         parsed.properties = parsed_properties_from_drawer(
             &properties,
             content,
@@ -560,13 +569,18 @@ fn source_document_title(document_title: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
-fn populate_heading_body(section: Option<Section>, content: &str, parsed: &mut ParsedHeading) {
+fn populate_heading_body(
+    section: Option<Section>,
+    content: &str,
+    parsed: &mut ParsedHeading,
+    excluded: &[Range<usize>],
+) {
     let Some(section) = section else {
         return;
     };
 
     if let Some((body_text, body_byte_start, body_byte_end)) =
-        filtered_section_body(&section, content)
+        filtered_section_body(&section, content, excluded)
     {
         parsed.body_text = Some(body_text);
         parsed.body_byte_start = body_byte_start;
@@ -577,18 +591,18 @@ fn populate_heading_body(section: Option<Section>, content: &str, parsed: &mut P
 fn filtered_section_body(
     section: &Section,
     content: &str,
+    excluded: &[Range<usize>],
 ) -> Option<(String, Option<usize>, Option<usize>)> {
     let children = section.syntax().children().collect::<Vec<_>>();
-    let included_ranges = children
+    let mut included_ranges = Vec::new();
+    for child in children
         .iter()
         .filter(|child| !body_metadata_kind(child.kind()))
-        .map(|child| {
-            (
-                usize::from(child.text_range().start()),
-                usize::from(child.text_range().end()),
-            )
-        })
-        .collect::<Vec<_>>();
+    {
+        let start = usize::from(child.text_range().start());
+        let end = usize::from(child.text_range().end());
+        included_ranges.extend(subtract_ranges((start, end), excluded));
+    }
 
     if included_ranges.is_empty() {
         return None;
@@ -619,6 +633,31 @@ fn filtered_section_body(
         exact_range.map(|(start, _)| start),
         exact_range.map(|(_, end)| end),
     ))
+}
+
+/// `range` without the parts covered by `excluded`, for metadata Orgize left inside body
+/// nodes (a planning line kept as paragraph text, a property drawer typed as generic drawer).
+fn subtract_ranges(range: (usize, usize), excluded: &[Range<usize>]) -> Vec<(usize, usize)> {
+    let mut pieces = vec![range];
+    for cut in excluded {
+        pieces = pieces
+            .into_iter()
+            .flat_map(|(start, end)| {
+                if start >= cut.end || cut.start >= end {
+                    return vec![(start, end)];
+                }
+                let mut kept = Vec::new();
+                if start < cut.start {
+                    kept.push((start, cut.start));
+                }
+                if cut.end < end {
+                    kept.push((cut.end, end));
+                }
+                kept
+            })
+            .collect();
+    }
+    pieces
 }
 
 fn body_metadata_kind(kind: SyntaxKind) -> bool {
@@ -658,9 +697,10 @@ fn populate_heading_timestamps(
     lines: &LineIndex,
     links: &[ParsedLink],
     parsed: &mut ParsedHeading,
-) {
+) -> Option<Range<usize>> {
     let mut seen_ranges = HashSet::new();
     let planning_node = headline.planning();
+    let mut text_planning_line = None;
 
     if let Some(ref planning) = planning_node {
         for child in planning.syntax().children() {
@@ -695,7 +735,8 @@ fn populate_heading_timestamps(
     }
 
     if planning_node.is_none() {
-        populate_repeater_deadline_planning_fallback(content, lines, parsed, &mut seen_ranges);
+        text_planning_line =
+            populate_text_planning_fallback(content, lines, parsed, &mut seen_ranges);
     }
 
     if let Some(title_node) = headline
@@ -724,6 +765,7 @@ fn populate_heading_timestamps(
             push_body_timestamp_if_new(&timestamp, lines, links, parsed, &mut seen_ranges);
         }
     }
+    text_planning_line
 }
 
 fn push_body_timestamp_if_new(
@@ -800,30 +842,37 @@ fn parsed_timestamp_from_planning_fallback(
     })
 }
 
-fn populate_repeater_deadline_planning_fallback(
+/// Reads the planning line from the source text when Orgize did not build a planning node
+/// (repeater deadlines and diary sexps such as `SCHEDULED: <%%(diary-float t 42)>`). Returns
+/// the byte range of that line, newline included, when it holds at least one planning entry.
+fn populate_text_planning_fallback(
     content: &str,
     lines: &LineIndex,
     parsed: &mut ParsedHeading,
     seen_ranges: &mut HashSet<(usize, usize)>,
-) {
-    let Some(heading_text) = content.get(parsed.byte_start..parsed.byte_end) else {
-        return;
-    };
-    let Some(first_newline) = heading_text.find('\n') else {
-        return;
-    };
+) -> Option<Range<usize>> {
+    let heading_text = content.get(parsed.byte_start..parsed.byte_end)?;
+    let first_newline = heading_text.find('\n')?;
     let after_heading = &heading_text[first_newline + 1..];
     let planning_line = after_heading
         .split_once('\n')
         .map(|(line, _)| line)
         .unwrap_or(after_heading);
 
-    if !planning_line.contains('/') {
-        return;
+    if !planning_line.contains('/') && !planning_line.contains("%%(") {
+        return None;
     }
 
     let line_offset = parsed.byte_start + first_newline + 1;
-    for (role, raw_value, relative_start) in parse_planning_fallback_entries(planning_line) {
+    let entries = parse_planning_fallback_entries(planning_line);
+    if entries.is_empty() {
+        return None;
+    }
+    let mut line_end = line_offset + planning_line.len();
+    if content.as_bytes().get(line_end) == Some(&b'\n') {
+        line_end += 1;
+    }
+    for (role, raw_value, relative_start) in entries {
         let byte_start = line_offset + relative_start;
         let byte_end = byte_start + raw_value.len();
         let (start_ts, end_ts, range_type) = normalize_raw_timestamp_bounds(&raw_value);
@@ -853,6 +902,7 @@ fn populate_repeater_deadline_planning_fallback(
             ParsedTimestampRole::Body => {}
         }
     }
+    Some(line_offset..line_end)
 }
 
 fn parse_planning_fallback_entries(line: &str) -> Vec<(ParsedTimestampRole, String, usize)> {
@@ -890,6 +940,11 @@ fn parse_planning_fallback_entries(line: &str) -> Vec<(ParsedTimestampRole, Stri
 
 fn extract_first_raw_timestamp(text: &str) -> Option<(usize, String)> {
     for (index, character) in text.char_indices() {
+        if character == '<' {
+            if let Some(length) = diary_timestamp_length(&text[index..]) {
+                return Some((index, text[index..index + length].to_string()));
+            }
+        }
         let closing = match character {
             '<' => '>',
             '[' => ']',
@@ -907,6 +962,18 @@ fn extract_first_raw_timestamp(text: &str) -> Option<(usize, String)> {
         return Some((index, text[index..end].to_string()));
     }
     None
+}
+
+/// Length of a diary sexp timestamp `<%%(SEXP)>` at the start of `text`. Org (`org-element`):
+/// the sexp is non-empty, holds no `>` or newline, and the first `>` closes it after `)`.
+fn diary_timestamp_length(text: &str) -> Option<usize> {
+    let rest = text.strip_prefix("<%%(")?;
+    let close = rest.find(['>', '\n'])?;
+    let sexp = rest[..close].strip_suffix(')')?;
+    if sexp.is_empty() || rest.as_bytes()[close] != b'>' {
+        return None;
+    }
+    Some("<%%(".len() + close + 1)
 }
 
 fn starts_with_iso_date(text: &str) -> bool {
@@ -1516,15 +1583,30 @@ fn properties_drawer_node_in_document(document: &OrgDocument, content: &str) -> 
     before.lines().all(is_org_comment_line).then_some(candidate)
 }
 
-fn properties_drawer_node_in_headline(headline: &Headline) -> Option<SyntaxNode> {
+fn properties_drawer_node_in_headline(
+    headline: &Headline,
+    text_planning_line: Option<&Range<usize>>,
+) -> Option<SyntaxNode> {
     headline
         .properties()
         .map(|drawer| drawer.syntax().clone())
         .or_else(|| {
             // Org: the drawer must directly follow the headline or its planning line, so
             // it has to be the very first element of the section (blank lines and
-            // comments in front disqualify it).
-            let first = headline.section()?.syntax().children().next()?;
+            // comments in front disqualify it). A planning line that Orgize left as a
+            // paragraph counts as the planning line when it is that whole paragraph.
+            let section = headline.section()?;
+            let mut children = section.syntax().children();
+            let mut first = children.next()?;
+            if let Some(line) = text_planning_line {
+                let range = first.text_range();
+                if first.kind() == SyntaxKind::PARAGRAPH
+                    && usize::from(range.start()) >= line.start
+                    && usize::from(range.end()) <= line.end
+                {
+                    first = children.next()?;
+                }
+            }
             is_properties_drawer(&first).then_some(first)
         })
 }
@@ -1642,14 +1724,15 @@ fn parsed_property_from_raw_line(
     source: ParsedPropertySource,
     line_number: u32,
 ) -> Option<ParsedProperty> {
-    let raw_line = raw_line.strip_prefix(':')?;
+    // Org: `^[ \t]*:KEY:[ \t]*VALUE[ \t]*$`, indentation and value padding are ignored.
+    let raw_line = raw_line.trim_start_matches([' ', '\t']).strip_prefix(':')?;
     let separator_index = raw_line.find(':')?;
     let raw_key = &raw_line[..separator_index];
     if raw_key.is_empty() {
         return None;
     }
     let raw_value = &raw_line[separator_index + 1..];
-    let value = Some(raw_value.strip_prefix(' ').unwrap_or(raw_value).to_string());
+    let value = Some(raw_value.trim_matches([' ', '\t']).to_string());
     let (key, normalized_append) = normalize_property_key(raw_key);
 
     Some(ParsedProperty {
@@ -1717,6 +1800,22 @@ fn strip_leading_priority_cookie<'a>(title_raw: &'a str, priority: Option<&str>)
     } else {
         title_raw
     }
+}
+
+/// True for `[TODO] COMMENT [#A] ...`, where Org does not read a priority.
+fn cookie_follows_comment(title_raw: &str, todo_keyword: Option<&str>) -> bool {
+    let mut rest = title_raw.trim_start();
+    if let Some(keyword) = todo_keyword {
+        let Some(after_keyword) = rest.strip_prefix(keyword) else {
+            return false;
+        };
+        rest = after_keyword.trim_start();
+    }
+    let Some(after_comment) = rest.strip_prefix("COMMENT") else {
+        return false;
+    };
+    (after_comment.is_empty() || after_comment.starts_with(char::is_whitespace))
+        && priority_cookie_value(after_comment.trim_start()).is_some()
 }
 
 fn priority_from_source_title(title_raw: &str) -> Option<String> {

@@ -36,3 +36,5 @@ Plain https://example.org/x?y=1 and <https://example.org/angle> here.
 #+begin_example
 [[https://example.org/example][example is not a link]]
 #+end_example
+* Dotted prefix
+[[test.org::*Heading]] and [[a.b:c]]

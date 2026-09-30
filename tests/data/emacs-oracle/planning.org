@@ -21,3 +21,15 @@ Some text
 SCHEDULED: <2026-03-20 Fri>
 * TODO Inactive is not scheduled
 SCHEDULED: [2026-03-20 Fri]
+* Diary scheduled
+SCHEDULED: <%%(diary-float t 42)>
+* Diary and deadline
+DEADLINE: <2026-03-20 Fri> SCHEDULED: <%%(diary-float t 4 2)>
+* Diary then drawer
+  SCHEDULED: <%%(diary-float t 42)>
+:PROPERTIES:
+:A: 1
+:END:
+* Diary not directly after heading
+text
+SCHEDULED: <%%(diary-float t 42)>

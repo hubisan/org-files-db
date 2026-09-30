@@ -2515,6 +2515,7 @@ fn index_document(
                 value: property.value.clone(),
                 append: property.append,
                 line_number: property.line_number,
+                source: property.source.clone(),
             });
     }
     let projection = derive_effective_properties(&parents, &properties_by_heading)
@@ -4478,6 +4479,10 @@ index_body_text = false
             .iter()
             .find(|heading| heading.title == "Diary expression")
             .expect("diary heading should exist");
+        assert_eq!(
+            diary.scheduled_raw.as_deref(),
+            Some("<%%(diary-float t 42)>")
+        );
         assert!(diary.scheduled_ts.is_none());
 
         let timestamp_rows: Vec<TimestampRow> = query_rows(
@@ -7091,18 +7096,18 @@ index_body_text = false
                 (
                     "[[file:target.org::# Custom-ID ][Description]]".to_string(),
                     Some(target_path.to_string_lossy().to_string()),
-                    None,
+                    Some("Target heading".to_string()),
                     Some("Description".to_string()),
-                    Some(" Custom-ID ".to_string()),
-                    Some("broken".to_string()),
-                    Some(CUSTOM_ID_MISSING_DIAGNOSTIC.to_string()),
+                    Some("Custom-ID".to_string()),
+                    Some("resolved".to_string()),
+                    None,
                 ),
                 (
                     "[[file:target.org::# abc ]]".to_string(),
                     Some(target_path.to_string_lossy().to_string()),
                     Some("Spaced target".to_string()),
                     None,
-                    Some(" abc ".to_string()),
+                    Some("abc".to_string()),
                     Some("resolved".to_string()),
                     None,
                 ),
@@ -7111,7 +7116,7 @@ index_body_text = false
                     Some(target_path.to_string_lossy().to_string()),
                     None,
                     None,
-                    Some(" ab".to_string()),
+                    Some("ab".to_string()),
                     Some("broken".to_string()),
                     Some(CUSTOM_ID_MISSING_DIAGNOSTIC.to_string()),
                 ),
@@ -7293,19 +7298,19 @@ index_body_text = false
                 ),
                 (
                     "[[id: FOO ][Description]]".to_string(),
-                    None,
-                    None,
+                    Some(target_a_path.to_string_lossy().to_string()),
+                    Some("Exact target".to_string()),
                     Some("Description".to_string()),
-                    Some(" FOO ".to_string()),
-                    Some("unresolved".to_string()),
-                    Some(ID_MISSING_DIAGNOSTIC.to_string()),
+                    Some("FOO".to_string()),
+                    Some("resolved".to_string()),
+                    None,
                 ),
                 (
                     "[[id:123 56 ]]".to_string(),
                     Some(target_a_path.to_string_lossy().to_string()),
                     Some("Spaced tail target".to_string()),
                     None,
-                    Some("123 56 ".to_string()),
+                    Some("123 56".to_string()),
                     Some("resolved".to_string()),
                     None,
                 ),
@@ -7314,7 +7319,7 @@ index_body_text = false
                     Some(target_a_path.to_string_lossy().to_string()),
                     Some("Spaced head target".to_string()),
                     None,
-                    Some(" 23".to_string()),
+                    Some("23".to_string()),
                     Some("resolved".to_string()),
                     None,
                 ),
@@ -7323,7 +7328,7 @@ index_body_text = false
                     None,
                     None,
                     None,
-                    Some(" ab".to_string()),
+                    Some("ab".to_string()),
                     Some("unresolved".to_string()),
                     Some(ID_MISSING_DIAGNOSTIC.to_string()),
                 ),
@@ -7332,7 +7337,7 @@ index_body_text = false
                     None,
                     None,
                     None,
-                    Some("ab ".to_string()),
+                    Some("ab".to_string()),
                     Some("unresolved".to_string()),
                     Some(ID_MISSING_DIAGNOSTIC.to_string()),
                 ),
@@ -7629,27 +7634,27 @@ index_body_text = false
                 (
                     "[[# Custom-ID ][Description]]".to_string(),
                     Some(source_path.to_string_lossy().to_string()),
-                    None,
+                    Some("Target heading".to_string()),
                     Some("Description".to_string()),
-                    Some(" Custom-ID ".to_string()),
-                    Some("broken".to_string()),
-                    Some(CUSTOM_ID_MISSING_DIAGNOSTIC.to_string()),
+                    Some("Custom-ID".to_string()),
+                    Some("resolved".to_string()),
+                    None,
                 ),
                 (
                     "[[#abc ]]".to_string(),
                     Some(source_path.to_string_lossy().to_string()),
                     Some("Spaced tail target".to_string()),
                     None,
-                    Some("abc ".to_string()),
+                    Some("abc".to_string()),
                     Some("resolved".to_string()),
                     None,
                 ),
                 (
                     "[[# abc]]".to_string(),
                     Some(source_path.to_string_lossy().to_string()),
-                    Some("Spaced head target".to_string()),
+                    Some("Spaced tail target".to_string()),
                     None,
-                    Some(" abc".to_string()),
+                    Some("abc".to_string()),
                     Some("resolved".to_string()),
                     None,
                 ),
@@ -7658,7 +7663,7 @@ index_body_text = false
                     Some(source_path.to_string_lossy().to_string()),
                     None,
                     None,
-                    Some(" ab".to_string()),
+                    Some("ab".to_string()),
                     Some("broken".to_string()),
                     Some(CUSTOM_ID_MISSING_DIAGNOSTIC.to_string()),
                 ),
@@ -9082,7 +9087,7 @@ index_body_text = false
 
         write_file(
             &org_path,
-            ":PROPERTIES:\n:CATEGORY: Level 0 Category Property\n:END:\n#+TITLE: Body Metadata Fixture\nIntro before heading.\n\n* Task\nSCHEDULED: <2026-06-23 Tue>\n:PROPERTIES:\n:Owner: Bob\n:END:\nReal body text.\n\n#+AUTHOR: Jane Doe\n\nBody after keyword.\n\n** Child\nChild body.\n\n* Invalid Planning\nSCHEDULED: <%%(diary-float t 42)>\nBody after invalid planning.\n",
+            ":PROPERTIES:\n:CATEGORY: Level 0 Category Property\n:END:\n#+TITLE: Body Metadata Fixture\nIntro before heading.\n\n* Task\nSCHEDULED: <2026-06-23 Tue>\n:PROPERTIES:\n:Owner: Bob\n:END:\nReal body text.\n\n#+AUTHOR: Jane Doe\n\nBody after keyword.\n\n** Child\nChild body.\n\n* Diary Planning\nSCHEDULED: <%%(diary-float t 42)>\nBody after planning.\n",
         );
         Indexer::new(OrgizeAdapter::new())
             .rebuild(&mut connection, &config)
@@ -9114,20 +9119,17 @@ index_body_text = false
         assert_eq!(task_body.1, None);
         assert_eq!(task_body.2, None);
 
-        let invalid_planning_body: String = connection
+        let diary_planning_body: String = connection
             .query_row(
                 "SELECT heading_bodies.body_text
                  FROM heading_bodies
                  INNER JOIN headings ON headings.id = heading_bodies.heading_id
-                 WHERE headings.title = 'Invalid Planning'",
+                 WHERE headings.title = 'Diary Planning'",
                 [],
                 |row| row.get(0),
             )
-            .expect("invalid planning body should load");
-        assert_eq!(
-            invalid_planning_body,
-            "SCHEDULED: <%%(diary-float t 42)>\nBody after invalid planning."
-        );
+            .expect("diary planning body should load");
+        assert_eq!(diary_planning_body, "Body after planning.");
     }
 
     #[test]

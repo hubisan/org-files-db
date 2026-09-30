@@ -160,18 +160,12 @@ Harness normalizations, which are not differences:
 - Direct tags compare sorted, because the ~tags~ table keeps no order.
 - An empty keyword value compares equal to NULL.
 
-Unclassified differences make the script exit with status 1. Classified ones live in ~scripts/emacs-oracle-known.json~. Categories: a is an orgfdb bug, b is an Orgize deviation that the adapter does not correct, c is an intentional model difference. The cause of the a rows was not traced to Orgize or to the adapter, so no row is marked b yet.
+Unclassified differences make the script exit with status 1. Classified ones live in ~scripts/emacs-oracle-known.json~. Categories: a is an orgfdb bug, b is an Orgize deviation that the adapter does not correct, c is an intentional model difference. No a or b rows remain.
 
-Remaining differences (last run: 31 differences):
+Remaining differences (last run: 16 differences, all intentional model differences):
 
 | Difference | Emacs | orgfdb | Cat | DB relevance |
 |-
-| Indented ~:PROPERTIES:~ drawer | properties | none | a | Medium: properties lost |
-| Duplicate drawer key | first value wins | last value wins | a | Medium: wrong ~effective_properties~ |
-| Property value whitespace | trimmed | kept | a | Medium: exact-match queries fail |
-| ~[[test.org::Heading]]~ | fuzzy, path is whole target | type ~test.org~, path ~:Heading~ | a | Medium: wrong ~link_type~ and ~path~ |
-| ~SCHEDULED: <%%(diary ...)>~ | scheduled | body timestamp | a | Low: no instant can be computed |
-| Priority cookie after ~COMMENT~ | no priority | priority | a | Low |
 | Lowercase ~scheduled:~ | planning line, filed as closed | plain timestamp | c | Low: Org quirk |
 | ~file+sys:~, ~file+emacs:~ | type ~file~ | type kept whole | c | Medium: filter by ~link_type~ |
 | Unregistered scheme in a bracket link | fuzzy | typed | c | Low |
@@ -196,7 +190,8 @@ Each entry records one known Orgize deviation or project workaround. The Orgize 
 - Orgize: exposes link nodes for bracket links only and does not cover angle or configurable plain links, nor the project source-context model.
 - Org: bracket, angle and plain links are all link objects, plain links depending on ~org-link-types~.
 - Workaround: ~scan_links~ and ~LinkScanner::scan~ in ~src/parser/link_scanner.rs~, called from ~parse_document_core~ in ~src/parser/orgize_adapter.rs~.
-- Test: ~orgize_adapter_collects_project_owned_links_including_plain_file_splits~, plus the unit tests in ~src/parser/link_scanner.rs~.
+- Type rule: a bracket target is ~TYPE:PATH~ only when the prefix has no dot or is a configured protocol, so ~[[test.org::Heading]]~ is ~fuzzy~ with the whole target as path, as in Org (verified against Emacs 29.3 / Org 9.6.15). Unregistered dotless prefixes such as ~unknown:thing~ stay typed (a c row, #80).
+- Test: ~orgize_adapter_collects_project_owned_links_including_plain_file_splits~, ~dotted_prefix_is_not_a_link_type_unless_configured~, plus the unit tests in ~src/parser/link_scanner.rs~.
 - Tracked in #41.
 
 ** R2 Bracket-link placeholders in titles
@@ -351,7 +346,8 @@ Each entry records one known Orgize deviation or project workaround. The Orgize 
 - Org: it is the property drawer only at the start of its section (after planning, or comments and blank lines in the file section).
 - Orgize also builds a generic drawer for placements Org rejects (blank line, ~# comment~ or a second planning line before it on a heading; blank lines before it at file level), and it puts leading file blank lines outside the section.
 - Workaround: ~properties_drawer_node_in_document~ and ~properties_drawer_node_in_headline~ in ~src/parser/orgize_adapter.rs~ accept a generic drawer named PROPERTIES only as the first element of a heading section, or at file level after comment lines only (checked on the source text, since blank lines sit inside or outside nodes).
-- Test: ~property_drawer_placement_matches_org~ (table checked against Emacs 29.3 / Org 9.6.15).
+- Indentation of the drawer, its properties and ~:END:~ is free in Org and in Orgize; the adapter used to drop indented property lines and now accepts leading spaces and tabs. Values are trimmed of spaces and tabs, and duplicate keys stay as separate rows (Org: the first drawer definition wins; ~effective_properties~ follows that). The resolver trims ~id:~ and ~#custom-id~ link targets of spaces and tabs before matching, which accepts slightly more than Org (Org matches the raw drawer text, so ~[[#y ]]~ does not find ~:CUSTOM_ID:  y~ there).
+- Test: ~property_drawer_placement_matches_org~, ~property_drawer_rows_match_org~ (tables checked against Emacs 29.3 / Org 9.6.15).
 - Tracked in #41.
 
 ** R14 Empty property rows recovered line by line
@@ -416,12 +412,15 @@ Each entry records one known Orgize deviation or project workaround. The Orgize 
 - Repro:
   #+begin_src org
   ,* Task
-  SCHEDULED: <%%(diary-float t 42)>
+  SCHEDULED: <%%(diary-float t 42)> DEADLINE: <2026-03-20 Fri>
+  :PROPERTIES:
+  :ID: x
+  :END:
   #+end_src
-- Orgize: does not build a planning node, so the line is paragraph text with a diary timestamp.
-- Org: the planning value is a diary sexp timestamp. It is never evaluated by the project.
-- Workaround: none by design. The value stays a body diary timestamp with no start or end, and the planning shortcuts stay empty.
-- Test: ~orgize_adapter_only_populates_shortcuts_when_parser_exposes_planning~, ~orgize_adapter_excludes_structured_metadata_from_body_text~.
+- Orgize: does not build a planning node, so the line is paragraph text with a diary timestamp, and the drawer below it is a generic ~DRAWER~ named PROPERTIES.
+- Org: the line is a planning line (~:scheduled~ is the diary timestamp ~<%%(diary-float t 42)>~, ~:deadline~ the date) and the drawer is the property drawer. Verified against Emacs 29.3 / Org 9.6.15. Only the ~<%%(SEXP)>~ form counts (not ~[%%(...)]~, not an unterminated or ~<%%(x) y>~ sexp). The sexp is never evaluated.
+- Workaround: ~populate_text_planning_fallback~ reads a planning line from the source text when Orgize gave no planning node and the first line after the heading holds ~/~ or ~%%(~. Diary values are stored as raw ~scheduled_raw~ (and timestamp role ~scheduled~) with no parsed date. The line is cut out of the body text, and ~properties_drawer_node_in_headline~ accepts the drawer that follows it.
+- Test: ~diary_planning_lines_match_org~, ~orgize_adapter_only_populates_shortcuts_when_parser_exposes_planning~, ~orgize_adapter_excludes_structured_metadata_from_body_text~; fixtures ~timestamps/planning-timestamp~ and ~body/structured-metadata-exclusion~.
 - Tracked in #41.
 
 ** R19 Deep headline nesting recursion
@@ -450,3 +449,16 @@ Update this document when a parser boundary changes in a way that affects indexe
 Keep historical implementation details in task archives or version control. Do not present resolved gaps as current limitations.
 
 Add or update fixtures in the same task as a parser-contract change.
+
+** R20 Priority cookie after COMMENT
+
+- Repro:
+  #+begin_src org
+  ,* COMMENT [#A] x
+  ,* TODO COMMENT [#B] y
+  #+end_src
+- Orgize: reads ~[#A]~ as the priority although it follows ~COMMENT~.
+- Org: the cookie counts only before ~COMMENT~ (~* [#A] COMMENT x~ has priority A). After it the cookie is title text and there is no priority (~:raw-value~ is ~[#A] x~). Verified against Emacs 29.3 / Org 9.6.15.
+- Workaround: ~cookie_follows_comment~ in ~src/parser/orgize_adapter.rs~ clears the priority in ~parse_headline~ for ~[KEYWORD] COMMENT [#X]~. ~title~ and ~title_raw~ already keep the cookie and ~COMMENT~.
+- Test: ~comment_and_priority_cookie_order_matches_org~.
+- Tracked in #41.

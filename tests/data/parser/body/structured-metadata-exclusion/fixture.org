@@ -18,6 +18,6 @@ Body after keyword.
 ** Child
 Child body.
 
-* Invalid Planning
+* Diary Planning
 SCHEDULED: <%%(diary-float t 42)>
-Body after invalid planning.
+Body after planning.
