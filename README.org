@@ -7,11 +7,11 @@
 
 The index stores headings, file metadata, tags, properties, keywords, timestamps, and Org links. Structural queries read this indexed data without reparsing source files.
 
-The project supports Linux and other Unix-like systems, including macOS. Windows is not supported.
+The project supports Linux and other Unix-like systems, including macOS. Windows is not supported. See [[*Current status and known limitations][Current status and known limitations]].
 
 * Quick start
 
-Downlaod this repo and run the following in the root to install ~orgfdb~:
+Download this repo and run the following in the root to install ~orgfdb~:
 
 #+begin_src shell
 make install
@@ -103,6 +103,35 @@ orgfdb query \
 #+end_src
 
 Read [[./docs/reference/query-language.org][Structural Query Language]] for the complete query syntax.
+
+* Full-text search
+
+~orgfdb search~ takes a raw SQLite FTS5 ~MATCH~ expression. It is separate from the structural query language.
+
+#+begin_src shell
+orgfdb search --config ./org-files-db.toml 'sqlite AND database'
+orgfdb search --config ./org-files-db.toml --title 'sql*'
+#+end_src
+
+~--title~ and ~--body~ restrict the search to one indexed column. Output is JSON.
+
+Search is optional and needs SQLite FTS5 support. The ~[search]~ section of the configuration controls it:
+
+- ~fts5_enabled~ (default ~true~) builds the FTS index during ~rebuild~ and ~watch~.
+- ~index_body_text~ (default ~false~) also stores and indexes heading body text. ~--body~ needs it.
+
+If ~fts5_enabled~ is ~false~, indexing does not create the FTS index and ~orgfdb search~ is rejected. Run ~orgfdb rebuild~ after changing these keys. All other commands work without FTS5.
+
+Read [[./docs/cli.org][docs/cli.org]] and [[./docs/config.org][docs/config.org]] for the full search requirements.
+
+* Current status and known limitations
+
+- Windows is not supported. Linux and other Unix-like systems, including macOS, are supported.
+- ~attachment:~ links are indexed but not resolved. Their ~resolution_status~ is ~unsupported~.
+- The parser depends on Orgize ~0.10.0-alpha~, a pre-release that has had no upstream release since June 2024. Some Org syntax needs local scanners and workarounds. Read [[./docs/design/parser-risks.org][Parser Risks]].
+- Link resolution covers a limited set of link forms. Other file search forms are not resolved. Read [[./docs/cli.org][docs/cli.org]].
+- After an upgrade, the next indexing run reparses all files when the parser or indexer contract changed. No manual step is needed.
+- Read-only commands reject a database with an outdated schema version. Run an indexing command first.
 
 * Configuration
 
