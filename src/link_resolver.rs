@@ -1,9 +1,10 @@
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, BTreeSet, HashMap},
     path::{Component, Path, PathBuf},
 };
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, Statement};
 
 mod indexed_universe;
 pub(crate) use indexed_universe::IndexedUniverse;
@@ -23,6 +24,25 @@ pub(crate) const DUPLICATE_ID_DIAGNOSTIC: &str = "duplicate id";
 const MISSING_SYNTHETIC_ROOT_DIAGNOSTIC: &str = "missing synthetic root heading";
 const DUPLICATE_SYNTHETIC_ROOT_DIAGNOSTIC: &str = "duplicate synthetic root headings";
 
+/// Selects the links a scoped pass re-resolves; see `LinkResolver::resolve_scoped`. Same-file
+/// links (`custom-id`, `fuzzy`) and unsupported types only depend on their own file.
+const SCOPE_FILTER: &str =
+    "WHERE links.file_id IN (SELECT file_id FROM temp.link_resolver_scope_files)
+    OR links.resolution_status IS NULL
+    OR (links.link_type IN ('file', 'file+sys', 'file+emacs', 'id')
+        AND (links.target_file_id IS NULL
+            OR links.target_file_id IN (SELECT file_id FROM temp.link_resolver_scope_files)
+            OR (links.link_type = 'id'
+                AND lower(links.target_id) IN (SELECT id FROM temp.link_resolver_scope_ids))))";
+
+/// Files whose indexed content changed in one apply (created, modified or metadata-updated).
+/// Deleted files need no entry: their inbound links lose the target file through the foreign
+/// key and are re-resolved as links without a target file.
+#[derive(Debug, Default)]
+pub(crate) struct ResolutionScope {
+    pub(crate) affected_file_ids: BTreeSet<i64>,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct LinkResolver;
 
@@ -39,7 +59,11 @@ struct StoredLink {
     path: String,
     search_option: Option<String>,
     source_file_path: PathBuf,
+    target_file_id: Option<i64>,
 }
+
+/// The links to resolve in resolution order, plus their stored resolution state by link id.
+type LoadedLinks = (Vec<StoredLink>, BTreeMap<i64, StoredResolutionState>);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct StoredResolutionState {
@@ -67,17 +91,33 @@ struct ResolutionIndex {
 }
 
 impl ResolutionIndex {
-    fn load(connection: &Connection) -> Result<Self, DbWriteError> {
+    /// Loads the lookup maps. With `restrict_files`, heading titles, custom ids and roots are
+    /// limited to the files in `temp.link_resolver_index_files` and global ids to the ids in
+    /// `temp.link_resolver_lookup_ids`; each id still lists every file that defines it, so
+    /// duplicate detection is unaffected.
+    fn load(connection: &Connection, restrict_files: bool) -> Result<Self, DbWriteError> {
+        let file_filter = |column: &str| {
+            if restrict_files {
+                format!("AND {column} IN (SELECT file_id FROM temp.link_resolver_index_files)")
+            } else {
+                String::new()
+            }
+        };
         let mut index = Self::default();
         let err = |operation| move |source| DbWriteError::Write { operation, source };
         let mut statement = connection
-            .prepare(
+            .prepare(&format!(
                 "SELECT headings.file_id, headings.id, properties.value
                  FROM properties
                  INNER JOIN headings ON headings.id = properties.heading_id
-                 WHERE headings.level > 0 AND properties.key = 'ID'
+                 WHERE headings.level > 0 AND properties.key = 'ID' {}
                  ORDER BY headings.file_id, headings.byte_start, headings.id, properties.id",
-            )
+                if restrict_files {
+                    "AND lower(properties.value) IN (SELECT id FROM temp.link_resolver_lookup_ids)"
+                } else {
+                    ""
+                }
+            ))
             .map_err(err("link_resolver.index.ids.prepare"))?;
         let rows = statement
             .query_map([], |row| {
@@ -101,10 +141,11 @@ impl ResolutionIndex {
         drop(statement);
 
         let mut statement = connection
-            .prepare(
+            .prepare(&format!(
                 "SELECT file_id, id, title FROM headings
-                 WHERE level > 0 ORDER BY file_id, byte_start, id",
-            )
+                 WHERE level > 0 {} ORDER BY file_id, byte_start, id",
+                file_filter("file_id")
+            ))
             .map_err(err("link_resolver.index.titles.prepare"))?;
         let rows = statement
             .query_map([], |row| {
@@ -126,13 +167,14 @@ impl ResolutionIndex {
         drop(statement);
 
         let mut statement = connection
-            .prepare(
+            .prepare(&format!(
                 "SELECT headings.file_id, headings.id, properties.value
                  FROM properties
                  INNER JOIN headings ON headings.id = properties.heading_id
-                 WHERE headings.level > 0 AND properties.key = 'CUSTOM_ID'
+                 WHERE headings.level > 0 AND properties.key = 'CUSTOM_ID' {}
                  ORDER BY headings.file_id, headings.byte_start, headings.id, properties.id",
-            )
+                file_filter("headings.file_id")
+            ))
             .map_err(err("link_resolver.index.custom_ids.prepare"))?;
         let rows = statement
             .query_map([], |row| {
@@ -156,10 +198,11 @@ impl ResolutionIndex {
         drop(statement);
 
         let mut statement = connection
-            .prepare(
+            .prepare(&format!(
                 "SELECT file_id, id FROM headings
-                 WHERE level = 0 AND parent_id IS NULL ORDER BY file_id, byte_start, id",
-            )
+                 WHERE level = 0 AND parent_id IS NULL {} ORDER BY file_id, byte_start, id",
+                file_filter("file_id")
+            ))
             .map_err(err("link_resolver.index.roots.prepare"))?;
         let rows = statement
             .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
@@ -199,134 +242,215 @@ impl LinkResolver {
         connection: &Connection,
         indexed_universe: &IndexedUniverse,
     ) -> Result<LinkResolutionReport, DbWriteError> {
-        let before = Self::load_resolution_states(connection)?;
-        Self::reset_resolution_fields(connection)?;
+        Self::resolve(connection, indexed_universe, None)
+    }
+
+    /// Re-resolves only the links whose resolution can depend on `scope`: links owned by
+    /// affected files, links never resolved, and file or id links that lack a target file,
+    /// point at an affected file, or name an id defined in an affected file. The result
+    /// equals `resolve_all` on a database whose other links were already up to date.
+    pub(crate) fn resolve_scoped(
+        connection: &Connection,
+        indexed_universe: &IndexedUniverse,
+        scope: &ResolutionScope,
+    ) -> Result<LinkResolutionReport, DbWriteError> {
+        Self::resolve(connection, indexed_universe, Some(scope))
+    }
+
+    fn resolve(
+        connection: &Connection,
+        indexed_universe: &IndexedUniverse,
+        scope: Option<&ResolutionScope>,
+    ) -> Result<LinkResolutionReport, DbWriteError> {
+        let filter = match scope {
+            Some(scope) => {
+                Self::prepare_scope_tables(connection, scope)?;
+                SCOPE_FILTER
+            }
+            None => "",
+        };
         let known_files = Self::load_known_files(connection)?;
-        let links = Self::load_links(connection)?;
-        let index = ResolutionIndex::load(connection)?;
-        for link in links {
-            Self::resolve_link(connection, &link, indexed_universe, &known_files, &index)?;
+        let (links, before) = Self::load_links(connection, filter)?;
+        if let Some(scope) = scope {
+            Self::prepare_index_files(connection, scope, &links, &known_files)?;
         }
-        let after = Self::load_resolution_states(connection)?;
-        let changed_source_paths = after
-            .iter()
-            .filter(|(link_id, state)| before.get(*link_id) != Some(*state))
-            .map(|(_link_id, state)| state.source_path.clone())
-            .collect();
+        let index = ResolutionIndex::load(connection, scope.is_some())?;
+        let writer = ResolutionWriter::new(connection, before)?;
+        for link in links {
+            Self::resolve_link(&writer, &link, indexed_universe, &known_files, &index)?;
+        }
+        if scope.is_some() {
+            Self::drop_scope_tables(connection)?;
+        }
         Ok(LinkResolutionReport {
-            changed_source_paths,
+            changed_source_paths: writer.into_changed_source_paths(),
         })
     }
 
-    fn load_resolution_states(
+    fn prepare_scope_tables(
         connection: &Connection,
-    ) -> Result<BTreeMap<i64, StoredResolutionState>, DbWriteError> {
-        let mut statement = connection
-            .prepare(
-                "SELECT
-                    links.id,
-                    files.path,
-                    links.path_absolute,
-                    links.target_file_id,
-                    links.target_heading_id,
-                    links.target_custom_id,
-                    links.target_id,
-                    links.resolution_status,
-                    links.resolution_diagnostic
-                 FROM links
-                 INNER JOIN files ON files.id = links.file_id
-                 ORDER BY links.id",
+        scope: &ResolutionScope,
+    ) -> Result<(), DbWriteError> {
+        let err = |operation| move |source| DbWriteError::Write { operation, source };
+        Self::drop_scope_tables(connection)?;
+        connection
+            .execute_batch(
+                "CREATE TEMP TABLE link_resolver_scope_files (file_id INTEGER PRIMARY KEY);
+                 CREATE TEMP TABLE link_resolver_scope_ids (id TEXT PRIMARY KEY);
+                 CREATE TEMP TABLE link_resolver_index_files (file_id INTEGER PRIMARY KEY);
+                 CREATE TEMP TABLE link_resolver_lookup_ids (id TEXT PRIMARY KEY);",
             )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.load_resolution_states.prepare",
-                source,
-            })?;
-        let rows = statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    StoredResolutionState {
-                        source_path: row.get(1)?,
-                        path_absolute: row.get(2)?,
-                        target_file_id: row.get(3)?,
-                        target_heading_id: row.get(4)?,
-                        target_custom_id: row.get(5)?,
-                        target_id: row.get(6)?,
-                        resolution_status: row.get(7)?,
-                        resolution_diagnostic: row.get(8)?,
-                    },
-                ))
-            })
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.load_resolution_states.query",
-                source,
-            })?;
-        rows.collect::<Result<BTreeMap<_, _>, _>>()
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.load_resolution_states.collect",
-                source,
-            })
-    }
-
-    fn reset_resolution_fields(connection: &Connection) -> Result<(), DbWriteError> {
+            .map_err(err("link_resolver.scope.create"))?;
+        let mut insert = connection
+            .prepare("INSERT OR IGNORE INTO temp.link_resolver_scope_files (file_id) VALUES (?1)")
+            .map_err(err("link_resolver.scope.files.prepare"))?;
+        for file_id in &scope.affected_file_ids {
+            insert
+                .execute([file_id])
+                .map_err(err("link_resolver.scope.files.insert"))?;
+        }
+        drop(insert);
         connection
             .execute(
-                "UPDATE links
-                 SET path_absolute = NULL,
-                     target_file_id = NULL,
-                     target_heading_id = NULL,
-                     target_custom_id = NULL,
-                     target_id = NULL,
-                     resolution_status = NULL,
-                     resolution_diagnostic = NULL",
+                "INSERT OR IGNORE INTO temp.link_resolver_scope_ids (id)
+                 SELECT lower(properties.value)
+                 FROM properties
+                 INNER JOIN headings ON headings.id = properties.heading_id
+                 WHERE headings.level > 0
+                   AND properties.key = 'ID'
+                   AND properties.value IS NOT NULL
+                   AND headings.file_id IN (SELECT file_id FROM temp.link_resolver_scope_files)",
                 [],
             )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.reset_resolution_fields",
-                source,
-            })?;
+            .map_err(err("link_resolver.scope.ids.insert"))?;
         Ok(())
     }
 
-    fn load_links(connection: &Connection) -> Result<Vec<StoredLink>, DbWriteError> {
+    /// Files whose headings the scoped links can resolve into: affected files, the current
+    /// target files of scoped links, and the files that scoped file links point at now.
+    fn prepare_index_files(
+        connection: &Connection,
+        scope: &ResolutionScope,
+        links: &[StoredLink],
+        known_files: &KnownFiles,
+    ) -> Result<(), DbWriteError> {
+        let mut files = scope.affected_file_ids.clone();
+        let mut lookup_ids = BTreeSet::new();
+        let home_dir = current_home_dir();
+        for link in links {
+            if link.link_type == "id" {
+                lookup_ids.insert(normalize_id_target(&link.path).to_lowercase());
+            }
+            files.extend(link.target_file_id);
+            files.insert(link.source_file_id);
+            if matches!(link.link_type.as_str(), "file" | "file+sys" | "file+emacs") {
+                if let Some(target) = normalize_file_target_path(
+                    &link.source_file_path,
+                    Path::new(&link.path),
+                    home_dir.as_deref(),
+                )
+                .and_then(|path| known_files.by_path.get(&path).copied())
+                {
+                    files.insert(target);
+                }
+            }
+        }
+        let err = |operation| move |source| DbWriteError::Write { operation, source };
+        let mut insert = connection
+            .prepare("INSERT OR IGNORE INTO temp.link_resolver_index_files (file_id) VALUES (?1)")
+            .map_err(err("link_resolver.scope.index_files.prepare"))?;
+        for file_id in files {
+            insert
+                .execute([file_id])
+                .map_err(err("link_resolver.scope.index_files.insert"))?;
+        }
+        drop(insert);
+        let mut insert = connection
+            .prepare("INSERT OR IGNORE INTO temp.link_resolver_lookup_ids (id) VALUES (?1)")
+            .map_err(err("link_resolver.scope.lookup_ids.prepare"))?;
+        for id in lookup_ids {
+            insert
+                .execute([id])
+                .map_err(err("link_resolver.scope.lookup_ids.insert"))?;
+        }
+        Ok(())
+    }
+
+    fn drop_scope_tables(connection: &Connection) -> Result<(), DbWriteError> {
+        connection
+            .execute_batch(
+                "DROP TABLE IF EXISTS temp.link_resolver_scope_files;
+                 DROP TABLE IF EXISTS temp.link_resolver_scope_ids;
+                 DROP TABLE IF EXISTS temp.link_resolver_index_files;
+                 DROP TABLE IF EXISTS temp.link_resolver_lookup_ids;",
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "link_resolver.scope.drop",
+                source,
+            })
+    }
+
+    fn load_links(connection: &Connection, filter: &str) -> Result<LoadedLinks, DbWriteError> {
         let mut statement = connection
-            .prepare(
-                "SELECT links.id, links.file_id, links.link_type, links.path, links.search_option, files.path, files.identity
+            .prepare(&format!(
+                "SELECT links.id, links.file_id, links.link_type, links.path, links.search_option, files.path, files.identity, links.target_file_id, links.path_absolute, links.target_heading_id,
+                        links.target_custom_id, links.target_id, links.resolution_status,
+                        links.resolution_diagnostic
                  FROM links
                  INNER JOIN files ON files.id = links.file_id
-                 ORDER BY links.file_id, links.byte_start, links.id",
-            )
+                 {filter}
+                 ORDER BY links.file_id, links.byte_start, links.id"
+            ))
             .map_err(|source| DbWriteError::Write {
                 operation: "link_resolver.load_links.prepare",
                 source,
             })?;
         let rows = statement
             .query_map([], |row| {
-                Ok(StoredLink {
+                let source_display_path = row.get::<_, String>(5)?;
+                let state = StoredResolutionState {
+                    source_path: source_display_path.clone(),
+                    path_absolute: row.get(8)?,
+                    target_file_id: row.get(7)?,
+                    target_heading_id: row.get(9)?,
+                    target_custom_id: row.get(10)?,
+                    target_id: row.get(11)?,
+                    resolution_status: row.get(12)?,
+                    resolution_diagnostic: row.get(13)?,
+                };
+                let link = StoredLink {
                     id: row.get(0)?,
                     source_file_id: row.get(1)?,
                     link_type: row.get(2)?,
                     path: row.get(3)?,
                     search_option: row.get(4)?,
                     source_file_path: {
-                        let display_path = row.get::<_, String>(5)?;
+                        let display_path = source_display_path;
                         let identity = row.get::<_, Option<Vec<u8>>>(6)?;
                         identity
                             .and_then(FileIdentity::from_stored_bytes)
                             .and_then(|identity| identity.to_path())
                             .unwrap_or_else(|| PathBuf::from(display_path))
                     },
-                })
+                    target_file_id: row.get(7)?,
+                };
+                Ok((link, state))
             })
             .map_err(|source| DbWriteError::Write {
                 operation: "link_resolver.load_links.query",
                 source,
             })?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|source| DbWriteError::Write {
+        let mut links = Vec::new();
+        let mut states = BTreeMap::new();
+        for row in rows {
+            let (link, state) = row.map_err(|source| DbWriteError::Write {
                 operation: "link_resolver.load_links.collect",
                 source,
-            })
+            })?;
+            states.insert(link.id, state);
+            links.push(link);
+        }
+        Ok((links, states))
     }
 
     fn load_known_files(connection: &Connection) -> Result<KnownFiles, DbWriteError> {
@@ -364,7 +488,7 @@ impl LinkResolver {
     }
 
     fn resolve_link(
-        connection: &Connection,
+        connection: &ResolutionWriter<'_>,
         link: &StoredLink,
         indexed_universe: &IndexedUniverse,
         known_files: &KnownFiles,
@@ -388,7 +512,7 @@ impl LinkResolver {
     }
 
     fn resolve_file_link(
-        connection: &Connection,
+        connection: &ResolutionWriter<'_>,
         link: &StoredLink,
         indexed_universe: &IndexedUniverse,
         known_files: &KnownFiles,
@@ -433,7 +557,7 @@ impl LinkResolver {
     }
 
     fn resolve_same_file_fuzzy_link(
-        connection: &Connection,
+        connection: &ResolutionWriter<'_>,
         link: &StoredLink,
         index: &ResolutionIndex,
     ) -> Result<(), DbWriteError> {
@@ -471,7 +595,7 @@ impl LinkResolver {
     }
 
     fn resolve_same_file_custom_id_link(
-        connection: &Connection,
+        connection: &ResolutionWriter<'_>,
         link: &StoredLink,
         index: &ResolutionIndex,
     ) -> Result<(), DbWriteError> {
@@ -481,7 +605,7 @@ impl LinkResolver {
     }
 
     fn resolve_same_file_custom_id_target(
-        connection: &Connection,
+        connection: &ResolutionWriter<'_>,
         link: &StoredLink,
         custom_id_target: &str,
         index: &ResolutionIndex,
@@ -515,7 +639,7 @@ impl LinkResolver {
     }
 
     fn resolve_org_id_link(
-        connection: &Connection,
+        connection: &ResolutionWriter<'_>,
         link: &StoredLink,
         index: &ResolutionIndex,
     ) -> Result<(), DbWriteError> {
@@ -542,7 +666,7 @@ impl LinkResolver {
     }
 
     fn resolve_file_target(
-        connection: &Connection,
+        connection: &ResolutionWriter<'_>,
         link: &StoredLink,
         path_absolute: &Path,
         target_file_id: i64,
@@ -598,7 +722,7 @@ impl LinkResolver {
     }
 
     fn resolve_file_custom_id_target(
-        connection: &Connection,
+        connection: &ResolutionWriter<'_>,
         link: &StoredLink,
         path_absolute: &Path,
         target_file_id: i64,
@@ -636,7 +760,7 @@ impl LinkResolver {
     }
 
     fn resolve_file_root_target(
-        connection: &Connection,
+        connection: &ResolutionWriter<'_>,
         link_id: i64,
         path_absolute: &Path,
         target_file_id: i64,
@@ -667,47 +791,97 @@ impl LinkResolver {
     }
 
     fn write_resolution(
-        connection: &Connection,
+        writer: &ResolutionWriter<'_>,
         link_id: i64,
         resolution: Resolution<'_>,
     ) -> Result<(), DbWriteError> {
-        let (set_path, path_absolute) = resolution.path_absolute.bind();
-        let (set_file, target_file_id) = resolution.target_file_id.bind();
-        let (set_heading, target_heading_id) = resolution.target_heading_id.bind();
-        let (set_custom_id, target_custom_id) = resolution.target_custom_id.bind();
-        let (set_id, target_id) = resolution.target_id.bind();
-        connection
-            .execute(
+        writer.write(link_id, resolution)
+    }
+}
+
+/// Applies resolutions for one pass: every link starts from the reset state (all resolver
+/// owned columns NULL), so a resolution is compared against the stored row and only written
+/// when it differs. The UPDATE statement is prepared once per pass.
+struct ResolutionWriter<'conn> {
+    statement: RefCell<Statement<'conn>>,
+    before: BTreeMap<i64, StoredResolutionState>,
+    changed_source_paths: RefCell<BTreeSet<String>>,
+}
+
+impl<'conn> ResolutionWriter<'conn> {
+    fn new(
+        connection: &'conn Connection,
+        before: BTreeMap<i64, StoredResolutionState>,
+    ) -> Result<Self, DbWriteError> {
+        let statement = connection
+            .prepare(
                 "UPDATE links
-                 SET path_absolute = CASE WHEN ?2 THEN ?3 ELSE path_absolute END,
-                     target_file_id = CASE WHEN ?4 THEN ?5 ELSE target_file_id END,
-                     target_heading_id = CASE WHEN ?6 THEN ?7 ELSE target_heading_id END,
-                     target_custom_id = CASE WHEN ?8 THEN ?9 ELSE target_custom_id END,
-                     target_id = CASE WHEN ?10 THEN ?11 ELSE target_id END,
-                     resolution_status = ?12,
-                     resolution_diagnostic = ?13
+                 SET path_absolute = ?2,
+                     target_file_id = ?3,
+                     target_heading_id = ?4,
+                     target_custom_id = ?5,
+                     target_id = ?6,
+                     resolution_status = ?7,
+                     resolution_diagnostic = ?8
                  WHERE id = ?1",
-                params![
-                    link_id,
-                    set_path,
-                    path_absolute,
-                    set_file,
-                    target_file_id,
-                    set_heading,
-                    target_heading_id,
-                    set_custom_id,
-                    target_custom_id,
-                    set_id,
-                    target_id,
-                    resolution.status,
-                    resolution.diagnostic,
-                ],
             )
+            .map_err(|source| DbWriteError::Write {
+                operation: "link_resolver.write_resolution.prepare",
+                source,
+            })?;
+        Ok(Self {
+            statement: RefCell::new(statement),
+            before,
+            changed_source_paths: RefCell::new(BTreeSet::new()),
+        })
+    }
+
+    fn write(&self, link_id: i64, resolution: Resolution<'_>) -> Result<(), DbWriteError> {
+        // `Keep` and `Null` both leave NULL after the implicit reset.
+        let path_absolute = resolution.path_absolute.bind().1;
+        let target_file_id = resolution.target_file_id.bind().1;
+        let target_heading_id = resolution.target_heading_id.bind().1;
+        let target_custom_id = resolution.target_custom_id.bind().1;
+        let target_id = resolution.target_id.bind().1;
+        let previous = self.before.get(&link_id);
+        let unchanged = previous.is_some_and(|state| {
+            state.path_absolute == path_absolute
+                && state.target_file_id == target_file_id
+                && state.target_heading_id == target_heading_id
+                && state.target_custom_id.as_deref() == target_custom_id
+                && state.target_id.as_deref() == target_id
+                && state.resolution_status.as_deref() == Some(resolution.status)
+                && state.resolution_diagnostic.as_deref() == resolution.diagnostic
+        });
+        if unchanged {
+            return Ok(());
+        }
+        self.statement
+            .borrow_mut()
+            .execute(params![
+                link_id,
+                path_absolute,
+                target_file_id,
+                target_heading_id,
+                target_custom_id,
+                target_id,
+                resolution.status,
+                resolution.diagnostic,
+            ])
             .map_err(|source| DbWriteError::Write {
                 operation: "link_resolver.write_resolution",
                 source,
             })?;
+        if let Some(state) = previous {
+            self.changed_source_paths
+                .borrow_mut()
+                .insert(state.source_path.clone());
+        }
         Ok(())
+    }
+
+    fn into_changed_source_paths(self) -> BTreeSet<String> {
+        self.changed_source_paths.into_inner()
     }
 }
 

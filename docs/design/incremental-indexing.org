@@ -135,7 +135,7 @@ The indexer applies one accepted plan inside a controlled SQLite transaction.
 
 The transaction updates canonical file facts and dependent rows. Foreign keys remove obsolete dependent data when a file row is replaced or deleted.
 
-The same transaction updates link resolution and derived search state when the plan requires those operations.
+The same transaction updates link resolution and derived search state when the plan requires those operations. Link resolution is scoped: it re-resolves links owned by created, modified or metadata-updated files, links that were never resolved, and file or id links that have no target file (for example after the target was deleted), point at an affected file, or name an id defined in an affected file. Same-file links and unsupported links only depend on their own file and are kept. A plan with index invalidations takes the full pass. Scoped resolution must equal a full pass on the same database; a test compares both after title, id, custom id, create and delete edits.
 
 The transaction also updates persistent generation state. A failed transaction leaves the previous committed state intact.
 

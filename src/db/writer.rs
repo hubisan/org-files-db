@@ -439,7 +439,8 @@ impl DbWriter {
             ));
         }
 
-        insert_heading(connection, heading, "insert_level0_heading")
+        let mut statement = prepare_insert_heading(connection, "insert_level0_heading")?;
+        insert_heading(connection, &mut statement, heading, "insert_level0_heading")
     }
 
     pub(crate) fn insert_headings(
@@ -447,6 +448,7 @@ impl DbWriter {
         headings: &[HeadingRecord],
     ) -> Result<Vec<i64>, DbWriteError> {
         let mut ids = Vec::with_capacity(headings.len());
+        let mut statement = prepare_insert_heading(connection, "insert_headings")?;
         for heading in headings {
             if heading.level == 0 {
                 return Err(DbWriteError::InvalidInput(
@@ -458,7 +460,12 @@ impl DbWriter {
                     "regular headings must provide a parent_id",
                 ));
             }
-            ids.push(insert_heading(connection, heading, "insert_headings")?);
+            ids.push(insert_heading(
+                connection,
+                &mut statement,
+                heading,
+                "insert_headings",
+            )?);
         }
         Ok(ids)
     }
@@ -467,24 +474,29 @@ impl DbWriter {
         connection: &Connection,
         rows: &[TodoKeywordRecord],
     ) -> Result<(), DbWriteError> {
-        for row in rows {
-            connection
-                .execute(
-                    "INSERT INTO todo_keywords
+        let mut statement = connection
+            .prepare(
+                "INSERT INTO todo_keywords
                      (file_id, keyword, state_type, shortcut, sequence_no, source_kind,
                       source_keyword, source_line_number)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                    params![
-                        row.file_id,
-                        row.keyword,
-                        row.state_type,
-                        row.shortcut.map(|value| value.to_string()),
-                        row.sequence_no,
-                        row.source_kind,
-                        row.source_keyword,
-                        row.source_line_number,
-                    ],
-                )
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "insert_todo_keywords.prepare",
+                source,
+            })?;
+        for row in rows {
+            statement
+                .execute(params![
+                    row.file_id,
+                    row.keyword,
+                    row.state_type,
+                    row.shortcut.map(|value| value.to_string()),
+                    row.sequence_no,
+                    row.source_kind,
+                    row.source_keyword,
+                    row.source_line_number,
+                ])
                 .map_err(|source| DbWriteError::Write {
                     operation: "insert_todo_keywords",
                     source,
@@ -497,12 +509,15 @@ impl DbWriter {
         connection: &Connection,
         rows: &[TagRecord],
     ) -> Result<(), DbWriteError> {
+        let mut statement = connection
+            .prepare("INSERT INTO tags (heading_id, tag) VALUES (?1, ?2)")
+            .map_err(|source| DbWriteError::Write {
+                operation: "insert_tags.prepare",
+                source,
+            })?;
         for row in rows {
-            connection
-                .execute(
-                    "INSERT INTO tags (heading_id, tag) VALUES (?1, ?2)",
-                    params![row.heading_id, row.tag],
-                )
+            statement
+                .execute(params![row.heading_id, row.tag])
                 .map_err(|source| DbWriteError::Write {
                     operation: "insert_tags",
                     source,
@@ -515,13 +530,18 @@ impl DbWriter {
         connection: &Connection,
         rows: &[EffectiveTagRecord],
     ) -> Result<(), DbWriteError> {
-        for row in rows {
-            connection
-                .execute(
-                    "INSERT INTO effective_tags (heading_id, file_id, tag, position)
+        let mut statement = connection
+            .prepare(
+                "INSERT INTO effective_tags (heading_id, file_id, tag, position)
                      VALUES (?1, ?2, ?3, ?4)",
-                    params![row.heading_id, row.file_id, row.tag, row.position],
-                )
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "insert_effective_tags.prepare",
+                source,
+            })?;
+        for row in rows {
+            statement
+                .execute(params![row.heading_id, row.file_id, row.tag, row.position])
                 .map_err(|source| DbWriteError::Write {
                     operation: "insert_effective_tags",
                     source,
@@ -535,27 +555,32 @@ impl DbWriter {
         rows: &[TimestampRecord],
     ) -> Result<Vec<i64>, DbWriteError> {
         let mut ids = Vec::with_capacity(rows.len());
-        for row in rows {
-            connection
-                .execute(
-                    "INSERT INTO timestamps
+        let mut statement = connection
+            .prepare(
+                "INSERT INTO timestamps
                      (heading_id, role, has_time, start_ts, end_ts, type, range_type, raw_value,
                       byte_start, byte_end, line_number)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                    params![
-                        row.heading_id,
-                        row.role,
-                        row.has_time.map(bool_to_i64),
-                        row.start_ts,
-                        row.end_ts,
-                        row.timestamp_type,
-                        row.range_type,
-                        row.raw_value,
-                        row.byte_start,
-                        row.byte_end,
-                        row.line_number,
-                    ],
-                )
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "insert_timestamps.prepare",
+                source,
+            })?;
+        for row in rows {
+            statement
+                .execute(params![
+                    row.heading_id,
+                    row.role,
+                    row.has_time.map(bool_to_i64),
+                    row.start_ts,
+                    row.end_ts,
+                    row.timestamp_type,
+                    row.range_type,
+                    row.raw_value,
+                    row.byte_start,
+                    row.byte_end,
+                    row.line_number,
+                ])
                 .map_err(|source| DbWriteError::Write {
                     operation: "insert_timestamps",
                     source,
@@ -569,26 +594,31 @@ impl DbWriter {
         connection: &Connection,
         rows: &[TimestampRepeaterRecord],
     ) -> Result<(), DbWriteError> {
-        for row in rows {
-            connection
-                .execute(
-                    "INSERT INTO timestamp_repeaters
+        let mut statement = connection
+            .prepare(
+                "INSERT INTO timestamp_repeaters
                      (timestamp_id, repeater_type, repeater_value, repeater_unit,
                       repeater_deadline_value, repeater_deadline_unit,
                       warning_type, warning_value, warning_unit)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                    params![
-                        row.timestamp_id,
-                        row.repeater_type,
-                        row.repeater_value,
-                        row.repeater_unit,
-                        row.repeater_deadline_value,
-                        row.repeater_deadline_unit,
-                        row.warning_type,
-                        row.warning_value,
-                        row.warning_unit,
-                    ],
-                )
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "insert_timestamp_repeaters.prepare",
+                source,
+            })?;
+        for row in rows {
+            statement
+                .execute(params![
+                    row.timestamp_id,
+                    row.repeater_type,
+                    row.repeater_value,
+                    row.repeater_unit,
+                    row.repeater_deadline_value,
+                    row.repeater_deadline_unit,
+                    row.warning_type,
+                    row.warning_value,
+                    row.warning_unit,
+                ])
                 .map_err(|source| DbWriteError::Write {
                     operation: "insert_timestamp_repeaters",
                     source,
@@ -601,13 +631,23 @@ impl DbWriter {
         connection: &Connection,
         rows: &[KeywordRecord],
     ) -> Result<(), DbWriteError> {
-        for row in rows {
-            connection
-                .execute(
-                    "INSERT INTO keywords (heading_id, keyword, value, line_number)
+        let mut statement = connection
+            .prepare(
+                "INSERT INTO keywords (heading_id, keyword, value, line_number)
                      VALUES (?1, ?2, ?3, ?4)",
-                    params![row.heading_id, row.keyword, row.value, row.line_number],
-                )
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "insert_keywords.prepare",
+                source,
+            })?;
+        for row in rows {
+            statement
+                .execute(params![
+                    row.heading_id,
+                    row.keyword,
+                    row.value,
+                    row.line_number
+                ])
                 .map_err(|source| DbWriteError::Write {
                     operation: "insert_keywords",
                     source,
@@ -620,20 +660,25 @@ impl DbWriter {
         connection: &Connection,
         rows: &[PropertyRecord],
     ) -> Result<(), DbWriteError> {
-        for row in rows {
-            connection
-                .execute(
-                    "INSERT INTO properties (heading_id, key, value, source, append, line_number)
+        let mut statement = connection
+            .prepare(
+                "INSERT INTO properties (heading_id, key, value, source, append, line_number)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                    params![
-                        row.heading_id,
-                        row.key,
-                        row.value,
-                        row.source,
-                        bool_to_i64(row.append),
-                        row.line_number
-                    ],
-                )
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "insert_properties.prepare",
+                source,
+            })?;
+        for row in rows {
+            statement
+                .execute(params![
+                    row.heading_id,
+                    row.key,
+                    row.value,
+                    row.source,
+                    bool_to_i64(row.append),
+                    row.line_number
+                ])
                 .map_err(|source| DbWriteError::Write {
                     operation: "insert_properties",
                     source,
@@ -646,20 +691,25 @@ impl DbWriter {
         connection: &Connection,
         rows: &[EffectivePropertyRecord],
     ) -> Result<(), DbWriteError> {
-        for row in rows {
-            connection
-                .execute(
-                    "INSERT INTO effective_properties
+        let mut statement = connection
+            .prepare(
+                "INSERT INTO effective_properties
                  (heading_id, file_id, key, local_value, effective_value)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![
-                        row.heading_id,
-                        row.file_id,
-                        row.key,
-                        row.local_value,
-                        row.effective_value
-                    ],
-                )
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "insert_effective_properties.prepare",
+                source,
+            })?;
+        for row in rows {
+            statement
+                .execute(params![
+                    row.heading_id,
+                    row.file_id,
+                    row.key,
+                    row.local_value,
+                    row.effective_value
+                ])
                 .map_err(|source| DbWriteError::Write {
                     operation: "insert_effective_properties",
                     source,
@@ -672,21 +722,26 @@ impl DbWriter {
         connection: &Connection,
         rows: &[OutlinePathRecord],
     ) -> Result<(), DbWriteError> {
-        for row in rows {
-            connection
-                .execute(
-                    "INSERT INTO outline_path
+        let mut statement = connection
+            .prepare(
+                "INSERT INTO outline_path
                      (heading_id, file_id, parent_id, depth, materialized_path, breadcrumbs_json)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                    params![
-                        row.heading_id,
-                        row.file_id,
-                        row.parent_id,
-                        row.depth,
-                        row.materialized_path,
-                        row.breadcrumbs_json
-                    ],
-                )
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "insert_outline_path.prepare",
+                source,
+            })?;
+        for row in rows {
+            statement
+                .execute(params![
+                    row.heading_id,
+                    row.file_id,
+                    row.parent_id,
+                    row.depth,
+                    row.materialized_path,
+                    row.breadcrumbs_json
+                ])
                 .map_err(|source| DbWriteError::Write {
                     operation: "insert_outline_path",
                     source,
@@ -699,40 +754,45 @@ impl DbWriter {
         connection: &Connection,
         rows: &[LinkRecord],
     ) -> Result<(), DbWriteError> {
-        for row in rows {
-            connection
-                .execute(
-                    "INSERT INTO links
+        let mut statement = connection
+            .prepare(
+                "INSERT INTO links
                      (id, file_id, heading_id, byte_start, byte_end, line, source_context, format,
                       raw, raw_target, raw_description, link_type, path, search_option,
                       path_absolute, target_file_id, target_heading_id, target_custom_id, target_id,
                       resolution_status, resolution_diagnostic)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
                              ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
-                    params![
-                        row.id,
-                        row.file_id,
-                        row.heading_id,
-                        row.byte_start,
-                        row.byte_end,
-                        row.line,
-                        row.source_context,
-                        row.format,
-                        row.raw,
-                        row.raw_target,
-                        row.raw_description,
-                        row.link_type,
-                        row.path,
-                        row.search_option,
-                        Option::<String>::None,
-                        Option::<i64>::None,
-                        Option::<i64>::None,
-                        Option::<String>::None,
-                        Option::<String>::None,
-                        Option::<String>::None,
-                        Option::<String>::None
-                    ],
-                )
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "insert_links.prepare",
+                source,
+            })?;
+        for row in rows {
+            statement
+                .execute(params![
+                    row.id,
+                    row.file_id,
+                    row.heading_id,
+                    row.byte_start,
+                    row.byte_end,
+                    row.line,
+                    row.source_context,
+                    row.format,
+                    row.raw,
+                    row.raw_target,
+                    row.raw_description,
+                    row.link_type,
+                    row.path,
+                    row.search_option,
+                    Option::<String>::None,
+                    Option::<i64>::None,
+                    Option::<i64>::None,
+                    Option::<String>::None,
+                    Option::<String>::None,
+                    Option::<String>::None,
+                    Option::<String>::None
+                ])
                 .map_err(|source| DbWriteError::Write {
                     operation: "insert_links",
                     source,
@@ -755,12 +815,15 @@ impl DbWriter {
             return Ok(());
         }
 
+        let mut statement = connection
+            .prepare("INSERT INTO heading_fts (rowid, title, body) VALUES (?1, ?2, ?3)")
+            .map_err(|source| DbWriteError::Write {
+                operation: "insert_heading_fts.prepare",
+                source,
+            })?;
         for row in rows {
-            connection
-                .execute(
-                    "INSERT INTO heading_fts (rowid, title, body) VALUES (?1, ?2, ?3)",
-                    params![row.heading_id, row.title, row.body],
-                )
+            statement
+                .execute(params![row.heading_id, row.title, row.body])
                 .map_err(|source| DbWriteError::Write {
                     operation: "insert_heading_fts",
                     source,
@@ -823,19 +886,24 @@ impl DbWriter {
         connection: &Connection,
         rows: &[HeadingBodyRecord],
     ) -> Result<(), DbWriteError> {
-        for row in rows {
-            connection
-                .execute(
-                    "INSERT INTO heading_bodies
+        let mut statement = connection
+            .prepare(
+                "INSERT INTO heading_bodies
                      (heading_id, body_text, body_byte_start, body_byte_end)
                      VALUES (?1, ?2, ?3, ?4)",
-                    params![
-                        row.heading_id,
-                        row.body_text,
-                        row.body_byte_start,
-                        row.body_byte_end
-                    ],
-                )
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "insert_heading_bodies.prepare",
+                source,
+            })?;
+        for row in rows {
+            statement
+                .execute(params![
+                    row.heading_id,
+                    row.body_text,
+                    row.body_byte_start,
+                    row.body_byte_end
+                ])
                 .map_err(|source| DbWriteError::Write {
                     operation: "insert_heading_bodies",
                     source,
@@ -897,13 +965,12 @@ impl std::error::Error for DbWriteError {
     }
 }
 
-fn insert_heading(
-    connection: &Connection,
-    heading: &HeadingRecord,
+fn prepare_insert_heading<'conn>(
+    connection: &'conn Connection,
     operation: &'static str,
-) -> Result<i64, DbWriteError> {
+) -> Result<rusqlite::Statement<'conn>, DbWriteError> {
     connection
-        .execute(
+        .prepare(
             "INSERT INTO headings
              (id, file_id, parent_id, level, line_number, byte_start, byte_end, title, title_raw,
               todo_keyword, todo_type, priority, scheduled_raw, scheduled_ts, scheduled_has_time,
@@ -911,32 +978,42 @@ fn insert_heading(
               closed_has_time, archivedp, footnote_section_p)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
                      ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
-            params![
-                heading.id,
-                heading.file_id,
-                heading.parent_id,
-                heading.level,
-                heading.line_number,
-                heading.byte_start,
-                heading.byte_end,
-                heading.title,
-                heading.title_raw,
-                heading.todo_keyword,
-                heading.todo_type,
-                heading.priority,
-                heading.scheduled_raw,
-                heading.scheduled_ts,
-                heading.scheduled_has_time.map(bool_to_i64),
-                heading.deadline_raw,
-                heading.deadline_ts,
-                heading.deadline_has_time.map(bool_to_i64),
-                heading.closed_raw,
-                heading.closed_ts,
-                heading.closed_has_time.map(bool_to_i64),
-                bool_to_i64(heading.archivedp),
-                bool_to_i64(heading.footnote_section_p)
-            ],
         )
+        .map_err(|source| DbWriteError::Write { operation, source })
+}
+
+fn insert_heading(
+    connection: &Connection,
+    statement: &mut rusqlite::Statement<'_>,
+    heading: &HeadingRecord,
+    operation: &'static str,
+) -> Result<i64, DbWriteError> {
+    statement
+        .execute(params![
+            heading.id,
+            heading.file_id,
+            heading.parent_id,
+            heading.level,
+            heading.line_number,
+            heading.byte_start,
+            heading.byte_end,
+            heading.title,
+            heading.title_raw,
+            heading.todo_keyword,
+            heading.todo_type,
+            heading.priority,
+            heading.scheduled_raw,
+            heading.scheduled_ts,
+            heading.scheduled_has_time.map(bool_to_i64),
+            heading.deadline_raw,
+            heading.deadline_ts,
+            heading.deadline_has_time.map(bool_to_i64),
+            heading.closed_raw,
+            heading.closed_ts,
+            heading.closed_has_time.map(bool_to_i64),
+            bool_to_i64(heading.archivedp),
+            bool_to_i64(heading.footnote_section_p)
+        ])
         .map_err(|source| DbWriteError::Write { operation, source })?;
 
     Ok(heading.id.unwrap_or_else(|| connection.last_insert_rowid()))
