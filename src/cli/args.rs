@@ -10,6 +10,15 @@ use crate::{
 #[derive(Debug, Parser)]
 #[command(name = "orgfdb", version, about = "Minimal Org files database CLI")]
 pub(super) struct Cli {
+    #[arg(
+        long,
+        global = true,
+        value_enum,
+        default_value = "text",
+        help = "Write errors to stderr as text (default) or as one JSON line"
+    )]
+    #[allow(dead_code)] // read early from raw argv by `ErrorFormat::from_args`
+    pub(super) error_format: CliErrorFormat,
     #[command(subcommand)]
     pub(super) command: Command,
 }
@@ -298,4 +307,10 @@ impl From<CliQueryInclude> for PresentationViewInclude {
             CliQueryInclude::Target => Self::Target,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub(super) enum CliErrorFormat {
+    Text,
+    Json,
 }

@@ -13,6 +13,43 @@ use crate::{
 
 use super::search::SearchError;
 
+/// How the top-level error is written to standard error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum ErrorFormat {
+    #[default]
+    Text,
+    Json,
+}
+
+impl ErrorFormat {
+    /// Reads `--error-format` from raw arguments. Clap fails before its struct
+    /// exists on usage errors, so the flag is scanned early. Unknown values
+    /// fall back to text; clap reports them afterwards.
+    pub(super) fn from_args<T: AsRef<std::ffi::OsStr>>(args: &[T]) -> Self {
+        let mut format = Self::Text;
+        let mut iter = args
+            .iter()
+            .skip(1)
+            .map(|arg| arg.as_ref().to_string_lossy());
+        while let Some(arg) = iter.next() {
+            let value = if arg == "--" {
+                break;
+            } else if arg == "--error-format" {
+                iter.next()
+            } else {
+                arg.strip_prefix("--error-format=")
+                    .map(|v| std::borrow::Cow::Owned(v.to_string()))
+            };
+            match value.as_deref() {
+                Some("json") => format = Self::Json,
+                Some("text") => format = Self::Text,
+                _ => {}
+            }
+        }
+        format
+    }
+}
+
 #[derive(Debug)]
 pub(super) enum CliError {
     Parse(clap::Error),
@@ -97,6 +134,94 @@ impl CliError {
             | Self::InvalidHeadingPath { .. }
             | Self::Json(_)
             | Self::Io(_) => 1,
+        }
+    }
+}
+
+impl CliError {
+    /// Stable machine-readable error kind (see `docs/cli.org`).
+    pub(super) fn kind(&self) -> &'static str {
+        match self {
+            Self::Parse(_)
+            | Self::InvalidSearchUsage(_)
+            | Self::InvalidPresentationUsage(_)
+            | Self::InvalidPresentationViewUsage(_)
+            | Self::PresentationSpec(_)
+            | Self::ReadRestriction { .. }
+            | Self::RestrictionJson(_)
+            | Self::InvalidRestriction(_) => "usage",
+            Self::Config(_) => "config",
+            Self::Database(_)
+            | Self::DbRead(_)
+            | Self::Indexer(_)
+            | Self::IndexState(_)
+            | Self::SchemaInspect(_)
+            | Self::UnsupportedIndexStateSchema { .. }
+            | Self::PresentationSnapshot { .. } => "database",
+            Self::Search(SearchError::DisabledByConfig) => "search-disabled",
+            Self::Search(
+                SearchError::FtsUnavailable
+                | SearchError::MissingTrustMetadata
+                | SearchError::InvalidTrustMetadata
+                | SearchError::MissingTrustedIndex
+                | SearchError::IncompatibleIndexSchema
+                | SearchError::BodyScopeUnavailable,
+            ) => "index-not-trusted",
+            Self::Search(
+                SearchError::ScopedColumnFilter { .. }
+                | SearchError::ScopedUnbalancedParentheses { .. }
+                | SearchError::InvalidExpression { .. },
+            )
+            | Self::QueryParse(_)
+            | Self::QueryValidate(_) => "query-invalid",
+            Self::Search(SearchError::Inspect { .. } | SearchError::Execute { .. }) => "database",
+            Self::Io(_)
+            | Self::CanonicalizeDatabasePath { .. }
+            | Self::Watcher(_)
+            | Self::ViewControl(_)
+            | Self::PresentationViewCachePath(_)
+            | Self::PresentationViewCacheRead(_) => "io",
+            Self::PresentationViewRebuild(_)
+            | Self::QueryExecute(_)
+            | Self::QueryShape(_)
+            | Self::PresentationBuild(_)
+            | Self::InvalidHeadingPath { .. }
+            | Self::Json(_) => "internal",
+        }
+    }
+
+    fn path(&self) -> Option<&std::path::Path> {
+        match self {
+            Self::Config(
+                ConfigError::ReadFile { path, .. }
+                | ConfigError::ParseToml { path, .. }
+                | ConfigError::UnsupportedConfig { path, .. }
+                | ConfigError::MissingFile { path }
+                | ConfigError::MissingDirectory { path }
+                | ConfigError::MissingHomeDirectory { path }
+                | ConfigError::InvalidTimezone { path, .. }
+                | ConfigError::InvalidTodoKeyword { path, .. }
+                | ConfigError::InvalidExclusionPattern { path, .. },
+            )
+            | Self::Database(DbError::Open { path, .. })
+            | Self::CanonicalizeDatabasePath { path, .. } => Some(path),
+            _ => None,
+        }
+    }
+
+    /// Renders the error as written to standard error, without a trailing newline.
+    pub(super) fn render(&self, format: ErrorFormat) -> String {
+        match format {
+            ErrorFormat::Text => self.to_string(),
+            ErrorFormat::Json => {
+                let mut error = serde_json::Map::new();
+                error.insert("kind".into(), self.kind().into());
+                error.insert("message".into(), self.to_string().trim_end().into());
+                if let Some(path) = self.path() {
+                    error.insert("path".into(), path.display().to_string().into());
+                }
+                serde_json::json!({ "error": error }).to_string()
+            }
         }
     }
 }

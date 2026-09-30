@@ -711,3 +711,40 @@ Search returns normalized structural heading fields. It does not return structur
 - ~2~ means a CLI usage error.
 
 Query parse and validation errors use exit code ~1~. Invalid Clap arguments use exit code ~2~. ~--help~, ~-h~ and ~--version~ print to standard output and exit with code ~0~.
+
+* Error format
+
+By default errors are plain text on standard error. The global option ~--error-format <text|json>~ (default ~text~) selects the format. It is accepted before or after the subcommand and applies to every command. The exit code is the same in both formats.
+
+#+begin_src shell
+orgfdb search --error-format json 'needle'
+#+end_src
+
+With ~json~, an error is written to standard error as exactly one line of JSON, which ~json-parse-string~ in Emacs and any JSON parser read directly:
+
+#+begin_src json
+{"error":{"kind":"config","message":"failed to read config file /x/c.toml: ...","path":"/x/c.toml"}}
+#+end_src
+
+- ~kind~ is a stable kebab-case string from the list below.
+- ~message~ is the human-readable text, the same as in text mode. Its wording is not part of the contract.
+- ~path~ is optional and present for config errors and for database open or path errors. Consumers must ignore unknown fields.
+
+** Error kinds
+
+- ~usage~: invalid arguments, including Clap usage errors (exit code ~2~), invalid presentation specs, and unreadable or invalid ~--restrict-files-json~ input.
+- ~config~: the config file is missing, unreadable or invalid.
+- ~database~: the database cannot be opened, read or migrated, an index run failed, or the index state or schema is unsupported.
+- ~index-not-trusted~: ~search~ cannot use the FTS index because it is missing, untrusted, incompatible or was built without body text. Run ~orgfdb rebuild~.
+- ~search-disabled~: ~search~ was run while ~[search].fts5_enabled~ is false.
+- ~query-invalid~: a structural query or an FTS5 search expression does not parse or validate.
+- ~io~: a filesystem, output, watcher or watcher-control socket error.
+- ~internal~: a failure that should not happen, such as a rendering or presentation build error. Report it as a bug.
+
+Adding a kind or a field is a compatible change; renaming or removing one is not.
+
+** Clap usage errors and warnings
+
+The flag is read from the raw arguments before Clap parses them, so Clap usage errors (unknown option, missing argument, conflicting options) are also reported as ~usage~ JSON when ~--error-format json~ is present. The value after ~--~ is not scanned. An invalid ~--error-format~ value is reported by Clap as text. ~--help~ and ~--version~ are unaffected.
+
+~rebuild~ diagnostics follow the same option. In ~json~ mode a warning is one line ~{"warning":{"message":"...","path":"...","line":3}}~ (~path~ and ~line~ are optional). An error-severity diagnostic is ~{"error":{"kind":"diagnostic","message":"..."}}~ with the same optional fields. Other lifecycle messages of ~watch~ stay plain text.
