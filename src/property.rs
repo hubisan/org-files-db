@@ -10,6 +10,8 @@ pub(crate) fn normalize_property_key(raw_key: &str) -> (String, bool) {
     (key.to_uppercase(), append)
 }
 
+const DRAWER_SOURCE: &str = "property_drawer";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PropertyRow {
     pub id: i64,
@@ -18,6 +20,8 @@ pub struct PropertyRow {
     pub value: Option<String>,
     pub append: bool,
     pub line_number: Option<i64>,
+    /// Storage source (`properties.source`): `property_drawer`, `property_keyword`, ...
+    pub source: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -150,7 +154,10 @@ fn ordered_property_values(rows: &[&PropertyRow]) -> OrderedPropertyValues {
         let value = row.value.clone().unwrap_or_default();
         if row.append {
             appended.push(value);
-        } else {
+        } else if base.is_none() || row.source != DRAWER_SOURCE {
+            // Org (`org-entry-properties`): in a property drawer the first plain
+            // definition wins. `#+PROPERTY` keywords are collected in order, so the last
+            // one wins.
             base = Some(value);
         }
     }
@@ -178,7 +185,7 @@ fn combine_property_values(base: Option<&str>, appended: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{derive_effective_properties, PropertyRow};
+    use super::{derive_effective_properties, PropertyRow, DRAWER_SOURCE};
     use std::collections::HashMap;
 
     fn row(
@@ -196,6 +203,7 @@ mod tests {
             value: Some(value.to_string()),
             append,
             line_number: Some(line_number),
+            source: DRAWER_SOURCE.to_string(),
         }
     }
 
@@ -225,13 +233,33 @@ mod tests {
     }
 
     #[test]
-    fn resolves_local_replacement_then_append() {
+    fn first_duplicate_base_wins_and_appends_stay() {
         let resolved = resolve_local_properties(&[
             row(1, 10, "VALUE", "old", false, 1),
             row(2, 10, "VALUE", "new", false, 2),
             row(3, 10, "VALUE", "extra", true, 3),
         ]);
-        assert_eq!(resolved.get("VALUE").map(String::as_str), Some("new extra"));
+        // Emacs `org-entry-properties`: the first base definition wins.
+        assert_eq!(resolved.get("VALUE").map(String::as_str), Some("old extra"));
+    }
+
+    #[test]
+    fn last_property_keyword_base_wins() {
+        let mut rows = [
+            row(1, 10, "VALUE", "one", false, 1),
+            row(2, 10, "VALUE", "two", false, 2),
+            row(3, 10, "VALUE", "three", true, 3),
+        ];
+        for row in &mut rows {
+            row.source = "property_keyword".to_string();
+        }
+        // Emacs `org-keyword-properties` for `#+PROPERTY:` lines.
+        assert_eq!(
+            resolve_local_properties(&rows)
+                .get("VALUE")
+                .map(String::as_str),
+            Some("two three")
+        );
     }
 
     #[test]
@@ -253,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn resolves_append_between_duplicate_base_definitions() {
+    fn append_between_duplicate_base_definitions_keeps_first_base() {
         let resolved = resolve_local_properties(&[
             row(1, 10, "VALUE", "first", false, 1),
             row(2, 10, "VALUE", "appended", true, 2),
@@ -261,7 +289,7 @@ mod tests {
         ]);
         assert_eq!(
             resolved.get("VALUE").map(String::as_str),
-            Some("second appended")
+            Some("first appended")
         );
     }
 
@@ -276,7 +304,7 @@ mod tests {
         ]);
         assert_eq!(
             resolved.get("VALUE").map(String::as_str),
-            Some("second before middle after")
+            Some("first before middle after")
         );
     }
 

@@ -719,7 +719,7 @@ fn backfill_effective_properties_for_file(
 
     let mut property_statement = connection.prepare(
         "SELECT properties.id, properties.heading_id, properties.key, properties.value,
-                properties.append, properties.line_number
+                properties.append, properties.line_number, properties.source
          FROM properties
          INNER JOIN headings ON headings.id = properties.heading_id
          WHERE headings.file_id = ?1
@@ -734,6 +734,7 @@ fn backfill_effective_properties_for_file(
                 value: row.get(3)?,
                 append: row.get::<_, i64>(4)? != 0,
                 line_number: row.get(5)?,
+                source: row.get(6)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -888,6 +889,7 @@ mod effective_properties_migration_tests {
                      heading_id INTEGER NOT NULL,
                      key TEXT NOT NULL,
                      value TEXT,
+                     source TEXT NOT NULL DEFAULT 'property_drawer',
                      append INTEGER NOT NULL,
                      line_number INTEGER
                  );

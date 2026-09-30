@@ -109,8 +109,9 @@ heading.12.timestamp.0.modifier.0.type=first
 heading.12.timestamp.0.modifier.0.value=2
 heading.12.timestamp.0.modifier.0.unit=week
 
+heading.13.planning.scheduled_raw=<%%(diary-float t 42)>
 heading.13.timestamp_count=1
-heading.13.timestamp.0.role=body
+heading.13.timestamp.0.role=scheduled
 heading.13.timestamp.0.type=diary
 heading.13.timestamp.0.range_type=none
 heading.13.timestamp.0.raw_value=<%%(diary-float t 42)>

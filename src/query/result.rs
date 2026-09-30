@@ -2905,7 +2905,7 @@ fn load_properties_from_compiled_relation_traced(
         "/* orgfdb:enrich-properties params={} */
          WITH matched({columns}) AS ({})
          SELECT properties.id, properties.heading_id, properties.key, properties.value,
-                properties.source, properties.append, properties.line_number
+                properties.source, properties.append, properties.line_number, properties.source
          FROM matched
          INNER JOIN properties
            ON properties.heading_id = matched.{heading_id_column}",
@@ -2958,7 +2958,7 @@ fn load_properties_from_compiled_relation_untraced(
         "/* orgfdb:enrich-properties params={} */
          WITH matched({columns}) AS ({})
          SELECT properties.id, properties.heading_id, properties.key, properties.value,
-                properties.source, properties.append, properties.line_number
+                properties.source, properties.append, properties.line_number, properties.source
          FROM matched
          INNER JOIN properties
            ON properties.heading_id = matched.{heading_id_column}",
@@ -4690,7 +4690,7 @@ fn load_properties(
         let sql = format!(
             "/* orgfdb:enrich-properties params={} */
              SELECT properties.id, properties.heading_id, properties.key, properties.value,
-                    properties.source, properties.append, properties.line_number
+                    properties.source, properties.append, properties.line_number, properties.source
              FROM properties
              WHERE properties.heading_id IN ({})",
             chunk.len(),
@@ -5371,7 +5371,7 @@ mod tests {
     }
 
     #[test]
-    fn effective_properties_include_uses_last_local_base_plus_all_appends() {
+    fn effective_properties_include_uses_first_local_base_plus_all_appends() {
         let connection = seeded_connection();
         let response = execute_and_shape_query(
             &connection,
@@ -5390,7 +5390,7 @@ mod tests {
             Some(&vec![
                 EffectivePropertyFact {
                     key: "APPEND_REPLACED".to_string(),
-                    value: Some("second appended".to_string()),
+                    value: Some("first appended".to_string()),
                 },
                 EffectivePropertyFact {
                     key: "CATEGORY".to_string(),
@@ -6485,7 +6485,7 @@ PRAGMA foreign_keys = ON;
             let mut statement = connection
                 .prepare(
                     "SELECT properties.id, properties.heading_id, properties.key, properties.value,
-                            properties.append, properties.line_number
+                            properties.append, properties.line_number, properties.source
                      FROM properties
                      INNER JOIN headings ON headings.id = properties.heading_id
                      WHERE headings.file_id = ?1
@@ -6501,6 +6501,7 @@ PRAGMA foreign_keys = ON;
                         value: row.get(3)?,
                         append: row.get::<_, i64>(4)? != 0,
                         line_number: row.get(5)?,
+                        source: row.get(6)?,
                     })
                 })
                 .expect("seed property query should run")

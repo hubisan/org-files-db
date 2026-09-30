@@ -75,7 +75,9 @@ impl LinkScanner {
             }
 
             if bytes[offset] == b'[' && bytes.get(offset + 1) == Some(&b'[') {
-                if let Some(link) = try_parse_bracket_link(content, offset, line) {
+                if let Some(link) =
+                    try_parse_bracket_link(content, offset, line, &enabled_protocols)
+                {
                     offset = link.byte_end;
                     links.push(link);
                     continue;
@@ -119,7 +121,12 @@ pub fn scan_links(
     LinkScanner::new().scan(content, config, context)
 }
 
-fn try_parse_bracket_link(content: &str, offset: usize, line: u32) -> Option<ParsedLink> {
+fn try_parse_bracket_link(
+    content: &str,
+    offset: usize,
+    line: u32,
+    enabled_protocols: &HashSet<String>,
+) -> Option<ParsedLink> {
     let line_end = line_end_offset(content, offset);
     let parsed = parse_bracket_link_ranges(content, offset, line_end)?;
     let raw_target = content[parsed.target_range.clone()].to_string();
@@ -128,7 +135,8 @@ fn try_parse_bracket_link(content: &str, offset: usize, line: u32) -> Option<Par
         .description_range
         .as_ref()
         .map(|range| content[range.clone()].to_string());
-    let (link_type, path, search_option) = classify_bracket_target(&logical_target);
+    let (link_type, path, search_option) =
+        classify_bracket_target(&logical_target, enabled_protocols);
 
     Some(ParsedLink {
         source_context: ParsedLinkSourceContext::Normal,
@@ -342,8 +350,15 @@ fn try_parse_plain_link(
     })
 }
 
-fn classify_bracket_target(target: &str) -> (String, String, Option<String>) {
-    if let Some((link_type, path)) = split_explicit_type(target) {
+fn classify_bracket_target(
+    target: &str,
+    enabled_protocols: &HashSet<String>,
+) -> (String, String, Option<String>) {
+    // Org: `TYPE:PATH` needs a registered type. A dotted prefix such as the file name in
+    // `test.org::Heading` is never one unless the project configures it as a protocol.
+    if let Some((link_type, path)) = split_explicit_type(target)
+        .filter(|(link_type, _)| !link_type.contains('.') || enabled_protocols.contains(link_type))
+    {
         let (path, search_option) = finalize_explicit_target(&link_type, path);
         return (link_type, path, search_option);
     }
@@ -1279,6 +1294,56 @@ file:~/code/main.c::255 file+sys:~/sys/path::*Target file+emacs:~/emacs/path::#c
         assert_eq!(links[0].raw_description.as_deref(), Some("dësc"));
         assert_eq!(links[0].byte_start, "ä ".len());
         assert_eq!(links[0].byte_end, content.len());
+    }
+
+    /// Expected values come from Emacs 29.3 / Org 9.6.15 (`org-element` link `:type`, `:path`,
+    /// `:search-option`): a dotted prefix is not a registered link type, so the target is fuzzy.
+    #[test]
+    fn dotted_prefix_is_not_a_link_type_unless_configured() {
+        // (target, type, path, search option)
+        let cases = [
+            ("test.org::Heading", "fuzzy", "test.org::Heading", None),
+            ("test.org::#1", "fuzzy", "test.org::#1", None),
+            ("test.org::*Heading", "fuzzy", "test.org::*Heading", None),
+            ("test.org", "fuzzy", "test.org", None),
+            ("test.org:foo", "fuzzy", "test.org:foo", None),
+            ("a.b:c::d", "fuzzy", "a.b:c::d", None),
+            ("./test.org::Heading", "file", "./test.org", Some("Heading")),
+            (
+                "file:test.org::Heading",
+                "file",
+                "test.org",
+                Some("Heading"),
+            ),
+            // Kept until the unregistered-scheme decision (#80).
+            ("unknown:thing", "unknown", "thing", None),
+        ];
+        for (target, link_type, path, search_option) in cases {
+            let links = scan_links(
+                &format!("[[{target}]]"),
+                &LinkScannerConfig::default(),
+                &LinkScanContext::default(),
+            );
+            let link = &links[0];
+            assert_eq!(
+                (
+                    link.link_type.as_str(),
+                    link.path.as_str(),
+                    link.search_option.as_deref()
+                ),
+                (link_type, path, search_option),
+                "{target}"
+            );
+        }
+
+        let configured = LinkScannerConfig {
+            plain_link_protocols: vec!["a.b".to_string()],
+        };
+        let links = scan_links("[[a.b:c]]", &configured, &LinkScanContext::default());
+        assert_eq!(
+            (links[0].link_type.as_str(), links[0].path.as_str()),
+            ("a.b", "c")
+        );
     }
 
     #[test]

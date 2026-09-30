@@ -218,7 +218,9 @@ ON index_generation_files(path, generation);
     for example A, B, C, 1, or 10.
 
   scheduled_raw / deadline_raw / closed_raw:
-    Original Org planning timestamp strings when present.
+    Original Org planning timestamp strings when present. A diary sexp such as
+    <%%(diary-float t 42)> on the planning line is stored as raw text and is
+    never evaluated (its _ts column stays NULL).
 
   scheduled_ts / deadline_ts / closed_ts:
     Nullable timezone-naive Unix timestamp seconds.

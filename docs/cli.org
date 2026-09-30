@@ -371,6 +371,8 @@ Root links use ~heading_level = 0~ and an empty ~heading_path~.
 
 ~resolution_status~ can be null if no resolver pass populated the row. Stored non-null states are ~resolved~, ~broken~, ~unresolved~, ~ambiguous~, and ~unsupported~.
 
+A bracket link is typed ~TYPE:PATH~ only when the text before the first ~:~ can be a link type. A prefix containing a dot, such as the file name in ~[[test.org::Heading]]~, is not one (Org registers no such type), so the link is ~fuzzy~ with the whole target as ~path~ and no ~search_option~; write ~[[file:test.org::Heading]]~ or ~[[./test.org::Heading]]~ for a file link. A dotted name listed in ~links.custom_protocols~ or ~links.plain_protocols~ is still a type. A fuzzy link resolves only in its own file, and only the ~*Heading~ and ~#custom-id~ forms are resolved; ~[[test.org::Heading]]~ is ~unsupported~.
+
 The resolver supports file heading searches with ~::*Heading~ and ~::#custom-id~. Other file search forms are not resolved by the current implementation.
 
 Org ~id:~ links resolve only against indexed non-root headings. External ~org-id-locations~ are not part of this resolver.

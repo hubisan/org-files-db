@@ -232,9 +232,9 @@ File queries use direct file-root property rows. They do not accept ~:inherit~.
 
 Effective values use one consistent rule for property drawer rows and file-level ~#+PROPERTY~ rows.
 
-The last non-append definition supplies the base value. All append definitions for the same key are added in source order.
+Property values are trimmed of leading and trailing spaces and tabs, as in Org. In a property drawer the first non-append definition of a key supplies the base value, as in Emacs ~org-entry-get~ and ~org-entry-properties~. For ~#+PROPERTY~ rows the last non-append definition supplies the base value. All append definitions for the same key are added in source order.
 
-This rule can differ from Emacs Org for some repeated file-level ~#+PROPERTY~ sequences. Raw ~properties~ include data preserves source and append metadata.
+This rule can differ from Emacs Org for some repeated file-level ~#+PROPERTY~ sequences and for empty append values, which Org joins with a space. Raw ~properties~ include data keeps every row, including duplicates, with source and append metadata.
 
 Examples:
 
@@ -720,7 +720,7 @@ A null stored status means no resolver pass populated the row. ~status~ matches 
 
 ~ambiguous~ means several candidate targets prevent a unique result.
 
-~unsupported~ means the resolver does not support that link or target form. The resolver handles ~file:~ links (including ~file+sys:~ and ~file+emacs:~, which only change how Org opens the target), ~id:~ links, and same-file ~#custom-id~ and fuzzy links; other link types are ~unsupported~.
+~unsupported~ means the resolver does not support that link or target form. The resolver handles ~file:~ links (including ~file+sys:~ and ~file+emacs:~, which only change how Org opens the target), ~id:~ links (the link target is trimmed of spaces and tabs before it is matched against the trimmed ~ID~ and ~CUSTOM_ID~ values, as Org finds ~[[id:123 56 ]]~ and ~[[id:123 56]]~ alike), and same-file ~#custom-id~ and fuzzy links; other link types are ~unsupported~.
 
 ** ~source~
 

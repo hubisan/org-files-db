@@ -5807,7 +5807,7 @@ mod tests {
         let append_between_duplicate_rows = execute_sqlite_query(
             &connection,
             &validated(
-                r#"(headings (and (title "Loose Note" :exact t) (property "APPEND_REPLACED" "second appended" :inherit nil)))"#,
+                r#"(headings (and (title "Loose Note" :exact t) (property "APPEND_REPLACED" "first appended" :inherit nil)))"#,
             ),
         )
         .expect("append-between-duplicates property query should execute");
@@ -5816,7 +5816,7 @@ mod tests {
         let stale_base_rows = execute_sqlite_query(
             &connection,
             &validated(
-                r#"(headings (and (title "Loose Note" :exact t) (property "APPEND_REPLACED" "first appended" :inherit nil)))"#,
+                r#"(headings (and (title "Loose Note" :exact t) (property "APPEND_REPLACED" "second appended" :inherit nil)))"#,
             ),
         )
         .expect("stale base query should execute");
@@ -5825,7 +5825,7 @@ mod tests {
         let overwrite_rows = execute_sqlite_query(
             &connection,
             &validated(
-                r#"(headings (and (title "Loose Note" :exact t) (property "DEFINED_TWICE" "second is effective" :inherit nil)))"#,
+                r#"(headings (and (title "Loose Note" :exact t) (property "DEFINED_TWICE" "works" :inherit nil)))"#,
             ),
         )
         .expect("overwrite property query should execute");
@@ -5834,7 +5834,7 @@ mod tests {
         let overwritten_value_rows = execute_sqlite_query(
             &connection,
             &validated(
-                r#"(headings (and (title "Loose Note" :exact t) (property "DEFINED_TWICE" "works" :inherit nil)))"#,
+                r#"(headings (and (title "Loose Note" :exact t) (property "DEFINED_TWICE" "second is effective" :inherit nil)))"#,
             ),
         )
         .expect("overwritten value query should execute");
@@ -5861,7 +5861,7 @@ mod tests {
         let multiple_append_positions_rows = execute_sqlite_query(
             &connection,
             &validated(
-                r#"(headings (and (title "Statistic Cookies" :exact t) (property "MULTI_APPEND" "second before middle after" :inherit nil)))"#,
+                r#"(headings (and (title "Statistic Cookies" :exact t) (property "MULTI_APPEND" "first before middle after" :inherit nil)))"#,
             ),
         )
         .expect("multiple-append-positions property query should execute");
@@ -5870,7 +5870,7 @@ mod tests {
         let partial_multiple_append_rows = execute_sqlite_query(
             &connection,
             &validated(
-                r#"(headings (and (title "Statistic Cookies" :exact t) (property "MULTI_APPEND" "second after" :inherit nil)))"#,
+                r#"(headings (and (title "Statistic Cookies" :exact t) (property "MULTI_APPEND" "first after" :inherit nil)))"#,
             ),
         )
         .expect("partial multiple-append query should execute");
@@ -5990,7 +5990,7 @@ mod tests {
         let regexp_overwrite_rows = execute_sqlite_query(
             &connection,
             &validated(
-                r#"(headings (and (title "Loose Note" :exact t) (property "DEFINED_TWICE" "second.*effective" :inherit nil :regexp t)))"#,
+                r#"(headings (and (title "Loose Note" :exact t) (property "DEFINED_TWICE" "works" :inherit nil :regexp t)))"#,
             ),
         )
         .expect("regexp overwrite property query should execute");
@@ -5999,7 +5999,7 @@ mod tests {
         let regexp_stale_rows = execute_sqlite_query(
             &connection,
             &validated(
-                r#"(headings (and (title "Loose Note" :exact t) (property "DEFINED_TWICE" "works" :inherit nil :regexp t)))"#,
+                r#"(headings (and (title "Loose Note" :exact t) (property "DEFINED_TWICE" "second.*effective" :inherit nil :regexp t)))"#,
             ),
         )
         .expect("regexp stale property query should execute");
@@ -7432,7 +7432,7 @@ mod tests {
             let mut statement = connection
                 .prepare(
                     "SELECT properties.id, properties.heading_id, properties.key, properties.value,
-                            properties.append, properties.line_number
+                            properties.append, properties.line_number, properties.source
                      FROM properties
                      INNER JOIN headings ON headings.id = properties.heading_id
                      WHERE headings.file_id = ?1
@@ -7448,6 +7448,7 @@ mod tests {
                         value: row.get(3)?,
                         append: row.get::<_, i64>(4)? != 0,
                         line_number: row.get(5)?,
+                        source: row.get(6)?,
                     })
                 })
                 .expect("seed property query should run")

@@ -396,35 +396,6 @@ fn orgize_adapter_falls_back_to_empty_property_drawer_rows_omitted_by_orgize() {
 }
 
 #[test]
-fn orgize_adapter_preserves_significant_whitespace_in_property_drawer_values() {
-    let content = "\
-#+TITLE: Property Whitespace
-* Task
-:PROPERTIES:
-:CUSTOM_ID: abc 
-:ID:  23
-:END:
-";
-
-    let document = OrgizeAdapter::new()
-        .parse_document(
-            Path::new("notes/property-whitespace.org"),
-            content,
-            &ParseOptions::default(),
-        )
-        .expect("property whitespace should parse");
-
-    assert_eq!(document.headings.len(), 2);
-    let heading = &document.headings[1];
-    assert_eq!(heading.properties.len(), 2);
-    assert_eq!(heading.properties[0].key, "CUSTOM_ID");
-    assert_eq!(heading.properties[0].value.as_deref(), Some("abc "));
-    assert_eq!(heading.properties[1].key, "ID");
-    assert_eq!(heading.properties[1].value.as_deref(), Some(" 23"));
-    assert!(document.diagnostics.is_empty());
-}
-
-#[test]
 fn orgize_adapter_collects_file_level_property_keywords_anywhere_in_buffer() {
     let content = include_str!("data/parser/properties/late-file-keywords/fixture.org");
 
@@ -696,16 +667,112 @@ fn orgize_adapter_only_populates_shortcuts_when_parser_exposes_planning() {
     );
     assert!(diary.timestamps[0].start_ts.is_none());
     assert!(diary.timestamps[0].end_ts.is_none());
-    if let Some(scheduled) = &diary.planning.scheduled {
-        assert_eq!(scheduled.raw_value, "<%%(diary-float t 42)>");
-        assert!(scheduled.start_ts.is_none());
-        assert_eq!(
-            diary.timestamps[0].role,
-            Some(ParsedTimestampRole::Scheduled)
-        );
-    } else {
-        assert_eq!(diary.timestamps[0].role, Some(ParsedTimestampRole::Body));
+    let scheduled = diary
+        .planning
+        .scheduled
+        .as_ref()
+        .expect("diary is planning");
+    assert_eq!(scheduled.raw_value, "<%%(diary-float t 42)>");
+    assert!(scheduled.start_ts.is_none());
+    assert_eq!(
+        diary.timestamps[0].role,
+        Some(ParsedTimestampRole::Scheduled)
+    );
+}
+
+/// Expected values come from Emacs 29.3 / Org 9.6.15 (`:scheduled`, `:deadline`, `:closed`
+/// raw values of `org-element`); diary sexps are stored as raw text and never evaluated.
+#[test]
+fn diary_planning_lines_match_org() {
+    // (section text after the heading, scheduled, deadline, closed, body)
+    type Case = (
+        &'static str,
+        Option<&'static str>,
+        Option<&'static str>,
+        Option<&'static str>,
+        Option<&'static str>,
+    );
+    let cases: [Case; 9] = [
+        (
+            "SCHEDULED: <%%(diary-float t 42)>\nbody\n",
+            Some("<%%(diary-float t 42)>"),
+            None,
+            None,
+            Some("body"),
+        ),
+        (
+            "SCHEDULED: <%%(diary-float t 42)> DEADLINE: <2026-01-01 Thu>\n",
+            Some("<%%(diary-float t 42)>"),
+            Some("<2026-01-01 Thu>"),
+            None,
+            None,
+        ),
+        (
+            "DEADLINE: <2026-01-01 Thu> SCHEDULED: <%%(diary-float t 4 2)>\n",
+            Some("<%%(diary-float t 4 2)>"),
+            Some("<2026-01-01 Thu>"),
+            None,
+            None,
+        ),
+        (
+            "CLOSED: [2026-01-01 Thu] SCHEDULED: <%%(diary-anniversary 1 2 2000)>\n",
+            Some("<%%(diary-anniversary 1 2 2000)>"),
+            None,
+            Some("[2026-01-01 Thu]"),
+            None,
+        ),
+        (
+            "  SCHEDULED:   <%%(diary-float t 42)>   \n:PROPERTIES:\n:X: 1\n:END:\nbody\n",
+            Some("<%%(diary-float t 42)>"),
+            None,
+            None,
+            Some("body"),
+        ),
+        // Not planning in Org: not directly after the heading, malformed, or inactive form.
+        (
+            "text\nSCHEDULED: <%%(diary-float t 42)>\n",
+            None,
+            None,
+            None,
+            Some("text\nSCHEDULED: <%%(diary-float t 42)>"),
+        ),
+        (
+            "SCHEDULED: <%%(diary-float t 42) foo>\n",
+            None,
+            None,
+            None,
+            Some("SCHEDULED: <%%(diary-float t 42) foo>"),
+        ),
+        (
+            "SCHEDULED: [%%(diary-float t 42)]\n",
+            None,
+            None,
+            None,
+            Some("SCHEDULED: [%%(diary-float t 42)]"),
+        ),
+        (
+            "SCHEDULED: <%%(foo)\n",
+            None,
+            None,
+            None,
+            Some("SCHEDULED: <%%(foo)"),
+        ),
+    ];
+    for (section, scheduled, deadline, closed, body) in cases {
+        let content = format!("* H\n{section}");
+        let document = OrgizeAdapter::new()
+            .parse_document(Path::new("d.org"), &content, &ParseOptions::default())
+            .expect("diary planning fixture should parse");
+        let heading = &document.headings[1];
+        assert_eq!(heading.planning.scheduled_raw(), scheduled, "{section:?}");
+        assert_eq!(heading.planning.deadline_raw(), deadline, "{section:?}");
+        assert_eq!(heading.planning.closed_raw(), closed, "{section:?}");
+        assert_eq!(heading.body_text.as_deref(), body, "{section:?}");
     }
+    let (_, properties) = drawer_placement_properties(
+        "* H\n  SCHEDULED:   <%%(diary-float t 42)>   \n:PROPERTIES:\n:X: 1\n:END:\n",
+    );
+    assert_eq!(properties, ["X=1"]);
 }
 
 #[test]
@@ -1375,7 +1442,7 @@ fn orgize_adapter_extracts_heading_bodies_without_child_subtrees() {
 
 #[test]
 fn orgize_adapter_excludes_structured_metadata_from_body_text() {
-    let content = ":PROPERTIES:\n:CATEGORY: Level 0 Category Property\n:END:\n#+TITLE: Body Metadata Fixture\nIntro before heading.\n\n* Task\nSCHEDULED: <2026-06-23 Tue>\n:PROPERTIES:\n:Owner: Bob\n:END:\nReal body text.\n\n#+AUTHOR: Jane Doe\n\nBody after keyword.\n\n** Child\nChild body.\n\n* Invalid Planning\nSCHEDULED: <%%(diary-float t 42)>\nBody after invalid planning.\n";
+    let content = ":PROPERTIES:\n:CATEGORY: Level 0 Category Property\n:END:\n#+TITLE: Body Metadata Fixture\nIntro before heading.\n\n* Task\nSCHEDULED: <2026-06-23 Tue>\n:PROPERTIES:\n:Owner: Bob\n:END:\nReal body text.\n\n#+AUTHOR: Jane Doe\n\nBody after keyword.\n\n** Child\nChild body.\n\n* Diary Planning\nSCHEDULED: <%%(diary-float t 42)>\nBody after planning.\n";
 
     let document = OrgizeAdapter::new()
         .parse_document(
@@ -1402,7 +1469,7 @@ fn orgize_adapter_excludes_structured_metadata_from_body_text() {
     );
     assert_eq!(
         document.headings[3].body_text.as_deref(),
-        Some("SCHEDULED: <%%(diary-float t 42)>\nBody after invalid planning.")
+        Some("Body after planning.")
     );
 }
 
@@ -2307,6 +2374,42 @@ fn property_drawer_placement_matches_org() {
             false,
             false,
         ),
+        (
+            "file top indented",
+            format!("  {}\n* H\n", D.replace('\n', "\n  ").trim_end()),
+            true,
+            false,
+        ),
+        (
+            "file after comment tab indented",
+            "# c\n\t:PROPERTIES:\n\t:ID: x\n\t:END:\n* H\n".to_string(),
+            true,
+            false,
+        ),
+        (
+            "heading direct indented",
+            "* H\n  :PROPERTIES:\n  :ID: x\n  :END:\n".to_string(),
+            false,
+            true,
+        ),
+        (
+            "heading indented drawer mixed indentation",
+            "* H\n :PROPERTIES:\n   :ID: x\n:END:\n".to_string(),
+            false,
+            true,
+        ),
+        (
+            "heading indented after planning",
+            format!("* H\n  {SCHED}  :PROPERTIES:\n  :ID: x\n  :END:\n"),
+            false,
+            true,
+        ),
+        (
+            "heading indented after text",
+            "* H\ntext\n  :PROPERTIES:\n  :ID: x\n  :END:\n".to_string(),
+            false,
+            false,
+        ),
     ];
     for (name, content, file, heading) in cases {
         let (file_props, heading_props) = drawer_placement_properties(&content);
@@ -2316,6 +2419,74 @@ fn property_drawer_placement_matches_org() {
             heading,
             "{name}: heading {heading_props:?}"
         );
+    }
+}
+
+/// Expected values come from Emacs 29.3 / Org 9.6.15 (`org-element` headline `:raw-value`,
+/// `:priority`, `:todo-keyword`): the priority cookie counts only before `COMMENT`.
+#[test]
+fn comment_and_priority_cookie_order_matches_org() {
+    // (heading line, title, priority, todo keyword); `title` keeps COMMENT as before.
+    let cases: [(&str, &str, Option<&str>, Option<&str>); 8] = [
+        ("* COMMENT [#A] x", "COMMENT [#A] x", None, None),
+        ("* COMMENT [#A]", "COMMENT [#A]", None, None),
+        (
+            "* TODO COMMENT [#B] y",
+            "COMMENT [#B] y",
+            None,
+            Some("TODO"),
+        ),
+        ("* [#A] COMMENT x", "COMMENT x", Some("A"), None),
+        (
+            "* TODO [#B] COMMENT z",
+            "COMMENT z",
+            Some("B"),
+            Some("TODO"),
+        ),
+        ("* COMMENT plain", "COMMENT plain", None, None),
+        ("* [#A] COMMENT [#B] v", "COMMENT [#B] v", Some("A"), None),
+        ("* COMMENT [#C] w :tag:", "COMMENT [#C] w", None, None),
+    ];
+    for (line, title, priority, todo) in cases {
+        let document = OrgizeAdapter::new()
+            .parse_document(
+                Path::new("c.org"),
+                &format!("{line}\n"),
+                &ParseOptions::default(),
+            )
+            .expect("comment fixture should parse");
+        let heading = &document.headings[1];
+        assert_eq!(heading.title, title, "{line}: title");
+        assert_eq!(heading.priority.as_deref(), priority, "{line}: priority");
+        assert_eq!(heading.todo_keyword.as_deref(), todo, "{line}: todo");
+    }
+}
+
+/// Expected rows come from Emacs 29.3 / Org 9.6.15 (`org-element` node-property elements and
+/// `org-entry-properties`): values are trimmed of spaces and tabs, duplicate keys stay as
+/// separate rows in source order.
+#[test]
+fn property_drawer_rows_match_org() {
+    // (name, drawer body, expected `KEY=value` rows in order)
+    let cases: [(&str, &str, &[&str]); 5] = [
+        (
+            "trimmed value",
+            ":K:   spaced   value   \n",
+            &["K=spaced   value"],
+        ),
+        ("tab padding", ":K:\t v \t\n", &["K=v"]),
+        ("empty and blank", ":E:\n:S:    \n", &["E=", "S="]),
+        (
+            "duplicate and append rows",
+            ":F: 1\n:F: 2\n:F+: x\n",
+            &["F=1", "F=2", "F=x"],
+        ),
+        ("indented rows", "  :ID: x\n\t:B:  y  \n", &["ID=x", "B=y"]),
+    ];
+    for (name, body, expected) in cases {
+        let content = format!("* H\n:PROPERTIES:\n{body}:END:\n");
+        let (_, rows) = drawer_placement_properties(&content);
+        assert_eq!(rows, expected, "{name}");
     }
 }
 

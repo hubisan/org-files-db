@@ -1,0 +1,6 @@
+  :PROPERTIES:
+  :ID: indented-file
+  :END:
+#+TITLE: Indented file drawer
+
+* Heading
