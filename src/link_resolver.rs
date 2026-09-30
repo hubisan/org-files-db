@@ -295,7 +295,7 @@ impl LinkResolver {
                      target_id = NULL,
                      resolution_status = NULL,
                      resolution_diagnostic = NULL",
-                &[],
+                [],
             )
             .map_err(|source| DbWriteError::Write {
                 operation: "link_resolver.reset_resolution_fields",
