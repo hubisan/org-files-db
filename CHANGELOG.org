@@ -4,6 +4,8 @@ This file records completed changes.
 
 * Unreleased
 
+- =FIXED= Parsing no longer panics when an in-buffer ~#+TODO:~ keyword contains a bracket link (e.g. ~#+TODO: [[b]] | DONE~).
+
 - =FIXED= Discovery now skips dangling symlinks, such as Emacs lock files (~.#notes.org~), instead of aborting ~rebuild~ and ~watch~.
 
 - =CHANGED= Direct-flat query result shaping now moves row-owned values and local metadata into final results instead of cloning them, reducing broad query latency.
