@@ -1,0 +1,23 @@
+#+TITLE: Inline objects Fixture
+
+* Range and time
+[2024-11-20 Wed]--[2024-11-21 Thu 10:00] and <2024-11-22 Fri 9:00>
+
+* Repeater with a deadline part
+<2024-11-20 Wed .+1m/2m>
+
+* Hidden by code, verbatim, inline source and snippet
+=verbatim <2024-11-20 Wed>= and ~code <2024-11-21 Thu>~ and src_sh{<2024-11-22 Fri>} and @@html:<2024-11-23 Sat>@@
+
+* Shown inside emphasis, footnotes, tables and lists
+*bold <2024-11-24 Sun>* and [fn:1:<2024-11-25 Mon>]
+| cell <2024-11-26 Tue> | =code <2024-11-27 Wed>= |
+- <2024-11-28 Thu> :: <2024-11-29 Fri>
+
+* Hidden by what is not a timestamp
+[[a][<2024-12-01 Sun>]]
++---+
+| <2024-12-02 Mon> |
++---+
+
+* Title <2024-12-03 Tue> =x <2024-12-04 Wed>= :tag:

@@ -1,23 +1,21 @@
-//! The production parse entry: `ParsedOrgDocument` from the structure scanner (#103).
+//! The production parse entry: `ParsedOrgDocument` from the own scanners (#103, #105).
 //!
 //! Headings, tree, section ranges, planning, property drawers, keywords, body text and the
 //! regions that link scanning skips all come from `structure_scanner`; titles, tags, TODO
 //! keywords and priorities from the raw headline line (`title`), planning entries from the
-//! raw planning line (`timestamp_raw`). Orgize only reads inline details, behind
-//! `orgize_inline`. The type keeps its name for the public API.
+//! raw planning line (`timestamp_raw`), timestamps, inline code ranges and the visible
+//! title text from `inline_scanner`. The type keeps the name of the Orgize backend it once
+//! wrapped, for the public API.
 
-use std::{ops::Range, path::Path};
+use std::{collections::HashSet, ops::Range, path::Path};
 
 use super::diagnostics::ParseDiagnostic;
+use super::inline_scanner::{hides_content, normalize_title_text, scan_inline, InlineFacts};
 use super::line_index::LineIndex;
-use super::link_scanner::{scan_links, LinkScanContext};
+use super::link_scanner::{plain_link_protocol_set, scan_links, LinkScanContext};
 use super::model::{
     OrgParserCore, ParseOptions, ParsedHeading, ParsedKeyword, ParsedLink, ParsedLinkSourceContext,
     ParsedOrgDocument, ParsedTimestampRole, TodoKeywordConfig,
-};
-use super::orgize_inline::{
-    hides_content, normalize_title_text, render_link_description_for_title, scan_inline,
-    InlineFacts,
 };
 use super::properties::{file_level_properties_from_keywords, file_level_tags_from_keywords};
 use super::structure_scanner::{
@@ -25,9 +23,8 @@ use super::structure_scanner::{
 };
 use super::timestamp_raw::planning_timestamps;
 use super::title::{
-    link_contains_range, links_in_range, placeholder_title_after_todo_prefix,
-    restore_title_link_placeholders, source_title_from_content_line, source_title_tags,
-    split_headline_title, todo_type_for_keyword,
+    link_contains_range, source_title_from_content_line, source_title_tags, split_headline_title,
+    todo_type_for_keyword,
 };
 
 pub use super::structure_scanner::MAX_HEADING_LEVEL;
@@ -73,7 +70,14 @@ impl OrgParserCore for OrgizeAdapter {
 
         parsed.metadata.keywords = parsed_keywords(content, &structure);
         parsed.metadata.title = combined_document_title(&parsed.metadata.keywords);
-        let inline = scan_inline(content, &structure, &lines);
+        let protocols = plain_link_protocol_set(&options.link_scanner);
+        let inline = scan_inline(
+            content,
+            &structure,
+            &lines,
+            &protocols,
+            &options.todo_keywords,
+        );
         let context = link_structural_context(content, &structure, &inline);
         parsed.links = scan_links(
             content,
@@ -118,6 +122,7 @@ impl OrgParserCore for OrgizeAdapter {
                     links: &parsed.links,
                     structure: &structure,
                     inline: &inline,
+                    protocols: &protocols,
                 },
             );
             parsed.headings.push(heading);
@@ -136,6 +141,7 @@ struct HeadingSources<'a> {
     links: &'a [ParsedLink],
     structure: &'a Structure,
     inline: &'a InlineFacts,
+    protocols: &'a HashSet<String>,
 }
 
 /// Link ranges to skip and the context spans that classify the rest.
@@ -305,20 +311,13 @@ fn parse_heading(node: &HeadingNode, sources: &HeadingSources) -> ParsedHeading 
         links,
         structure,
         inline,
+        protocols,
     } = sources;
     let start = node.headline.start;
     let source_title = source_title_from_content_line(content, start);
     let title_raw = source_title.raw;
-    let (title_for_normalization, placeholders) =
-        placeholder_bracket_links_in_title(&title_raw, &source_title.range, links);
     let parts = split_headline_title(&title_raw, todo_keywords);
-    let source_text = &title_raw[parts.text_start..];
-    // Links are replaced by tokens, so Orgize sees the title text, not link syntax. The
-    // prefix (keyword, cookie) has the same length in both versions unless a link sits in it.
-    let text =
-        placeholder_title_after_todo_prefix(&title_raw, &title_for_normalization, source_text)
-            .unwrap_or(source_text);
-    let title = restore_title_link_placeholders(normalize_title_text(text), &placeholders);
+    let title = normalize_title_text(&title_raw[parts.text_start..], protocols);
 
     let mut parsed = ParsedHeading::new(path, node.level as u8, title, start, node.subtree.end);
     parsed.title_raw = Some(title_raw);
@@ -508,57 +507,4 @@ fn subtract_ranges(range: (usize, usize), excluded: &[Range<usize>]) -> Vec<(usi
             .collect();
     }
     pieces
-}
-
-fn placeholder_bracket_links_in_title(
-    title_raw: &str,
-    title_range: &Range<usize>,
-    links: &[ParsedLink],
-) -> (String, Vec<(String, String)>) {
-    let mut title = title_raw.to_string();
-    let relevant_links = links_in_range(links, title_range);
-    let mut replacements = relevant_links
-        .iter()
-        .filter(|link| {
-            link.format == "bracket"
-                && title_range.start <= link.byte_start
-                && link.byte_end <= title_range.end
-        })
-        .enumerate()
-        .map(|(index, link)| {
-            let visible = link
-                .raw_description
-                .as_deref()
-                .map(render_link_description_for_title)
-                .unwrap_or_else(|| link.logical_target.clone());
-            let mut token_index = index;
-            let token = loop {
-                let candidate = format!("ORGFILESDBLINKTOKEN{token_index}X");
-                if !title_raw.contains(&candidate)
-                    && !relevant_links.iter().any(|link| {
-                        link.raw_description
-                            .as_deref()
-                            .is_some_and(|description| description.contains(&candidate))
-                            || link.logical_target.contains(&candidate)
-                    })
-                {
-                    break candidate;
-                }
-                token_index += links.len().max(1);
-            };
-            (
-                link.byte_start - title_range.start..link.byte_end - title_range.start,
-                token,
-                visible,
-            )
-        })
-        .collect::<Vec<_>>();
-    replacements.sort_by_key(|(range, _, _)| std::cmp::Reverse(range.start));
-
-    let mut placeholders = Vec::with_capacity(replacements.len());
-    for (range, token, visible) in replacements {
-        title.replace_range(range, &token);
-        placeholders.push((token, visible));
-    }
-    (title, placeholders)
 }

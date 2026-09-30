@@ -1,4 +1,4 @@
-//! Orgize-free property and file keyword parsing helpers.
+//! Property and file keyword parsing helpers.
 
 use crate::property::normalize_property_key;
 

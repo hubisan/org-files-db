@@ -53,9 +53,9 @@ Read [[./config.org][Configuration Reference]] and [[./design/incremental-indexi
 
 ~src/parser/~ defines the parser-facing data model and diagnostics. ~OrgizeAdapter~ (kept under its name for the public API) is the parser implementation.
 
-Since #103 the adapter builds every structural fact from the own line scanner: ~src/parser/line_lexer.rs~ classifies lines and ~src/parser/structure_scanner.rs~ builds the heading tree, section ranges, planning lines, property drawers, keywords, blocks, drawers and comment runs. Titles, tags, TODO keywords and priorities come from the raw headline line (~src/parser/title.rs~), planning entries from the raw planning line (~src/parser/timestamp_raw.rs~). The scanner is iterative, so nesting depth never grows the call stack. Read [[./design/line-scanner.org][Line Scanner]] for the rules and the stage plan.
+Since #103 the adapter builds every structural fact from the own line scanner, and since #105 every inline object from the own inline scanner: ~src/parser/line_lexer.rs~ classifies lines and ~src/parser/structure_scanner.rs~ builds the heading tree, section ranges, planning lines, property drawers, keywords, blocks, drawers and comment runs. Titles, tags, TODO keywords and priorities come from the raw headline line (~src/parser/title.rs~), planning entries from the raw planning line (~src/parser/timestamp_raw.rs~), and timestamps, inline code ranges and the visible title text from ~src/parser/inline_scanner.rs~. The scanners are iterative or bounded, so nesting depth never grows the call stack. Read [[./design/line-scanner.org][Line Scanner]] for the rules and the stage plan.
 
-The adapter rejects files with a heading deeper than 100 levels (~MAX_HEADING_LEVEL~) with a parse error naming level and line. Only ~^\*+ ~ lines count as headlines; the limit is a product rule, not a stack guard.
+The adapter rejects files with a heading deeper than 100 levels (~MAX_HEADING_LEVEL~) with a parse error naming level and line. Only ~^\*+ ~ lines count as headlines; the limit is a product rule, not a stack guard, and stays until the owner decides.
 
 The parser produces source facts. The indexer converts those facts into the persistent database model.
 
@@ -63,11 +63,9 @@ Emacs Org mode acts as a reference oracle for difficult parser semantics. The im
 
 Read [[./design/parser-risks.org][Parser Risks]] for known parser differences.
 
-** Why Orgize is behind an adapter
+** Why the parser is project code
 
-Orgize was the first parser backend, but the project does not treat it as a permanently safe or single source of parsing truth. It is a ~0.10.0-alpha~ release and has had no upstream release since June 2024. It is being replaced in stages (#41). After stage 2 (#103) it only reads inline details: timestamp nodes and inline code ranges, title markup normalization and link description rendering. Orgize never sees document structure: it gets a copy of the source in which the scanner's structure is blanked out.
-
-Only ~src/parser/orgize_inline.rs~ imports Orgize and rowan. Their types must not appear anywhere else, so stage 3 can replace these inline details and remove the dependency without touching other code. The parser-facing model in ~src/parser/~ is the stable boundary.
+Orgize was the first parser backend, a ~0.10.0-alpha~ release without an upstream release since June 2024, and the project never treated it as a single source of parsing truth. It was replaced in three stages (#41): the line scanner (#101), the structure path (#103) and the inline scanner (#105), after which the ~orgize~ dependency (and ~rowan~ with it) was removed. ~OrgizeAdapter~ keeps its name only for the public API. The parser-facing model in ~src/parser/~ is the stable boundary; Emacs Org 9.6 is the reference for what it reports, checked with ~scripts/emacs-oracle.py~.
 
 ** Parser facts and derived semantics
 

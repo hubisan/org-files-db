@@ -50,6 +50,7 @@ Current categories:
 - ~properties/heading-drawer-multiple-properties~ - several properties in a heading drawer
 - ~properties/late-file-keywords~ - file-level keywords after headings normalize onto the file node
 - ~timestamps/planning-timestamp~ - planning and body timestamps: ranges, times, repeaters, warnings, diary, invalid placements
+- ~timestamps/inline-objects~ - body and title timestamps as org-element reads them: ranges, single-digit hours, repeaters with a deadline part, and the objects that hide (code, verbatim, inline source, snippet, link description, table.el) or show (emphasis, footnote, table cell, description tag) a timestamp
 - ~todo-keywords/custom-sequence~ - custom ~#+TODO~ sequence overrides defaults
 - ~todo-keywords/overlapping-file-local-lines~ - overlapping ~#+TODO~ and ~#+SEQ_TODO~ lines
 - ~todo-keywords/simplified-file-local-lines~ - ~TODO~, ~SEQ_TODO~, ~TYP_TODO~ accumulate and override defaults

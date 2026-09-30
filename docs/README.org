@@ -20,7 +20,7 @@ Use these documents when you use ~orgfdb~ or build a client for its current publ
 - [[./design/incremental-indexing.org][Incremental Indexing]] describes source discovery and reconciliation contracts.
 - [[./design/index-generations-and-changes.org][Index Generations and Changes]] describes committed generations and affected-file deltas.
 - [[./design/parser-risks.org][Parser Risks]] records known parser differences and risk decisions, and how to run the local Emacs reference comparison.
-- [[./design/line-scanner.org][Line Scanner]] describes the own line lexer and structure scanner that replaces Orgize in stages (#41; stage 2 is done, Orgize only reads inline details), with its state diagram [[./design/line-scanner.svg][line-scanner.svg]].
+- [[./design/line-scanner.org][Line Scanner]] describes the own line lexer, structure scanner and inline scanner that replaced Orgize (#41, done), with its state diagram [[./design/line-scanner.svg][line-scanner.svg]].
 - [[./performance-baseline.org][Performance Baseline]] describes the benchmark framework and historical measurements.
 - [[./presentation-performance.org][Presentation Performance Benchmarks]] describes retained regression benchmarks, diagnostics, and historical presentation measurements.
 - [[./query-sql-performance.org][Query SQL Performance]] records the query SQL audit, optimizations, and SQL benchmark protocol.
