@@ -65,9 +65,10 @@ impl LinkScanner {
         let mut links = Vec::new();
         let mut offset = 0;
         let mut line = 1;
+        let mut ignored = IgnoredRanges::new(&context.ignored_byte_ranges);
 
         while offset < bytes.len() {
-            if let Some(range_end) = ignored_range_end(offset, &context.ignored_byte_ranges) {
+            if let Some(range_end) = ignored.end_at(offset) {
                 line += newline_count(&bytes[offset..range_end]) as u32;
                 offset = range_end;
                 continue;
@@ -524,11 +525,33 @@ fn line_end_offset(content: &str, offset: usize) -> usize {
         .unwrap_or(content.len())
 }
 
-fn ignored_range_end(offset: usize, ranges: &[Range<usize>]) -> Option<usize> {
-    ranges
-        .iter()
-        .find(|range| range.start <= offset && offset < range.end)
-        .map(|range| range.end)
+/// Monotonic cursor over ignored ranges: offsets passed to `end_at` must not
+/// decrease, which lets the scan loop skip ranges once instead of rescanning.
+struct IgnoredRanges {
+    ranges: Vec<Range<usize>>,
+    next: usize,
+}
+
+impl IgnoredRanges {
+    fn new(ranges: &[Range<usize>]) -> Self {
+        let mut ranges = ranges.to_vec();
+        ranges.sort_by_key(|range| (range.start, range.end));
+        Self { ranges, next: 0 }
+    }
+
+    fn end_at(&mut self, offset: usize) -> Option<usize> {
+        while self
+            .ranges
+            .get(self.next)
+            .is_some_and(|range| range.end <= offset)
+        {
+            self.next += 1;
+        }
+        self.ranges
+            .get(self.next)
+            .filter(|range| range.start <= offset)
+            .map(|range| range.end)
+    }
 }
 
 fn newline_count(bytes: &[u8]) -> usize {

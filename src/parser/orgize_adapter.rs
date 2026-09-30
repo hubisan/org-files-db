@@ -13,6 +13,7 @@ use orgize::{
 };
 
 use super::diagnostics::ParseDiagnostic;
+use super::line_index::LineIndex;
 use super::link_scanner::{scan_links, LinkScanContext, LinkScannerConfig};
 use super::model::{
     OrgParserCore, ParseOptions, ParsedHeading, ParsedKeyword, ParsedLink, ParsedLinkSourceContext,
@@ -54,9 +55,10 @@ impl OrgParserCore for OrgizeAdapter {
         let org = parse_org_document(content, &options.todo_keywords);
         let document = org.document();
         let mut parsed = ParsedOrgDocument::new(path);
+        let lines = LineIndex::new(content);
 
         parsed.metadata.title = combined_document_title(&document);
-        parsed.metadata.keywords = collect_document_keywords(&document, content);
+        parsed.metadata.keywords = collect_document_keywords(&document, &lines);
         let structural_context = collect_link_structural_context(&document);
         parsed.links = scan_links(
             content,
@@ -74,6 +76,7 @@ impl OrgParserCore for OrgizeAdapter {
             level_zero.properties.extend(parsed_properties_from_drawer(
                 &properties,
                 content,
+                &lines,
                 ParsedPropertySource::PropertyDrawer,
             ));
         }
@@ -88,6 +91,7 @@ impl OrgParserCore for OrgizeAdapter {
             document.headlines(),
             path,
             content,
+            &lines,
             &options.todo_keywords,
             &parsed.links,
             &mut parsed.headings,
@@ -237,15 +241,6 @@ fn collect_link_structural_context(document: &OrgDocument) -> LinkStructuralCont
 }
 
 fn annotate_links_source_context(links: &mut [ParsedLink], context_spans: &[ContextSpan]) {
-    for link in links {
-        link.source_context = resolve_link_source_context(link.byte_start, context_spans);
-    }
-}
-
-fn resolve_link_source_context(
-    byte_start: usize,
-    context_spans: &[ContextSpan],
-) -> ParsedLinkSourceContext {
     const PRIORITY: [ParsedLinkSourceContext; 7] = [
         ParsedLinkSourceContext::PropertyDrawer,
         ParsedLinkSourceContext::Drawer,
@@ -256,16 +251,32 @@ fn resolve_link_source_context(
         ParsedLinkSourceContext::Heading,
     ];
 
-    for expected in PRIORITY {
-        if context_spans
-            .iter()
-            .any(|span| span.source_context == expected && range_contains(&span.range, byte_start))
-        {
-            return expected;
-        }
-    }
+    // Merge spans once per context kind so each link needs one binary search
+    // per kind instead of a scan over every span.
+    let merged_by_kind: Vec<(ParsedLinkSourceContext, Vec<Range<usize>>)> = PRIORITY
+        .into_iter()
+        .map(|expected| {
+            let ranges = context_spans
+                .iter()
+                .filter(|span| span.source_context == expected)
+                .map(|span| span.range.clone())
+                .collect();
+            (expected, merge_ranges(ranges))
+        })
+        .collect();
 
-    ParsedLinkSourceContext::Normal
+    for link in links {
+        link.source_context = merged_by_kind
+            .iter()
+            .find(|(_, ranges)| merged_ranges_contain(ranges, link.byte_start))
+            .map(|(expected, _)| expected.clone())
+            .unwrap_or(ParsedLinkSourceContext::Normal);
+    }
+}
+
+fn merged_ranges_contain(ranges: &[Range<usize>], offset: usize) -> bool {
+    let index = ranges.partition_point(|range| range.start <= offset);
+    index > 0 && offset < ranges[index - 1].end
 }
 
 fn node_byte_range(node: &SyntaxNode) -> Range<usize> {
@@ -320,10 +331,6 @@ fn merge_ranges(mut ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
     merged
 }
 
-fn range_contains(range: &Range<usize>, offset: usize) -> bool {
-    range.start <= offset && offset < range.end
-}
-
 fn special_block_is_justify(block: &SpecialBlock) -> bool {
     block
         .syntax()
@@ -353,10 +360,12 @@ fn combined_document_title(document: &OrgDocument) -> Option<String> {
         })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_headlines(
     headlines: impl Iterator<Item = Headline>,
     path: &Path,
     content: &str,
+    lines: &LineIndex,
     todo_keywords: &TodoKeywordConfig,
     links: &[ParsedLink],
     output: &mut Vec<ParsedHeading>,
@@ -446,19 +455,20 @@ fn collect_headlines(
             .as_deref()
             .and_then(|keyword| todo_type_for_keyword(keyword, todo_keywords));
         parsed.tags = headline.tags().map(|tag| tag.to_string()).collect();
-        parsed.line_number = Some(line_number_for_offset(content, start));
+        parsed.line_number = Some(lines.line_for(start));
         parsed.parent_index = parent_index;
         parsed.is_archived = headline.is_archived();
         parsed.is_root = parent_index.is_none();
 
         parsed.title = restore_title_link_placeholders(parsed.title, &title_placeholders);
-        populate_heading_timestamps(&headline, content, links, &mut parsed);
+        populate_heading_timestamps(&headline, content, lines, links, &mut parsed);
         populate_heading_body(headline.section(), content, &mut parsed);
 
         if let Some(properties) = properties_drawer_node_in_headline(&headline) {
             parsed.properties = parsed_properties_from_drawer(
                 &properties,
                 content,
+                lines,
                 ParsedPropertySource::PropertyDrawer,
             );
         }
@@ -470,6 +480,7 @@ fn collect_headlines(
             headline.headlines(),
             path,
             content,
+            lines,
             todo_keywords,
             links,
             output,
@@ -601,6 +612,7 @@ fn normalize_title_preserving_leading_keyword(title_raw: &str, priority: Option<
 fn populate_heading_timestamps(
     headline: &Headline,
     content: &str,
+    lines: &LineIndex,
     links: &[ParsedLink],
     parsed: &mut ParsedHeading,
 ) {
@@ -615,17 +627,16 @@ fn populate_heading_timestamps(
                 SyntaxKind::PLANNING_CLOSED => ParsedTimestampRole::Closed,
                 _ => continue,
             };
-            let parsed_timestamp = if let Some(timestamp) =
-                child.children().find_map(Timestamp::cast)
-            {
-                parsed_timestamp_from_orgize(&timestamp, Some(role), content)
-            } else if let Some(timestamp) =
-                parsed_timestamp_from_planning_fallback(&child.to_string(), &child, role, content)
-            {
-                timestamp
-            } else {
-                continue;
-            };
+            let parsed_timestamp =
+                if let Some(timestamp) = child.children().find_map(Timestamp::cast) {
+                    parsed_timestamp_from_orgize(&timestamp, Some(role), lines)
+                } else if let Some(timestamp) =
+                    parsed_timestamp_from_planning_fallback(&child.to_string(), &child, role, lines)
+                {
+                    timestamp
+                } else {
+                    continue;
+                };
             seen_ranges.insert((parsed_timestamp.byte_start, parsed_timestamp.byte_end));
             parsed.timestamps.push(parsed_timestamp.clone());
 
@@ -641,7 +652,7 @@ fn populate_heading_timestamps(
     }
 
     if planning_node.is_none() {
-        populate_repeater_deadline_planning_fallback(content, parsed, &mut seen_ranges);
+        populate_repeater_deadline_planning_fallback(content, lines, parsed, &mut seen_ranges);
     }
 
     if let Some(title_node) = headline
@@ -650,7 +661,7 @@ fn populate_heading_timestamps(
         .find(|node| node.kind() == SyntaxKind::HEADLINE_TITLE)
     {
         for timestamp in title_node.descendants().filter_map(Timestamp::cast) {
-            push_body_timestamp_if_new(&timestamp, content, links, parsed, &mut seen_ranges);
+            push_body_timestamp_if_new(&timestamp, lines, links, parsed, &mut seen_ranges);
         }
     }
 
@@ -667,20 +678,20 @@ fn populate_heading_timestamps(
             {
                 continue;
             }
-            push_body_timestamp_if_new(&timestamp, content, links, parsed, &mut seen_ranges);
+            push_body_timestamp_if_new(&timestamp, lines, links, parsed, &mut seen_ranges);
         }
     }
 }
 
 fn push_body_timestamp_if_new(
     timestamp: &Timestamp,
-    content: &str,
+    lines: &LineIndex,
     links: &[ParsedLink],
     parsed: &mut ParsedHeading,
     seen_ranges: &mut HashSet<(usize, usize)>,
 ) {
     let parsed_timestamp =
-        parsed_timestamp_from_orgize(timestamp, Some(ParsedTimestampRole::Body), content);
+        parsed_timestamp_from_orgize(timestamp, Some(ParsedTimestampRole::Body), lines);
     if link_contains_range(
         links,
         &(parsed_timestamp.byte_start..parsed_timestamp.byte_end),
@@ -695,7 +706,7 @@ fn push_body_timestamp_if_new(
 fn parsed_timestamp_from_orgize(
     timestamp: &Timestamp,
     role: Option<ParsedTimestampRole>,
-    content: &str,
+    lines: &LineIndex,
 ) -> ParsedTimestamp {
     let raw_value = timestamp.raw();
     let byte_start = usize::from(timestamp.start());
@@ -714,7 +725,7 @@ fn parsed_timestamp_from_orgize(
         end_ts,
         byte_start,
         byte_end,
-        line_number: Some(line_number_for_offset(content, byte_start)),
+        line_number: Some(lines.line_for(byte_start)),
         modifiers: timestamp_modifiers(timestamp),
     }
 }
@@ -723,7 +734,7 @@ fn parsed_timestamp_from_planning_fallback(
     planning_text: &str,
     planning_node: &SyntaxNode,
     role: ParsedTimestampRole,
-    content: &str,
+    lines: &LineIndex,
 ) -> Option<ParsedTimestamp> {
     let (relative_start, raw_value) = extract_first_raw_timestamp(planning_text)?;
     let byte_start = usize::from(planning_node.text_range().start()) + relative_start;
@@ -741,13 +752,14 @@ fn parsed_timestamp_from_planning_fallback(
         end_ts,
         byte_start,
         byte_end,
-        line_number: Some(line_number_for_offset(content, byte_start)),
+        line_number: Some(lines.line_for(byte_start)),
         modifiers: parse_timestamp_modifiers_from_raw(&raw_value)?,
     })
 }
 
 fn populate_repeater_deadline_planning_fallback(
     content: &str,
+    lines: &LineIndex,
     parsed: &mut ParsedHeading,
     seen_ranges: &mut HashSet<(usize, usize)>,
 ) {
@@ -783,7 +795,7 @@ fn populate_repeater_deadline_planning_fallback(
             end_ts,
             byte_start,
             byte_end,
-            line_number: Some(line_number_for_offset(content, byte_start)),
+            line_number: Some(lines.line_for(byte_start)),
             modifiers: parse_timestamp_modifiers_from_raw(&raw_value).unwrap_or_default(),
         };
 
@@ -1450,13 +1462,14 @@ fn properties_drawer_node_in_section(section: &Section) -> Option<SyntaxNode> {
 fn parsed_properties_from_drawer(
     drawer: &SyntaxNode,
     content: &str,
+    lines: &LineIndex,
     source: ParsedPropertySource,
 ) -> Vec<ParsedProperty> {
     let mut properties = PropertyDrawer::cast(drawer.clone())
         .map(|property_drawer| {
             property_drawer
                 .node_properties()
-                .filter_map(|property| parsed_property_from_node(&property, content, source))
+                .filter_map(|property| parsed_property_from_node(&property, content, lines, source))
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
@@ -1469,6 +1482,7 @@ fn parsed_properties_from_drawer(
     properties.extend(parsed_properties_from_drawer_fallback(
         drawer,
         content,
+        lines,
         source,
         &seen_lines,
     ));
@@ -1479,6 +1493,7 @@ fn parsed_properties_from_drawer(
 fn parsed_property_from_node(
     property: &NodeProperty,
     content: &str,
+    lines: &LineIndex,
     source: ParsedPropertySource,
 ) -> Option<ParsedProperty> {
     let start = usize::from(property.start());
@@ -1487,13 +1502,14 @@ fn parsed_property_from_node(
     parsed_property_from_raw_line(
         raw_line,
         source,
-        line_number_for_offset(content, usize::from(property.start())),
+        lines.line_for(usize::from(property.start())),
     )
 }
 
 fn parsed_properties_from_drawer_fallback(
     drawer: &SyntaxNode,
     content: &str,
+    lines: &LineIndex,
     source: ParsedPropertySource,
     seen_lines: &HashSet<u32>,
 ) -> Vec<ParsedProperty> {
@@ -1508,7 +1524,7 @@ fn parsed_properties_from_drawer_fallback(
     let mut line_start = start;
     for segment in drawer_content.split_inclusive('\n') {
         let raw_line = segment.trim_end_matches(['\n', '\r']);
-        let line_number = line_number_for_offset(content, line_start);
+        let line_number = lines.line_for(line_start);
         if !seen_lines.contains(&line_number) {
             if let Some(property) = parsed_property_from_raw_line(raw_line, source, line_number) {
                 properties.push(property);
@@ -1560,14 +1576,6 @@ fn parsed_property_from_raw_line(
         append: normalized_append,
         line_number: Some(line_number),
     })
-}
-
-fn line_number_for_offset(content: &str, offset: usize) -> u32 {
-    content[..offset]
-        .bytes()
-        .filter(|byte| *byte == b'\n')
-        .count() as u32
-        + 1
 }
 
 fn infer_todo_keyword(

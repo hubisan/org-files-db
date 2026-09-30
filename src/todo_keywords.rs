@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::parser::line_index::LineIndex;
 use orgize::{
     ast::{Document as OrgDocument, Keyword},
     rowan::ast::AstNode,
@@ -73,7 +74,7 @@ pub fn resolve_todo_keywords_with_default_source(
     default_source_kind: TodoKeywordSourceKind,
 ) -> ResolvedTodoKeywords {
     let org = Org::parse(content);
-    let keywords = collect_document_keywords(&org.document(), content);
+    let keywords = collect_document_keywords(&org.document(), &LineIndex::new(content));
     resolve_todo_keywords_from_keywords(&keywords)
         .unwrap_or_else(|| resolved_from_default_keywords(default_keywords, default_source_kind))
 }
@@ -137,7 +138,7 @@ pub(crate) fn resolve_todo_keywords_from_keywords(
 
 pub(crate) fn collect_document_keywords(
     document: &OrgDocument,
-    content: &str,
+    lines: &LineIndex,
 ) -> Vec<ParsedKeyword> {
     document
         .syntax()
@@ -146,10 +147,7 @@ pub(crate) fn collect_document_keywords(
         .map(|keyword| ParsedKeyword {
             key: keyword.key().to_string(),
             value: Some(keyword.value().trim().to_string()).filter(|value| !value.is_empty()),
-            line_number: Some(line_number_for_offset(
-                content,
-                usize::from(keyword.start()),
-            )),
+            line_number: Some(lines.line_for(usize::from(keyword.start()))),
         })
         .collect()
 }
@@ -282,14 +280,6 @@ fn split_todo_keyword_spec(spec: &str) -> Option<(&str, char)> {
     }
 
     Some((name, fast_key))
-}
-
-fn line_number_for_offset(content: &str, offset: usize) -> u32 {
-    content[..offset]
-        .bytes()
-        .filter(|byte| *byte == b'\n')
-        .count() as u32
-        + 1
 }
 
 #[cfg(test)]

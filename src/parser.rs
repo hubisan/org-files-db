@@ -1,4 +1,5 @@
 pub mod diagnostics;
+pub(crate) mod line_index;
 pub mod link_scanner;
 pub mod model;
 pub mod orgize_adapter;
