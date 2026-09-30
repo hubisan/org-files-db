@@ -50,8 +50,8 @@ fn validates_heading_predicate_families() {
     .expect("query should parse");
 
     let validated = validate_query(query, &full_capabilities()).expect("query should validate");
-    assert_eq!(validated.target, QueryTarget::Headings);
-    assert!(matches!(validated.predicate, Some(ValidatedExpr::And(_))));
+    assert_eq!(validated.target(), QueryTarget::Headings);
+    assert!(matches!(validated.predicate(), Some(ValidatedExpr::And(_))));
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn validates_link_predicate_families() {
     .expect("query should parse");
 
     let validated = validate_query(query, &full_capabilities()).expect("query should validate");
-    assert_eq!(validated.target, QueryTarget::Links);
+    assert_eq!(validated.target(), QueryTarget::Links);
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn validates_file_predicate_families() {
     .expect("query should parse");
 
     let validated = validate_query(query, &full_capabilities()).expect("query should validate");
-    assert_eq!(validated.target, QueryTarget::Files);
+    assert_eq!(validated.target(), QueryTarget::Files);
 }
 
 #[test]
@@ -114,16 +114,16 @@ fn parse_and_validate_normalizes_tags_all_to_canonical_tags() {
     let query = parse_query(r#"(headings (tags-all "a" "b"))"#).expect("query should parse");
     let validated = validate_query(query, &full_capabilities()).expect("query should validate");
 
-    let Some(ValidatedExpr::Predicate(predicate)) = validated.predicate else {
+    let Some(ValidatedExpr::Predicate(predicate)) = validated.predicate() else {
         panic!("expected validated predicate");
     };
-    assert_eq!(predicate.name, "tags");
-    assert_eq!(predicate.args.len(), 2);
-    assert_eq!(predicate.options.len(), 1);
-    assert_eq!(predicate.options[0].name, "match");
+    assert_eq!(predicate.name(), "tags");
+    assert_eq!(predicate.args().len(), 2);
+    assert_eq!(predicate.options().len(), 1);
+    assert_eq!(predicate.options()[0].name(), "match");
     assert_eq!(
-        predicate.options[0].value,
-        QueryValue::Keyword("all".to_string())
+        predicate.options()[0].value(),
+        &QueryValue::Keyword("all".to_string())
     );
 }
 
@@ -131,12 +131,12 @@ fn parse_and_validate_normalizes_tags_all_to_canonical_tags() {
 fn validates_source_and_target_any_forms() {
     let source_query = parse_query("(links (source :any))").expect("query should parse");
     let source = validate_query(source_query, &full_capabilities()).expect("query should validate");
-    let Some(ValidatedExpr::Predicate(predicate)) = source.predicate else {
+    let Some(ValidatedExpr::Predicate(predicate)) = source.predicate() else {
         panic!("expected predicate");
     };
     assert_eq!(
-        predicate.args,
-        vec![ValidatedArg::Scalar(QueryValue::Keyword("any".to_string()))]
+        predicate.args(),
+        [ValidatedArg::Scalar(QueryValue::Keyword("any".to_string()))]
     );
 
     let target_query = parse_query("(links (target :any))").expect("query should parse");
@@ -148,9 +148,9 @@ fn validates_heading_title_without_root_option_removed() {
     let query = parse_query(r#"(headings (title "Projects"))"#).expect("query should parse");
     let validated = validate_query(query, &full_capabilities()).expect("query should validate");
 
-    let Some(ValidatedExpr::Predicate(predicate)) = validated.predicate else {
+    let Some(ValidatedExpr::Predicate(predicate)) = validated.predicate() else {
         panic!("expected validated predicate");
     };
-    assert_eq!(predicate.name, "title");
-    assert!(predicate.options.is_empty());
+    assert_eq!(predicate.name(), "title");
+    assert!(predicate.options().is_empty());
 }
