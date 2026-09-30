@@ -90,27 +90,20 @@ fn parse_property_keyword_value(value: &str) -> Option<(String, Option<String>, 
     Some((key, raw_value, append))
 }
 
-/// Org comment line: optional indentation, then `#` followed by a space or the line end.
-pub(super) fn is_org_comment_line(line: &str) -> bool {
-    line.trim_start_matches([' ', '\t'])
-        .strip_prefix('#')
-        .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
-}
-
 pub(super) fn parsed_property_from_raw_line(
     raw_line: &str,
     source: ParsedPropertySource,
     line_number: u32,
 ) -> Option<ParsedProperty> {
-    // Org: `^[ \t]*:KEY:[ \t]*VALUE[ \t]*$`, indentation and value padding are ignored.
-    let raw_line = raw_line.trim_start_matches([' ', '\t']).strip_prefix(':')?;
-    let separator_index = raw_line.find(':')?;
-    let raw_key = &raw_line[..separator_index];
+    // Org (`org-property-re`): `^[ \t]*:KEY:\(?:[ \t].*\)?[ \t]*$` with a KEY of non-blank
+    // characters, so `:a b: c` and `:ID:x` are no properties and `:a:b: c` has the key `a:b`.
+    let rest = raw_line.trim_start_matches([' ', '\t']).strip_prefix(':')?;
+    let token_end = rest.find([' ', '\t']).unwrap_or(rest.len());
+    let raw_key = rest[..token_end].strip_suffix(':')?;
     if raw_key.is_empty() {
         return None;
     }
-    let raw_value = &raw_line[separator_index + 1..];
-    let value = Some(raw_value.trim_matches([' ', '\t']).to_string());
+    let value = Some(rest[token_end..].trim_matches([' ', '\t']).to_string());
     let (key, normalized_append) = normalize_property_key(raw_key);
 
     Some(ParsedProperty {

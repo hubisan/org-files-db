@@ -5,7 +5,7 @@ This document records current parser boundaries that need careful regression cov
 
 * Parser boundary
 
-~OrgizeAdapter~ is the current parser adapter. The project also uses local scanners and fallbacks where the project contract needs more control.
+~OrgizeAdapter~ is the production parse entry. Since #103 it builds every structural fact from the own line scanner (~src/parser/structure_scanner.rs~, see [[./line-scanner.org][Line Scanner]]) and the raw-line helpers in ~src/parser/title.rs~, ~properties.rs~ and ~timestamp_raw.rs~. Orgize is only used for inline details, in ~src/parser/orgize_inline.rs~ (timestamp nodes, inline code ranges, title markup and link description normalization). The register below lists the Orgize deviations and what became of each.
 
 The public parser model includes:
 
@@ -59,33 +59,33 @@ The project scans links through ~src/parser/link_scanner.rs~ instead of relying 
 
 The scanner handles bracket, angle, and configured plain-link forms. It records exact source byte ranges and authored link text.
 
-The adapter also assigns structural source context. Examples include heading text, property drawers, ordinary drawers, and supported block contexts.
+The adapter also assigns structural source context, from scanner regions. Examples include heading text, property drawers, ordinary drawers, and verse, quote, center and justify blocks.
+
+Link scanning skips keyword lines (also affiliated ones), planning lines, comment and fixed-width runs, the whole range of src, example, export and comment blocks, and inline code, verbatim, inline source and snippets. Org parses no objects there (verse and dynamic block content is parsed, so it is scanned).
 
 Keep ignored ranges and structural context synchronized with parser changes. A mismatch can create false links or miss authored links.
 
 Configured plain-link protocols also affect parsing semantics. A protocol configuration change therefore belongs to the indexing semantic context.
 
-* Property parsing fallbacks
+* Property parsing
 
-The adapter reads Org property drawer nodes when Orgize exposes them directly.
+The scanner finds the property drawer and ~parsed_property_from_raw_line~ reads its rows.
 
-It also has a local line-based fallback for compatible property rows that the backend node model does not expose fully.
+A drawer only counts as the property drawer when it is the first element of its section, optionally after a planning line (also an empty one, ~SCHEDULED: garbage~); in the file-level section it may only be preceded by comment lines, not even blank lines. Drawers after body text or inside blocks are ordinary drawers and create no properties.
 
-A drawer only counts as the property drawer when it is the first element of its section, optionally after a planning line; in the file-level section it may only be preceded by comments and blank lines. Drawers after body text or inside blocks are ordinary drawers and create no properties.
+Every row between ~:PROPERTIES:~ and ~:END:~ must be a property (~:KEY:~ with a key of non-blank characters, alone or followed by a blank and a value). Otherwise Org reads a generic drawer and ~org-entry-get~ finds no properties, and so does the scanner. A key is the token up to its last colon.
 
-The fallback preserves source type, append semantics, and line numbers. Keep duplicate and append cases covered by tests.
+Rows keep source type, append semantics, and line numbers. Keep duplicate and append cases covered by tests.
 
 File-level ~#+PROPERTY~ and ~#+CATEGORY~ values use the project property model as separate source facts.
 
-* Timestamp parsing fallbacks
+* Timestamp parsing
 
-The adapter reads Orgize timestamp nodes for normal planning and body timestamps.
+Planning timestamps come from the scanner's planning line, read as raw text by ~planning_timestamps~ (~src/parser/timestamp_raw.rs~) like ~org-element-planning-parser~: every ~SCHEDULED:~, ~DEADLINE:~ and ~CLOSED:~ in the line (Org searches the whole line, so text between entries is ignored), each followed directly, after spaces or tabs, by a timestamp. A timestamp is a diary sexp ~<%%(SEXP)>~ or ~<~ or ~[~, an ISO date, optional text after a space, and a closing bracket on the same line (~org-ts-regexp-both~), optionally joined to a second one by ~--~ (a range, ~<a>--[b]~ counts). A keyword without a timestamp gives no entry, and the line still is a planning line. The planning line holds no other timestamps or links.
 
-It also contains local planning fallbacks for source forms that need project-specific recovery. Repeater and warning modifiers have dedicated raw-text handling.
+Body and title timestamps are Orgize timestamp nodes, read from text in which structure is blanked (see the register, R23), and dropped when they lie inside a link. Repeater and warning modifiers, explicit time and the bounds of all timestamps have dedicated raw-text handling; for a range Org takes the first repeater and the first warning of the whole value.
 
-The planning fallback only accepts a candidate that starts with ~<~ or ~[~ immediately followed by an ISO date and has a closing bracket on the same line, so links such as ~[[file:a/b.org]]~ are never read as timestamps. The fallback also parses ~HH:MM-HH:MM~ time ranges and stores the range end.
-
-Do not remove these fallbacks only because common timestamp fixtures pass. Keep the targeted regression cases first.
+Do not remove the raw handling only because common timestamp fixtures pass. Keep the targeted regression cases first.
 
 * Timezone limitation
 
@@ -109,7 +109,7 @@ Keep this boundary explicit. Indexing untrusted Org files must not execute sourc
 
 Heading body text excludes child subtrees. The synthetic root body represents file preamble text before the first real heading.
 
-Metadata at the start of a heading does not become normal body text when parser rules identify it as structural metadata.
+Metadata at the start of a heading does not become normal body text when parser rules identify it as structural metadata: the planning line, the property drawer and top-level keyword lines (also affiliated ones), each with the blank lines after it. A generic drawer, such as a property drawer with a row that is no property, stays in the body.
 
 Body persistence is controlled by ~search.index_body_text~. Parser extraction and persistence are separate concerns.
 
@@ -130,6 +130,8 @@ The parser stores normalized semantic titles and raw source title text separatel
 TODO keywords, priority cookies, trailing tags, and Org inline markup can affect normalized heading titles.
 
 A trailing tag block is stripped from the title when it matches Org's tag rule: a colon, one or more Unicode alphanumerics or ~_@#%:~, and a closing colon, after a space or tab. Empty segments count, so ~* T ::a::~ and ~* T :a::b:~ have title ~T~ like in Org, while ~::~ and ~: :~ stay title text. Org reports the empty segments as empty tags; orgfdb stores only the non-empty ones.
+
+The TODO keyword and the priority cookie are read only directly at the start of the title (keyword first, then cookie), as in Org: ~* foo [#A] x~ has no priority, and a cookie after ~COMMENT~ is title text. A line feed may be preceded by a CR; the CR is not part of the headline, so tags and keywords of CRLF files work like those of LF files (Emacs normally decodes CRLF files too; the oracle reads files as ~utf-8-unix~ and therefore has no CRLF fixture).
 
 Keep normalization tests tied to the same source ranges used for links and heading metadata. Parser changes must not shift unrelated byte coordinates.
 
@@ -170,7 +172,7 @@ scripts/emacs-oracle.py emacs path/to/file.org        # Emacs facts as JSON
 scripts/emacs-oracle.py orgfdb path/to/file.org       # orgfdb facts as JSON
 #+end_src
 
-The default run covers every ~tests/data/parser/**/fixture.org~ and every file in ~tests/data/emacs-oracle/~. The oracle fixtures are small files for planning lines, link kinds, TODO defaults and custom sequences, tags, priorities, COMMENT and archived headings, and property drawer placement.
+The default run covers every ~tests/data/parser/**/fixture.org~ and every file in ~tests/data/emacs-oracle/~. The oracle fixtures are small files for planning lines, link kinds, TODO defaults and custom sequences, tags, priorities, COMMENT and archived headings, property drawer placement, and (~structure.org~) the scanner rules: block and drawer ends, dynamic blocks, affiliated keywords, garbage planning lines and generic drawers. After a parser change also run it on the docs (~scripts/emacs-oracle.py compare docs/*.org docs/*/*.org *.org~); both runs must report no unclassified difference.
 
 ~scripts/emacs-org-dump.el~ only parses. It disables file-local and directory-local variables, never follows links, evaluates no diary expressions or Babel blocks, and refuses files with ~#+SETUPFILE~. Do not weaken these settings, per the parser validation rule in ~AGENTS.md~.
 
@@ -192,7 +194,7 @@ Everything else in the fixtures matched, including planning lines with repeaters
 
 * Register
 
-Each entry records one known Orgize deviation or project workaround. The Orgize strategy is tracked in #41. Test names refer to ~tests/orgize_adapter.rs~ unless noted. Org behavior was verified against Emacs 29.3 / Org 9.6.15 for R13 and R17; other entries state Org behavior per Org syntax and were not verified against ~org-element-parse-buffer~.
+Each entry records one known Orgize deviation or project workaround. The Orgize strategy is tracked in #41. Stage 2 (#103) replaced most Orgize calls with the scanner and raw-line helpers; those entries are marked *Resolved* and kept short. The open entries (R1 to R4, R11, R12, R15 and R23) are what stage 3 has to replace or keep. Test names refer to ~tests/orgize_adapter.rs~ unless noted. Org behavior was verified against Emacs 29.3 / Org 9.6.15 where an entry says so.
 
 ** R1 Link nodes unused, own link scanner
 
@@ -203,10 +205,10 @@ Each entry records one known Orgize deviation or project workaround. The Orgize 
   #+end_src
 - Orgize: exposes link nodes for bracket links only and does not cover angle or configurable plain links, nor the project source-context model.
 - Org: bracket, angle and plain links are all link objects, plain links depending on ~org-link-types~.
-- Workaround: ~scan_links~ and ~LinkScanner::scan~ in ~src/parser/link_scanner.rs~, called from ~parse_document_core~ in ~src/parser/orgize_adapter.rs~.
+- Workaround: ~scan_links~ and ~LinkScanner::scan~ in ~src/parser/link_scanner.rs~, called from ~parse_document_core~ in ~src/parser/orgize_adapter.rs~ with ignored ranges and source contexts from scanner regions.
 - Type rule: a bracket target is ~TYPE:PATH~ only when the prefix has no dot or is a configured protocol, so ~[[test.org::Heading]]~ is ~fuzzy~ with the whole target as path, as in Org (verified against Emacs 29.3 / Org 9.6.15). Unregistered dotless prefixes such as ~unknown:thing~ stay typed (a c row, #80).
 - Test: ~orgize_adapter_collects_project_owned_links_including_plain_file_splits~, ~dotted_prefix_is_not_a_link_type_unless_configured~, plus the unit tests in ~src/parser/link_scanner.rs~.
-- Tracked in #41.
+- Tracked in #41. Stays: the link scanner is project code.
 
 ** R2 Bracket-link placeholders in titles
 
@@ -214,11 +216,11 @@ Each entry records one known Orgize deviation or project workaround. The Orgize 
   #+begin_src org
   ,* TODO Read [[https://example.org][the [docs]]] now
   #+end_src
-- Orgize: fragments the headline title around links, so title text and nodes no longer match the source.
+- Orgize: its title nodes do not match the project's link ranges.
 - Org: the link is one object inside the title.
-- Workaround: ~placeholder_bracket_links_in_title~ and ~restore_title_link_placeholders~ in ~src/parser/orgize_adapter.rs~, driven by scanner link ranges.
+- Workaround: ~placeholder_bracket_links_in_title~ and ~restore_title_link_placeholders~ replace scanner-found links by tokens before ~normalize_title_text~ parses the title, and put the rendered description back.
 - Test: ~orgize_adapter_recovers_fragmented_bracket_link_titles_and_timestamps~.
-- Tracked in #41.
+- Tracked in #41. Open until stage 3 normalizes titles without Orgize.
 
 ** R3 Link descriptions re-rendered via sentinel parse
 
@@ -226,100 +228,52 @@ Each entry records one known Orgize deviation or project workaround. The Orgize 
   #+begin_src org
   ,* [[https://example.org][*bold* description]]
   #+end_src
-- Orgize: title nodes are not usable for the description once the link is fragmented (R2).
 - Org: the description is parsed as inline objects and displayed without markup.
-- Workaround: ~render_link_description_for_title~ in ~src/parser/orgize_adapter.rs~ parses the description behind prefix and suffix sentinel words and strips them.
+- Workaround: ~render_link_description_for_title~ in ~src/parser/orgize_inline.rs~ parses the description behind prefix and suffix sentinel words (letters and digits only, so no ~_~ pairs with markup of the description) and strips them.
 - Test: ~orgize_adapter_renders_recovered_link_descriptions_like_inline_titles~.
-- Tracked in #41.
+- Tracked in #41. Open until stage 3.
 
-** R4 Titles re-normalized by synthetic re-parse
+** R4 Titles normalized by synthetic parse
 
 - Repro:
   #+begin_src org
-  ,* [#A] *Important* task
+  ,* [#A] *Important* task [1/2]
   #+end_src
-- Orgize: title elements are not used when priority or placeholders were recovered from source.
-- Org: the title excludes the cookie and keeps inline objects.
-- Workaround: ~normalize_title_from_raw~ and ~normalize_title_preserving_leading_keyword~ re-parse ~* SENTINEL title~ with ~Org::parse~ in ~src/parser/orgize_adapter.rs~.
+- Org: the title excludes the cookie and keeps inline objects; the displayed title drops markup characters and the statistics cookie.
+- Workaround: ~split_headline_title~ (~src/parser/title.rs~) cuts keyword and priority cookie from the raw title, then ~normalize_title_text~ in ~src/parser/orgize_inline.rs~ parses ~* SENTINEL title TAIL~ with Orgize and strips the sentinels. Titles without one of ~* / _ = ~ ~ [~ skip Orgize. The sentinel word keeps a leading ~TODO~ or ~DONE~ of the title text from being read as a keyword (~* TODO DONE x~ under a custom ~#+TODO~), and it has no underscore, which used to pair with ~_u_~ in the title.
 - Test: ~orgize_adapter_only_re_normalizes_todo_titles_with_link_placeholders~, ~orgize_adapter_removes_priority_and_statistics_cookies_from_titles~.
-- Tracked in #41.
+- Tracked in #41. Open until stage 3.
 
 ** R5 Title re-read from the raw source line
 
-- Repro:
-  #+begin_src org
-  ,* Title with :not tag:
-  ,* Title :valid_tag:
-  #+end_src
-- Orgize: ~title_raw~ can differ from the source line, and its tag handling is not the Org tag rule.
+- Resolved (#103): title, tags and ~title_raw~ come from the raw headline line only (~source_title_from_content_line~, ~strip_trailing_org_tags~, ~is_org_tag_block~ in ~src/parser/title.rs~); a CR before the line feed is not part of the line.
 - Org: a trailing tag block needs non-empty tags of alphanumerics or ~_@#%~.
-- Workaround: ~source_title_from_content_line~, ~strip_trailing_org_tags~ and ~is_org_tag_block~ in ~src/parser/orgize_adapter.rs~.
 - Test: ~orgize_adapter_keeps_invalid_tag_block_in_title~, ~orgize_adapter_strips_valid_org_tag_characters~.
-- Tracked in #41.
 
 ** R6 Priority recovered from source text
 
-- Repro:
-  #+begin_src org
-  ,* TODO [#10] Numeric priority
-  #+end_src
-- Orgize: ~headline.priority()~ returns nothing for multi-digit cookies.
-- Org: numeric priorities are allowed, for example ~[#10]~.
-- Workaround: ~priority_from_source_title~ and ~priority_cookie_value~ in ~src/parser/orgize_adapter.rs~, accepting uppercase letters or all digits.
-- Test: ~orgize_adapter_preserves_multi_digit_numeric_priority~.
-- Tracked in #41.
+- Resolved (#103): ~split_headline_title~ reads the priority from the raw title. It is read only directly at the start, or after the TODO keyword: ~* foo [#A] x~ has no priority in Org (the old source-text fallback gave A). Multi-digit cookies such as ~[#10]~ stay priorities (project extension, #80), and ~* TODO [#10] x~ now drops the cookie from the title like ~* [#10] x~.
+- Test: ~orgize_adapter_preserves_multi_digit_numeric_priority~, the table in ~src/parser/title.rs~, ~tests/data/emacs-oracle/structure.org~.
 
 ** R7 Orgize TODO keyword discarded when not active
 
-- Repro:
-  #+begin_src org
-  ,* WAITING Task
-  #+end_src
-  With ~WAITING~ not in the effective keyword set.
-- Orgize: may still report a keyword that the effective configuration does not contain.
-- Org: only keywords from ~#+TODO~ style lines, or the defaults, are TODO keywords.
-- Workaround: the ~todo_keyword_is_active~ check in ~collect_headlines~ in ~src/parser/orgize_adapter.rs~ clears the keyword and restores the title.
+- Resolved (#103): the keyword is read from the raw title against the effective keyword set, so a keyword outside it (~* TODO x~ under ~#+TODO: X | Y~, ~* DONE x~) is title text. The old adapter reported Orgize's default ~TODO~ and ~DONE~ there.
 - Test: ~orgize_adapter_core_parser_uses_only_effective_todo_keywords~.
-- Tracked in #41.
 
 ** R8 TODO keyword inferred when Orgize misses it
 
-- Repro:
-  #+begin_src org
-  ,#+TODO: [[b]] | DONE
-  ,* [[b]] title
-  #+end_src
-- Orgize: does not recognize keywords that look like links or contain markup characters.
-- Org: any keyword from the configuration followed by whitespace is a TODO keyword.
-- Workaround: ~infer_todo_keyword~ and ~placeholder_title_after_todo_prefix~ in ~src/parser/orgize_adapter.rs~.
+- Resolved (#103): ~split_headline_title~ accepts any configured keyword followed by a space or the end of the title, also ones that look like links or hold markup characters.
 - Test: ~orgize_adapter_does_not_panic_on_link_like_todo_keywords~.
-- Tracked in #41.
 
 ** R9 Planning child without Timestamp node
 
-- Repro:
-  #+begin_src org
-  ,* Task
-  SCHEDULED: <2024-11-20 Wed 10:00-11:00>
-  #+end_src
-- Orgize: a ~PLANNING_*~ child may have no ~Timestamp~ node for such forms.
-- Org: the planning value is a timestamp.
-- Workaround: ~parsed_timestamp_from_planning_fallback~ and ~extract_first_raw_timestamp~ in ~src/parser/orgize_adapter.rs~, called from ~populate_heading_timestamps~.
-- Test: ~planning_fallback_ignores_link_as_timestamp_candidate~; no direct test for the no-node case beyond R10.
-- Tracked in #41.
+- Resolved (#103): planning entries are read from the planning line as raw text (~planning_timestamps~), never from Orgize nodes.
+- Test: the tables in ~src/parser/timestamp_raw.rs~ and ~tests/data/parser/planning/planning-entries-anywhere-in-the-line~.
 
 ** R10 Repeater and deadline planning via line fallback
 
-- Repro:
-  #+begin_src org
-  ,* Task
-  DEADLINE: <2024-11-20 Wed 10:00-11:00 +1w/2d>
-  #+end_src
-- Orgize: the repeater-or-delay grammar lacks the ~/~ range form, so the planning line is not recognized and ~headline.planning()~ is empty.
-- Org: ~+1w/2d~ is a repeater with a habit-style range.
-- Workaround: ~populate_repeater_deadline_planning_fallback~ and ~parse_planning_fallback_entries~ in ~src/parser/orgize_adapter.rs~. Candidates must start with ~<~ or ~[~ plus an ISO date and close on the same line, and ~HH:MM-HH:MM~ ranges are parsed.
-- Test: ~planning_fallback_keeps_time_range_with_repeater_deadline~, ~planning_fallback_keeps_single_time_with_repeater_deadline~.
-- Tracked in #41.
+- Resolved (#103): same as R9; a repeater with ~/2d~, ~HH:MM-HH:MM~ ranges and ~--~ date ranges are parsed from the raw timestamp.
+- Test: ~planning_fallback_keeps_time_range_with_repeater_deadline~, ~planning_fallback_keeps_single_time_with_repeater_deadline~, the tables in ~src/parser/timestamp_raw.rs~.
 
 ** R11 Timestamp modifiers parsed from raw text
 
@@ -330,9 +284,9 @@ Each entry records one known Orgize deviation or project workaround. The Orgize 
   #+end_src
 - Orgize: repeater and warning nodes are incomplete for some combinations and units.
 - Org: repeaters ~+~, ~++~, ~.+~ and warnings ~-~, ~--~ are all valid, in any order.
-- Workaround: ~timestamp_modifiers~ prefers ~parse_timestamp_modifiers_from_raw~ over ~timestamp_modifiers_from_orgize~ in ~src/parser/orgize_adapter.rs~.
-- Test: ~orgize_adapter_collects_ranges_repeaters_and_body_timestamps~; the modifier expectations in ~tests/parser_fixtures.rs~ (~orgize_adapter_smoke_tests_structured_fixtures~).
-- Tracked in #41.
+- Workaround: ~parse_timestamp_modifiers_from_raw~ in ~src/parser/timestamp_raw.rs~; ~timestamp_modifiers~ in ~src/parser/orgize_inline.rs~ uses it for Orgize body timestamps too, and falls back to the Orgize nodes only when the raw text does not parse.
+- Test: ~orgize_adapter_collects_ranges_repeaters_and_body_timestamps~; the modifier expectations in ~tests/parser_fixtures.rs~.
+- Tracked in #41. Planning is resolved; body timestamps stay open until stage 3.
 
 ** R12 Explicit time and range type from raw text
 
@@ -343,42 +297,19 @@ Each entry records one known Orgize deviation or project workaround. The Orgize 
   #+end_src
 - Orgize: cannot always tell an explicit time or a time range from a date range.
 - Org: ~HH:MM-HH:MM~ is a time range, ~--~ a date range.
-- Workaround: ~timestamp_has_explicit_time~ with ~raw_timestamp_has_explicit_time~, and ~timestamp_range_type~, in ~src/parser/orgize_adapter.rs~.
+- Workaround: ~timestamp_has_explicit_time~ and ~timestamp_range_type~ in ~src/parser/orgize_inline.rs~ for body timestamps; planning timestamps use ~normalize_raw_timestamp_bounds~ and ~raw_timestamp_has_explicit_time~.
 - Test: ~orgize_adapter_collects_ranges_repeaters_and_body_timestamps~.
-- Tracked in #41.
+- Tracked in #41. Planning is resolved; body timestamps stay open until stage 3.
 
 ** R13 Generic drawer named PROPERTIES
 
-- Repro:
-  #+begin_src org
-  ,* Task
-  :PROPERTIES:
-  :ID: abc
-  :END:
-  #+end_src
-- Orgize: may expose the drawer as a generic ~DRAWER~ instead of a property drawer.
-- Org: it is the property drawer only at the start of its section (after planning, or comments and blank lines in the file section).
-- Orgize also builds a generic drawer for placements Org rejects (blank line, ~# comment~ or a second planning line before it on a heading; blank lines before it at file level), and it puts leading file blank lines outside the section.
-- Workaround: ~properties_drawer_node_in_document~ and ~properties_drawer_node_in_headline~ in ~src/parser/orgize_adapter.rs~ accept a generic drawer named PROPERTIES only as the first element of a heading section, or at file level after comment lines only (checked on the source text, since blank lines sit inside or outside nodes).
-- Indentation of the drawer, its properties and ~:END:~ is free in Org and in Orgize; the adapter used to drop indented property lines and now accepts leading spaces and tabs. Values are trimmed of spaces and tabs, and duplicate keys stay as separate rows (Org: the first drawer definition wins; ~effective_properties~ follows that). The resolver trims ~id:~ and ~#custom-id~ link targets of spaces and tabs before matching, which accepts slightly more than Org (Org matches the raw drawer text, so ~[[#y ]]~ does not find ~:CUSTOM_ID:  y~ there).
-- Test: ~property_drawer_placement_matches_org~, ~property_drawer_rows_match_org~ (tables checked against Emacs 29.3 / Org 9.6.15).
-- Tracked in #41.
+- Resolved (#103): the scanner decides. The property drawer is the first element of its section (after planning, also empty planning, or after comment lines only at file level, not even blank lines), and every row must be a property; otherwise it is a generic drawer without properties (Org: ~org-get-property-block~ uses ~org-property-drawer-re~). Indentation is free; values are trimmed of spaces and tabs; duplicate keys stay as separate rows (Org: the first drawer definition wins; ~effective_properties~ follows that). The resolver trims ~id:~ and ~#custom-id~ link targets of spaces and tabs before matching, which accepts slightly more than Org.
+- Test: ~property_drawer_placement_matches_org~, ~property_drawer_rows_match_org~, ~property_key_is_the_token_up_to_its_last_colon~ (tables checked against Emacs 29.3 / Org 9.6.15), ~tests/data/parser/properties/planning-garbage-and-generic-drawers~.
 
 ** R14 Empty property rows recovered line by line
 
-- Repro:
-  #+begin_src org
-  ,* Task
-  :PROPERTIES:
-  :EMPTY:
-  :OTHER: x
-  :END:
-  #+end_src
-- Orgize: drops ~:EMPTY:~ rows without trailing whitespace.
-- Org: a property with an empty value.
-- Workaround: ~parsed_properties_from_drawer_fallback~, ~property_drawer_content_bounds~ and ~parsed_property_from_raw_line~ in ~src/parser/orgize_adapter.rs~, skipping lines Orgize already reported.
+- Resolved (#103): rows are read line by line from the drawer (~parsed_property_from_raw_line~), so ~:EMPTY:~ is a property with an empty value.
 - Test: ~orgize_adapter_falls_back_to_empty_property_drawer_rows_omitted_by_orgize~, ~orgize_adapter_preserves_empty_and_trailing_space_property_rows_across_multiple_headings~.
-- Tracked in #41.
 
 ** R15 Body timestamps inside links filtered
 
@@ -389,23 +320,14 @@ Each entry records one known Orgize deviation or project workaround. The Orgize 
   #+end_src
 - Orgize: reports a timestamp node inside the link target.
 - Org: link targets are not timestamps.
-- Workaround: ~link_contains_range~ in ~push_body_timestamp_if_new~ in ~src/parser/orgize_adapter.rs~ drops timestamps inside scanner link ranges.
+- Workaround: ~link_contains_range~ in ~parse_heading~ in ~src/parser/orgize_adapter.rs~ drops timestamps inside scanner link ranges.
 - Test: no direct test; ~orgize_adapter_recovers_fragmented_bracket_link_titles_and_timestamps~ covers related title timestamps.
-- Tracked in #41.
+- Tracked in #41. Open until stage 3 reads timestamps itself.
 
 ** R16 No JUSTIFY block kind
 
-- Repro:
-  #+begin_src org
-  ,#+BEGIN_JUSTIFY
-  [[https://example.org][text]]
-  ,#+END_JUSTIFY
-  #+end_src
-- Orgize: parses ~JUSTIFY~ as a generic special block.
-- Org: ~JUSTIFY~ is a special block too, so the project distinguishes it only for link source context.
-- Workaround: ~special_block_is_justify~ in ~src/parser/orgize_adapter.rs~ maps it to ~ParsedLinkSourceContext::JustifyBlock~ in ~collect_link_structural_context~.
+- Resolved (#103): the source context comes from the scanner's block name (~justify~, case-insensitive).
 - Test: ~orgize_adapter_ignores_links_in_ignored_regions_and_marks_source_contexts~ (uses a JUSTIFY block).
-- Tracked in #41.
 
 ** R17 ParseConfig ignores in-buffer #+TODO
 
@@ -414,37 +336,65 @@ Each entry records one known Orgize deviation or project workaround. The Orgize 
   ,#+TODO: NEXT | FINISHED
   ,* NEXT Task
   #+end_src
-- Orgize: ~ParseConfig~ takes the keyword sets up front and does not read ~#+TODO~ lines of the buffer.
-- Org: in-buffer declarations override the defaults.
-- Workaround: a pre-parse collects document keywords and resolves the effective set (~collect_document_keywords~, ~resolve_todo_keywords_from_keywords~ in ~src/todo_keywords.rs~) before ~parse_org_document~ in ~src/parser/orgize_adapter.rs~ builds ~ParseConfig~.
-- Spec syntax: Orgize has no keyword spec parser at all, so ~split_todo_keyword_spec~ in ~src/todo_keywords.rs~ mirrors ~org-set-regexps-and-options~ (Org 9.6.15): the name is the text before the first ~(~ when the spec ends with ~)~, the fast key is the character right after ~(~ unless it is ~!~, ~@~ or ~/~, and log settings are ignored. Specs without a trailing ~)~ are literal names. Org assigns automatic fast keys to keywords without an explicit one; the project stores only explicit keys.
+- Resolved (#103): in-buffer declarations come from the scanner's keywords (~parsed_keywords~, ~resolve_todo_keywords_from_keywords~ in ~src/todo_keywords.rs~), and Orgize no longer reads keywords at all.
+- Org: in-buffer declarations override the defaults. Spec syntax: ~split_todo_keyword_spec~ in ~src/todo_keywords.rs~ mirrors ~org-set-regexps-and-options~ (Org 9.6.15): the name is the text before the first ~(~ when the spec ends with ~)~, the fast key is the character right after ~(~ unless it is ~!~, ~@~ or ~/~, and log settings are ignored. Specs without a trailing ~)~ are literal names. Org assigns automatic fast keys to keywords without an explicit one; the project stores only explicit keys.
 - Test: ~orgize_adapter_prefers_org_todo_keywords_over_configured_defaults~, ~orgize_adapter_treats_org_todo_keywords_as_overrides~, ~in_buffer_todo_keyword_specs_match_org~, ~todo_keywords::tests::parse_todo_keyword_spec_matches_org~ (verified against Emacs 29.3 / Org 9.6.15).
-- Tracked in #41.
 
 ** R18 Diary timestamps in planning lines
 
-- Repro:
-  #+begin_src org
-  ,* Task
-  SCHEDULED: <%%(diary-float t 42)> DEADLINE: <2026-03-20 Fri>
-  :PROPERTIES:
-  :ID: x
-  :END:
-  #+end_src
-- Orgize: does not build a planning node, so the line is paragraph text with a diary timestamp, and the drawer below it is a generic ~DRAWER~ named PROPERTIES.
-- Org: the line is a planning line (~:scheduled~ is the diary timestamp ~<%%(diary-float t 42)>~, ~:deadline~ the date) and the drawer is the property drawer. Verified against Emacs 29.3 / Org 9.6.15. Only the ~<%%(SEXP)>~ form counts (not ~[%%(...)]~, not an unterminated or ~<%%(x) y>~ sexp). The sexp is never evaluated.
-- Workaround: ~populate_text_planning_fallback~ reads a planning line from the source text when Orgize gave no planning node and the first line after the heading holds ~/~ or ~%%(~. Diary values are stored as raw ~scheduled_raw~ (and timestamp role ~scheduled~) with no parsed date. The line is cut out of the body text, and ~properties_drawer_node_in_headline~ accepts the drawer that follows it.
+- Resolved (#103): ~SCHEDULED: <%%(diary-float t 42)> DEADLINE: <2026-03-20 Fri>~ is a planning line read from the raw text (Org: ~:scheduled~ is the diary timestamp, the drawer below is the property drawer; only the ~<%%(SEXP)>~ form counts, never evaluated). Diary values are stored as raw ~scheduled_raw~ with no parsed date. A planning line with no valid entry (~SCHEDULED: <%%(x) y>~, ~SCHEDULED: [%%(x)]~) is still an empty planning element: it is no body text.
 - Test: ~diary_planning_lines_match_org~, ~orgize_adapter_only_populates_shortcuts_when_parser_exposes_planning~, ~orgize_adapter_excludes_structured_metadata_from_body_text~; fixtures ~timestamps/planning-timestamp~ and ~body/structured-metadata-exclusion~.
-- Tracked in #41.
 
 ** R19 Deep headline nesting recursion
 
 - Repro: a file with many thousands of nested headings, ~*~ repeated to a very high level.
-- Orgize: parsing builds the headline tree recursively and overflows the stack (an abort) at roughly 400 to 500 levels on a 2 MiB debug-build thread and roughly 2,000 levels on an 8 MiB debug-build thread.
-- Org: no depth limit.
-- Workaround: ~OrgizeAdapter~ pre-scans for headings deeper than ~MAX_HEADING_LEVEL~ (100) and returns a parse error naming the level and line instead of calling Orgize. ~collect_headlines~ is iterative with an explicit stack.
-- Test: ~orgize_adapter_parses_max_heading_depth_on_small_stack~ and ~orgize_adapter_rejects_headings_deeper_than_limit_without_overflow~ in ~tests/orgize_adapter.rs~.
+- Orgize: parsing builds the headline tree recursively and overflows the stack (an abort) at roughly 400 to 500 levels on a 2 MiB debug-build thread.
+- Resolved (#103): Orgize never sees a headline (they are blanked out of its copy of the text), and the scanner is iterative. ~MAX_HEADING_LEVEL~ (100) stays a product rule (#44) and counts ~^\*+ ~ lines only; Org reads a ~*~ line inside a block as a headline, so such a line counts, while ~**<TAB>x~ is text and never does.
+- Test: ~orgize_adapter_parses_max_heading_depth_on_small_stack~, ~orgize_adapter_rejects_headings_deeper_than_limit_without_overflow~ and ~heading_depth_limit_counts_headline_lines_only~ in ~tests/orgize_adapter.rs~.
 - Tracked in #41 and #44.
+
+** R20 Priority cookie after COMMENT
+
+- Repro:
+  #+begin_src org
+  ,* COMMENT [#A] x
+  ,* TODO COMMENT [#B] y
+  #+end_src
+- Resolved (#103): the cookie is read only directly after the keyword or at the start, so one after ~COMMENT~ is title text and there is no priority (Org: ~:raw-value~ is ~[#A] x~; ~* [#A] COMMENT x~ has priority A). Verified against Emacs 29.3 / Org 9.6.15.
+- Test: ~comment_and_priority_cookie_order_matches_org~.
+
+** R21 Tab after a TODO keyword
+
+- Repro:
+  #+begin_src org
+  ,* TODO	[#A] x
+  ,* TODO	y
+  #+end_src
+  (a tab after ~TODO~)
+- Resolved (#103): the keyword needs a space (or the end of the title) after it; blanks after that space may be spaces or tabs. With a tab the headline has no TODO state, no priority and ~:raw-value~ ~TODO	[#A] x~. Separators between keyword, priority cookie and ~COMMENT~ are only space and tab: a non-breaking space is title text. Verified against Emacs 29.3 / Org 9.6.15.
+- Test: the unit tables in ~src/parser/title.rs~ and ~tests/data/emacs-oracle/tags-priority.org~.
+
+** R22 Several tag blocks on one headline
+
+- Repro:
+  #+begin_src org
+  ,* T :a: :b:
+  #+end_src
+- Resolved (#103): ~source_title_tags~ in ~src/parser/title.rs~ reads the tags from the last block of the source line (non-empty ones only). Org: only the last tag block at the end of the line counts; the headline has tag ~b~ and ~:raw-value~ ~T :a:~. Verified against Emacs 29.3 / Org 9.6.15. The ~:ARCHIVE:~ flag uses the same tags.
+- Test: ~empty_tag_segments_are_stripped_from_title_like_org~ in ~tests/orgize_adapter.rs~ and ~tests/data/emacs-oracle/tags-priority.org~.
+
+** R23 Inline details still read by Orgize
+
+- Repro:
+  #+begin_src org
+  ,* Task <2024-11-20 Wed>
+  Text with =verbatim <2024-11-21>= and ~code~ and src_sh{ls} and @@html:<b>@@.
+  #+end_src
+- Orgize: parses timestamp nodes and inline objects. Fed a whole document it deviates from Org on structure (see R5 to R22) and asserts in debug builds on an empty quote, center or special block (~#+begin_quote~ directly followed by ~#+end_quote~, which Org parses as an empty quote-block), and its headline tree recurses.
+- Org: timestamps inside verbatim and code are text; timestamps in planning lines, property values, comments, fixed-width lines, keyword values and src, example, export and comment blocks are no objects.
+- Workaround: ~scan_inline~ in ~src/parser/orgize_inline.rs~ gives Orgize a copy of the source with the same byte offsets in which everything the scanner knows as structure is blanked and every other structural-looking line is defused, so Orgize only sees paragraph, list, table and clock text. It reports timestamp nodes (role ~body~, dropped inside links, R15) and inline code, verbatim, inline source and snippet ranges, which link scanning skips. Headline lines are parsed one by one, and only when they hold a character that can start one of these objects. The text of verse, quote, center and special blocks and of drawers stays visible, as in Org.
+- Test: ~parsed_documents_keep_their_ranges_on_the_source~ and ~orgize_never_sees_structure~ (~src/parser/corpus_tests.rs~), ~empty_greater_blocks_parse~.
+- Tracked in #41. Stage 3 replaces this with own inline scanning and removes the dependency.
 
 * Risk handling rules
 
@@ -463,42 +413,3 @@ Update this document when a parser boundary changes in a way that affects indexe
 Keep historical implementation details in task archives or version control. Do not present resolved gaps as current limitations.
 
 Add or update fixtures in the same task as a parser-contract change.
-
-** R20 Priority cookie after COMMENT
-
-- Repro:
-  #+begin_src org
-  ,* COMMENT [#A] x
-  ,* TODO COMMENT [#B] y
-  #+end_src
-- Orgize: reads ~[#A]~ as the priority although it follows ~COMMENT~.
-- Org: the cookie counts only before ~COMMENT~ (~* [#A] COMMENT x~ has priority A). After it the cookie is title text and there is no priority (~:raw-value~ is ~[#A] x~). Verified against Emacs 29.3 / Org 9.6.15.
-- Workaround: ~cookie_follows_comment~ in ~src/parser/orgize_adapter.rs~ clears the priority in ~parse_headline~ for ~[KEYWORD] COMMENT [#X]~. ~title~ and ~title_raw~ already keep the cookie and ~COMMENT~.
-- Test: ~comment_and_priority_cookie_order_matches_org~.
-- Tracked in #41.
-
-** R21 Tab after a TODO keyword
-
-- Repro:
-  #+begin_src org
-  ,* TODO	[#A] x
-  ,* TODO	y
-  #+end_src
-  (a tab after ~TODO~)
-- Orgize: reads ~TODO~ as the keyword (and ~[#A]~ as the priority) when a tab follows it.
-- Org: the keyword needs a space (or the end of the line) after it; blanks after that space may be spaces or tabs. With a tab the headline has no TODO state, no priority and ~:raw-value~ ~TODO	[#A] x~. Verified against Emacs 29.3 / Org 9.6.15. Separators between keyword, priority cookie and ~COMMENT~ are only space and tab: a non-breaking space is title text (~* COMMENT<NBSP>z~ is not commented, ~* TODO<NBSP>[#A] y~ has no TODO). Orgize agrees on that. Priority cookies are ~[#.]~ (any one character, no blank needed after it), and Orgize agrees (lowercase, digits, symbols, ~[#A]x~).
-- Workaround: ~keyword_bad_separator~ in ~parse_headline~ (~src/parser/orgize_adapter.rs~) drops Orgize's keyword and priority when the text after the keyword does not start with a space; ~infer_todo_keyword~, ~cookie_follows_comment~ and the title helpers in ~src/parser/title.rs~ use only space and tab as blanks. A multi-digit ~[#10]~ stays a priority (project extension, #80).
-- Test: the unit tables in ~src/parser/title.rs~ and ~tests/data/emacs-oracle/tags-priority.org~.
-- Tracked in #41.
-
-** R22 Several tag blocks on one headline
-
-- Repro:
-  #+begin_src org
-  ,* T :a: :b:
-  #+end_src
-- Orgize: reports both ~a~ and ~b~ as tags, and its title re-parse strips a remaining tag-like word such as ~:a:~.
-- Org: only the last tag block at the end of the line counts. The headline has tag ~b~ and ~:raw-value~ ~T :a:~; ~* T :a:b:~ has tags ~a~ and ~b~. Verified against Emacs 29.3 / Org 9.6.15.
-- Workaround: ~source_title_tags~ in ~src/parser/title.rs~ reads the tags from the last block of the source line (non-empty ones only), and the title re-parse in ~src/parser/orgize_adapter.rs~ appends a fixed tail so Orgize cannot strip a tag-like word from the title.
-- Test: ~empty_tag_segments_are_stripped_from_title_like_org~ in ~tests/orgize_adapter.rs~ and ~tests/data/emacs-oracle/tags-priority.org~.
-- Tracked in #41.

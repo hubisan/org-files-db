@@ -1,0 +1,21 @@
+#+TITLE: Affiliated and Dynamic Keywords
+#+NAME: attached
+#+AUTHOR: Ann
+#+BEGIN: clocktable :scope file
+#+K1: inside a dynamic block
+#+END:
+#+BEGIN: unclosed
+#+K2: after an unclosed begin line
+#+NAME: lonely
+
+#+CAPTION: attached to the drawer
+:LOG:
+#+K3: inside a drawer
+:END:
+* Heading
+#+begin_SRC
+#+K4: hidden in a block
+#+End_src
+#+K5: visible
+# classification: org-special-case
+# note: Affiliated keywords belong to the next element and are no document keywords, except when nothing follows them. A dynamic block ends at #+END: or #+END; its begin line without an end is text. A block name matches in any case.

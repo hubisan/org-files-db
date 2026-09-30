@@ -1,12 +1,6 @@
 use std::collections::HashSet;
 
-use crate::parser::line_index::LineIndex;
-use orgize::{
-    ast::{Document as OrgDocument, Keyword},
-    rowan::ast::AstNode,
-    Org,
-};
-
+use crate::parser::structure_scanner::{parsed_keywords, scan_structure};
 use crate::parser::{ParsedKeyword, TodoKeyword, TodoKeywordConfig};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,13 +70,15 @@ pub fn resolve_todo_keywords_with_default_source(
     default_keywords: &TodoKeywordConfig,
     default_source_kind: TodoKeywordSourceKind,
 ) -> ResolvedTodoKeywords {
-    // Cheap pre-scan: without any candidate TODO keyword line, Orgize cannot yield a
-    // TODO keyword, so skip the full parse.
+    // Cheap pre-scan: without any candidate TODO keyword line the structure scan cannot
+    // yield a TODO keyword, so skip it.
     if !may_contain_todo_keyword_line(content) {
         return resolved_from_default_keywords(default_keywords, default_source_kind);
     }
-    let org = Org::parse(content);
-    let keywords = collect_document_keywords(&org.document(), &LineIndex::new(content));
+    // A document the scanner rejects (heading too deep) fails to parse anyway.
+    let keywords = scan_structure(content)
+        .map(|structure| parsed_keywords(content, &structure))
+        .unwrap_or_default();
     resolve_todo_keywords_from_keywords(&keywords)
         .unwrap_or_else(|| resolved_from_default_keywords(default_keywords, default_source_kind))
 }
@@ -155,22 +151,6 @@ pub(crate) fn resolve_todo_keywords_from_keywords(
             entries: finalize_entries(open_entries, closed_entries),
         })
     }
-}
-
-pub(crate) fn collect_document_keywords(
-    document: &OrgDocument,
-    lines: &LineIndex,
-) -> Vec<ParsedKeyword> {
-    document
-        .syntax()
-        .descendants()
-        .filter_map(Keyword::cast)
-        .map(|keyword| ParsedKeyword {
-            key: keyword.key().to_string(),
-            value: Some(keyword.value().trim().to_string()).filter(|value| !value.is_empty()),
-            line_number: Some(lines.line_for(usize::from(keyword.start()))),
-        })
-        .collect()
 }
 
 fn resolved_from_default_keywords(

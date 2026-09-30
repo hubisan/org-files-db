@@ -1,0 +1,55 @@
+#+TITLE: Structure
+#+FILETAGS: :structure:
+* Block ends at the first matching end line
+#+begin_src a
+#+K1: hidden
+#+end_example
+#+END_SRC
+#+K2: visible
+* Block names ignore case
+#+begin_SRC
+#+K3: hidden
+[[hidden-src-link]]
+#+End_src
+#+BEGIN_Quote
+[[quote-link]]
+#+end_QUOTE
+* Drawer names with a hyphen or non-ASCII letters
+:my-drawer:
+[[drawer-link]]
+:END:
+:äö:
+#+K4: visible
+:END:
+* Affiliated keywords attach to the next element
+#+NAME: attached
+#+CAPTION: see [[caption-link]]
+:LOG:
+logged
+:END:
+#+NAME: lonely
+* Planning line keeps its drawer and holds no links
+SCHEDULED: garbage [[planning-link]]
+:PROPERTIES:
+:ID: planning-garbage
+:END:
+* Drawer with a row that is no property
+:PROPERTIES:
+:a b: c
+:ID: generic
+:END:
+* Dynamic blocks
+#+BEGIN: clocktable :scope file
+#+K5: inside
+#+END:
+#+BEGIN: unclosed
+#+K6: after the unclosed begin line
+* Verse keeps comment-looking lines as text
+#+begin_verse
+# [[verse-link]]
+#+end_verse
+#+begin_quote
+#+end_quote
+* foo [#A] priority cookie after other text is title text
+* TODO [#B] cookie after a keyword
+* COMMENT [#C] cookie after COMMENT is title text

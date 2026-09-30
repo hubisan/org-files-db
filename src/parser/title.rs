@@ -9,30 +9,6 @@ fn is_org_blank(character: char) -> bool {
     matches!(character, ' ' | '\t')
 }
 
-pub(super) fn infer_todo_keyword(
-    title_raw: &str,
-    todo_keywords: &TodoKeywordConfig,
-) -> Option<(String, String)> {
-    for keyword in todo_keywords.all_keywords() {
-        let Some(remainder) = title_raw.strip_prefix(&keyword.name) else {
-            continue;
-        };
-        if remainder.is_empty() {
-            continue;
-        }
-
-        // Org needs one space after the keyword; tabs and other blanks do not count.
-        if !remainder.starts_with(' ') {
-            continue;
-        }
-        let stripped = remainder.trim_start_matches(is_org_blank);
-
-        return Some((keyword.name.clone(), stripped.to_string()));
-    }
-
-    None
-}
-
 pub(super) fn placeholder_title_after_todo_prefix<'a>(
     source_title: &str,
     placeholder_title: &'a str,
@@ -49,45 +25,47 @@ pub(super) fn placeholder_title_after_todo_prefix<'a>(
     placeholder_title.get(prefix_len..)
 }
 
-pub(super) fn strip_leading_priority_cookie<'a>(
-    title_raw: &'a str,
-    priority: Option<&str>,
-) -> &'a str {
-    let Some(priority) = priority else {
-        return title_raw;
-    };
-
-    let trimmed = title_raw.trim_start_matches(is_org_blank);
-    match priority_cookie(trimmed) {
-        Some((value, remainder)) if value == priority => remainder.trim_start_matches(is_org_blank),
-        _ => title_raw,
-    }
+/// Facts read from the raw title of a headline line (stars and tags already removed).
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct HeadlineParts {
+    pub(super) todo_keyword: Option<String>,
+    pub(super) priority: Option<String>,
+    /// Byte offset in the raw title where the title text starts, after the keyword, the
+    /// priority cookie and the blanks behind them. `COMMENT` belongs to the text.
+    pub(super) text_start: usize,
 }
 
-/// True for `[TODO] COMMENT [#A] ...`, where Org does not read a priority.
-pub(super) fn cookie_follows_comment(title_raw: &str, todo_keyword: Option<&str>) -> bool {
-    let mut rest = title_raw.trim_start_matches(is_org_blank);
-    if let Some(keyword) = todo_keyword {
-        let Some(after_keyword) = rest.strip_prefix(keyword) else {
-            return false;
+/// Splits the raw title like `org-element-headline-parser`: a TODO keyword, then a priority
+/// cookie, directly at the start. Org needs one space after the keyword (tabs and other
+/// blanks do not count); a keyword alone is a TODO state for `org-entry-get` and the
+/// agenda, and so it is here. A cookie later in the title is text.
+pub(super) fn split_headline_title(
+    title_raw: &str,
+    todo_keywords: &TodoKeywordConfig,
+) -> HeadlineParts {
+    let mut text_start = 0;
+    let mut todo_keyword = None;
+    for keyword in todo_keywords.all_keywords() {
+        let Some(remainder) = title_raw.strip_prefix(&keyword.name) else {
+            continue;
         };
-        rest = after_keyword.trim_start_matches(is_org_blank);
+        if remainder.is_empty() || remainder.starts_with(' ') {
+            todo_keyword = Some(keyword.name.clone());
+            text_start = title_raw.len() - remainder.trim_start_matches(is_org_blank).len();
+            break;
+        }
     }
-    let Some(after_comment) = rest.strip_prefix("COMMENT") else {
-        return false;
-    };
-    (after_comment.is_empty() || after_comment.starts_with(is_org_blank))
-        && priority_cookie(after_comment.trim_start_matches(is_org_blank)).is_some()
-}
-
-pub(super) fn priority_from_source_title(title_raw: &str) -> Option<String> {
-    let trimmed = title_raw.trim_start_matches(is_org_blank);
-    let (value, _) = priority_cookie(trimmed).or_else(|| {
-        trimmed
-            .split_once(' ')
-            .and_then(|(_, remainder)| priority_cookie(remainder.trim_start_matches(is_org_blank)))
-    })?;
-    Some(value.to_string())
+    let after_keyword = &title_raw[text_start..];
+    let mut priority = None;
+    if let Some((value, remainder)) = priority_cookie(after_keyword) {
+        priority = Some(value.to_string());
+        text_start = title_raw.len() - remainder.trim_start_matches(is_org_blank).len();
+    }
+    HeadlineParts {
+        todo_keyword,
+        priority,
+        text_start,
+    }
 }
 
 /// Reads a leading `[#X]` cookie and returns its value and the text after it. Org (`[#.]`)
@@ -124,27 +102,23 @@ pub(super) fn todo_type_for_keyword(
     }
 }
 
-pub(super) fn todo_keyword_is_active(keyword: &str, todo_keywords: &TodoKeywordConfig) -> bool {
-    todo_keywords
-        .all_keywords()
-        .any(|candidate| candidate.name == keyword)
-}
-
 pub(super) struct SourceHeadlineTitle {
     pub(super) raw: String,
     pub(super) range: Range<usize>,
 }
 
-pub(super) fn source_title_from_content_line(content: &str, start: usize) -> SourceHeadlineTitle {
-    let line_start = content[..start]
-        .rfind('\n')
-        .map(|offset| offset + 1)
-        .unwrap_or(0);
+/// The headline line at `start` without its line terminator (`\n` or `\r\n`).
+fn headline_line(content: &str, start: usize) -> (usize, &str) {
+    let line_start = content[..start].rfind('\n').map_or(0, |offset| offset + 1);
     let line_end = content[start..]
         .find('\n')
-        .map(|offset| start + offset)
-        .unwrap_or(content.len());
+        .map_or(content.len(), |offset| start + offset);
     let line = &content[line_start..line_end];
+    (line_start, line.strip_suffix('\r').unwrap_or(line))
+}
+
+pub(super) fn source_title_from_content_line(content: &str, start: usize) -> SourceHeadlineTitle {
+    let (line_start, line) = headline_line(content, start);
     let without_stars = line
         .trim_start_matches('*')
         .trim_start_matches(is_org_blank);
@@ -191,11 +165,8 @@ pub(super) fn restore_title_link_placeholders(
 /// Non-empty tags of the last tag block on the headline line at `start`. Org reads only that
 /// block (`* T :a: :b:` has the tag `b`); Orgize would also report the earlier `:a:`.
 pub(super) fn source_title_tags(content: &str, start: usize) -> Vec<String> {
-    let line_start = content[..start].rfind('\n').map_or(0, |offset| offset + 1);
-    let line_end = content[start..]
-        .find('\n')
-        .map_or(content.len(), |offset| start + offset);
-    let without_stars = content[line_start..line_end]
+    let without_stars = headline_line(content, start)
+        .1
         .trim_start_matches('*')
         .trim_start_matches(is_org_blank);
     let trimmed = without_stars.trim_end_matches(is_org_blank);
@@ -316,27 +287,6 @@ mod tests {
     }
 
     #[test]
-    fn infer_todo_keyword_needs_whitespace_after_keyword() {
-        let cfg = TodoKeywordConfig::default();
-        let rows = [
-            ("TODO write", Some(("TODO", "write"))),
-            ("DONE \t x", Some(("DONE", "x"))),
-            ("DONE\tx", None),
-            ("TODO\u{a0}x", None),
-            ("TODO", None),
-            ("TODO ", Some(("TODO", ""))),
-            ("TODOx y", None),
-            ("todo x", None),
-            ("", None),
-            ("TODOé x", None),
-        ];
-        for (input, want) in rows {
-            let want = want.map(|(k, t)| (k.to_string(), t.to_string()));
-            assert_eq!(infer_todo_keyword(input, &cfg), want, "{input:?}");
-        }
-    }
-
-    #[test]
     fn placeholder_title_after_todo_prefix_slices_by_prefix_len() {
         let rows = [
             ("TODO x", "TODO y", "x", Some("y")),
@@ -357,83 +307,48 @@ mod tests {
     }
 
     #[test]
-    fn priority_cookie_helpers_follow_org_rules() {
-        let rows = [
-            ("[#A] x", Some("A")),
-            ("  [#A]", Some("A")),
-            ("TODO [#B] x", Some("B")),
-            ("[#10] x", Some("10")),
-            ("[#0]", Some("0")),
-            ("[#] x", None),
-            ("[#Ab] x", None),
-            ("[#AB] x", None),
-            ("[#a] x", Some("a")),
-            ("[#1] x", Some("1")),
-            ("[#!] x", Some("!")),
-            ("[#A]x", Some("A")),
-            ("[#A]\tx", Some("A")),
-            ("[#A]\u{a0}x", Some("A")),
-            ("[#10]x", None),
-            ("TODO\u{a0}[#A] y", None),
-            ("[#A", None),
-            ("x [#A]", Some("A")), // first word may be a TODO keyword
-            ("A B [#C]", None),
-            ("[#é] x", Some("é")),
-            ("", None),
-            ("   ", None),
+    fn split_headline_title_reads_keyword_then_priority_like_org() {
+        let cfg = TodoKeywordConfig::default();
+        // (raw title, keyword, priority, title text)
+        let rows: &[(&str, Option<&str>, Option<&str>, &str)] = &[
+            ("TODO write", Some("TODO"), None, "write"),
+            ("DONE \t x", Some("DONE"), None, "x"),
+            ("DONE\tx", None, None, "DONE\tx"),
+            ("TODO\u{a0}x", None, None, "TODO\u{a0}x"),
+            ("TODO", Some("TODO"), None, ""),
+            ("TODO ", Some("TODO"), None, ""),
+            ("TODOx y", None, None, "TODOx y"),
+            ("TODOé x", None, None, "TODOé x"),
+            ("todo x", None, None, "todo x"),
+            ("", None, None, ""),
+            ("[#A] x", None, Some("A"), "x"),
+            ("TODO [#B] x", Some("TODO"), Some("B"), "x"),
+            ("TODO [#B]", Some("TODO"), Some("B"), ""),
+            ("TODO \t[#B]x", Some("TODO"), Some("B"), "x"),
+            ("[#10] x", None, Some("10"), "x"),
+            ("[#0]", None, Some("0"), ""),
+            ("[#] x", None, None, "[#] x"),
+            ("[#Ab] x", None, None, "[#Ab] x"),
+            ("[#a]x", None, Some("a"), "x"),
+            ("[#1] x", None, Some("1"), "x"),
+            ("[#!] x", None, Some("!"), "x"),
+            ("[#A]\tx", None, Some("A"), "x"),
+            ("[#A]\u{a0}x", None, Some("A"), "\u{a0}x"),
+            ("[#10]x", None, None, "[#10]x"),
+            ("[#é] x", None, Some("é"), "x"),
+            ("[#A", None, None, "[#A"),
+            // A cookie after other text or after COMMENT is title text.
+            ("x [#A]", None, None, "x [#A]"),
+            ("A B [#C]", None, None, "A B [#C]"),
+            ("COMMENT [#A] x", None, None, "COMMENT [#A] x"),
+            ("TODO COMMENT [#A] x", Some("TODO"), None, "COMMENT [#A] x"),
+            ("TODO\u{a0}[#A] y", None, None, "TODO\u{a0}[#A] y"),
         ];
-        for (input, want) in rows {
-            let want = want.map(str::to_string);
-            assert_eq!(priority_from_source_title(input), want, "{input:?}");
-        }
-    }
-
-    #[test]
-    fn strip_leading_priority_cookie_needs_matching_cookie_and_space() {
-        let rows = [
-            (" [#A]  x y", Some("A"), "x y"),
-            ("[#A]", Some("A"), ""),
-            ("[#A]x", Some("A"), "x"),
-            ("[#a]\tx", Some("a"), "x"),
-            ("[#A]\u{a0}x", Some("A"), "\u{a0}x"),
-            ("[#10]x", Some("10"), "[#10]x"),
-            ("[#B] x", Some("A"), "[#B] x"),
-            ("[#A] x", None, "[#A] x"),
-            ("[#10] x", Some("10"), "x"),
-            ("[#é] é", Some("é"), "é"),
-            ("", Some("A"), ""),
-        ];
-        for (input, priority, want) in rows {
-            assert_eq!(
-                strip_leading_priority_cookie(input, priority),
-                want,
-                "{input:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn cookie_follows_comment_only_after_comment_word() {
-        let rows = [
-            ("COMMENT [#A] x", None, true),
-            ("COMMENT [#A]", None, true),
-            ("TODO COMMENT [#A] x", Some("TODO"), true),
-            ("COMMENT [#A] x", Some("TODO"), false),
-            ("COMMENT x [#A]", None, false),
-            ("COMMENT [#] x", None, false),
-            ("COMMENT [#a]x", None, true),
-            ("COMMENT\t[#!] x", None, true),
-            ("COMMENT\u{a0}[#A] x", None, false),
-            ("TODO\u{a0}COMMENT [#A]", Some("TODO"), false),
-            ("TODO COMMENT\u{a0}[#A]", Some("TODO"), false),
-            ("COMMENT", None, false),
-            ("COMMENTS [#A]", None, false),
-            ("[#A] COMMENT", None, false),
-            ("", None, false),
-            ("é", Some("é"), false),
-        ];
-        for (input, keyword, want) in rows {
-            assert_eq!(cookie_follows_comment(input, keyword), want, "{input:?}");
+        for (input, keyword, priority, text) in rows {
+            let parts = split_headline_title(input, &cfg);
+            assert_eq!(parts.todo_keyword.as_deref(), *keyword, "{input:?}");
+            assert_eq!(parts.priority.as_deref(), *priority, "{input:?}");
+            assert_eq!(&input[parts.text_start..], *text, "{input:?}");
         }
     }
 
@@ -474,12 +389,7 @@ mod tests {
     fn helpers_never_panic_and_return_char_boundaries() {
         let cfg = TodoKeywordConfig::default();
         for s in ADVERSARIAL {
-            infer_todo_keyword(s, &cfg);
-            priority_from_source_title(s);
-            strip_leading_priority_cookie(s, Some("A"));
-            strip_leading_priority_cookie(s, Some("é"));
-            cookie_follows_comment(s, Some("TODO"));
-            cookie_follows_comment(s, None);
+            assert_boundary(s, split_headline_title(s, &cfg).text_start);
             let tail = strip_trailing_org_tags(s);
             assert!(s.contains(tail));
             for (i, _) in s.char_indices().chain([(s.len(), ' ')]) {

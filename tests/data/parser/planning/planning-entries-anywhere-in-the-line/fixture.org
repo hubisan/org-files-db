@@ -1,0 +1,11 @@
+#+TITLE: Planning Entries
+* Entries after other text
+SCHEDULED: <2024-01-01 Mon> junk DEADLINE: <2024-01-03 Wed>
+* Date range
+SCHEDULED: <2024-01-01 Mon>--<2024-01-03 Wed>
+* Timestamp must follow the keyword
+SCHEDULED: foo <2024-01-02 Tue>
+Body four.
+* Last
+# classification: org-special-case
+# note: Org searches the planning line for every keyword, a timestamp has to follow its keyword directly, and a range is one timestamp. A planning line holds no other timestamps.

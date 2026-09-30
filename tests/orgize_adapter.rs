@@ -728,7 +728,7 @@ fn diary_planning_lines_match_org() {
             None,
             Some("body"),
         ),
-        // Not planning in Org: not directly after the heading, malformed, or inactive form.
+        // Not directly after the heading: body text, no planning in Org.
         (
             "text\nSCHEDULED: <%%(diary-float t 42)>\n",
             None,
@@ -736,27 +736,23 @@ fn diary_planning_lines_match_org() {
             None,
             Some("text\nSCHEDULED: <%%(diary-float t 42)>"),
         ),
+        // Directly after the heading but malformed or an inactive form: Org (29.3, 9.6.15)
+        // still reads an empty planning element, so the line is no body text.
         (
             "SCHEDULED: <%%(diary-float t 42) foo>\n",
             None,
             None,
             None,
-            Some("SCHEDULED: <%%(diary-float t 42) foo>"),
+            None,
         ),
         (
             "SCHEDULED: [%%(diary-float t 42)]\n",
             None,
             None,
             None,
-            Some("SCHEDULED: [%%(diary-float t 42)]"),
+            None,
         ),
-        (
-            "SCHEDULED: <%%(foo)\n",
-            None,
-            None,
-            None,
-            Some("SCHEDULED: <%%(foo)"),
-        ),
+        ("SCHEDULED: <%%(foo)\n", None, None, None, None),
     ];
     for (section, scheduled, deadline, closed, body) in cases {
         let content = format!("* H\n{section}");
@@ -2437,6 +2433,50 @@ fn property_drawer_placement_matches_org() {
             false,
             false,
         ),
+        // A planning line without a timestamp is an empty planning element in Org.
+        (
+            "heading after planning garbage",
+            format!("* H\nSCHEDULED: garbage\n{D}"),
+            false,
+            true,
+        ),
+        (
+            "heading after bare CLOSED",
+            format!("* H\nCLOSED:\n{D}"),
+            false,
+            true,
+        ),
+        // Every row has to be a property, else org-get-property-block finds nothing.
+        (
+            "heading drawer with comment row",
+            "* H\n:PROPERTIES:\n# c\n:ID: x\n:END:\n".to_string(),
+            false,
+            false,
+        ),
+        (
+            "file drawer with keyword row",
+            ":PROPERTIES:\n#+K: v\n:ID: x\n:END:\n* H\n".to_string(),
+            false,
+            false,
+        ),
+        (
+            "heading drawer with blank in key",
+            "* H\n:PROPERTIES:\n:a b: c\n:ID: x\n:END:\n".to_string(),
+            false,
+            false,
+        ),
+        (
+            "heading drawer with row without blank before value",
+            "* H\n:PROPERTIES:\n:ID:x\n:END:\n".to_string(),
+            false,
+            false,
+        ),
+        (
+            "heading after other drawer",
+            format!("* H\n:my-drawer:\n{D}:END:\n"),
+            false,
+            false,
+        ),
     ];
     for (name, content, file, heading) in cases {
         let (file_props, heading_props) = drawer_placement_properties(&content);
@@ -2447,6 +2487,14 @@ fn property_drawer_placement_matches_org() {
             "{name}: heading {heading_props:?}"
         );
     }
+}
+
+/// Org reads a property key as non-blank characters up to the last colon before the first
+/// blank (`org-property-re`), so `:a:b: c` is the key `a:b` (`org-entry-get` on Emacs 29.3).
+#[test]
+fn property_key_is_the_token_up_to_its_last_colon() {
+    let (_, heading) = drawer_placement_properties("* H\n:PROPERTIES:\n:a:b: c\n:::   v\n:END:\n");
+    assert_eq!(heading, ["A:B=c", ":=v"]);
 }
 
 /// Expected values come from Emacs 29.3 / Org 9.6.15 (`org-element` headline `:raw-value`,
@@ -2579,6 +2627,100 @@ fn parse_on_small_stack(content: String) -> Result<usize, String> {
 fn orgize_adapter_parses_max_heading_depth_on_small_stack() {
     // Level 0 file heading plus 100 nested headlines.
     assert_eq!(parse_on_small_stack(nested_headings(100)), Ok(101));
+}
+
+/// A headline is `^\*+ `; the depth limit counts those lines and nothing else (Org reads a
+/// `*` line inside a block as a headline, and `**\tx` as text).
+#[test]
+fn heading_depth_limit_counts_headline_lines_only() {
+    let too_deep = |content: String| {
+        parse_on_small_stack(content)
+            .expect_err("too deep")
+            .contains("exceeds the supported maximum of 100")
+    };
+    assert!(too_deep(format!(
+        "#+begin_src\n{} x\n#+end_src\n",
+        "*".repeat(101)
+    )));
+    assert!(too_deep(format!(
+        "#+begin_quote\n{} x\n#+end_quote\n",
+        "*".repeat(101)
+    )));
+    // Text for Org, so no limit, however many there are.
+    assert_eq!(
+        parse_on_small_stack(format!("{}\tx\n", "*".repeat(101))),
+        Ok(1)
+    );
+    let many = (0..5_000)
+        .map(|_| format!("{}\tx\n", "*".repeat(150)))
+        .collect::<String>();
+    assert_eq!(parse_on_small_stack(many), Ok(1));
+}
+
+/// Org parses an empty quote, center or special block (`org-element-parse-buffer`); Orgize
+/// asserts on it in debug builds, so such input must never reach it.
+#[test]
+fn empty_greater_blocks_parse() {
+    for content in [
+        "#+begin_quote\n#+end_quote\n",
+        "* H\n#+begin_center\n\n#+end_center\n<2024-01-01 Mon>\n",
+        "* H\n#+begin_foo\n#+end_foo\n",
+        "#+begin_quote\n#+begin_quote\n#+end_quote\n#+end_quote\n",
+        "* H\n#+begin_verse\n#+begin_quote\n#+end_quote\n#+end_verse\n",
+        "* H\n:LOG:\n#+begin_quote\n#+end_quote\n:END:\n",
+        "* H #+begin_quote\n#+end_quote\n",
+    ] {
+        let document = OrgizeAdapter::new()
+            .parse_document(Path::new("e.org"), content, &ParseOptions::default())
+            .unwrap_or_else(|error| panic!("{content:?}: {error:?}"));
+        assert!(!document.headings.is_empty());
+    }
+}
+
+/// Expected keys come from Emacs 29.3 / Org 9.6.15 (`keyword` elements of
+/// `org-element-parse-buffer`): affiliated keywords belong to the next element, blocks end at
+/// the first matching end line in any case, dynamic blocks and drawers hide nothing.
+#[test]
+fn document_keywords_follow_org_elements() {
+    let rows: &[(&str, &str)] = &[
+        ("#+NAME: n\n#+TITLE: t\n", "TITLE"),
+        ("#+NAME: n\n#+END_SRC\n", ""),
+        ("#+NAME: n\n#+begin_src\nx\n", ""),
+        ("#+NAME: n\n# c\n# d\n", ""),
+        ("#+NAME: x\n\n#+CAPTION: c\n", "NAME,CAPTION"),
+        ("#+CAPTION: c\n#+NAME: n\n* H\n", "CAPTION,NAME"),
+        ("#+NAME: n\n:LOG:\n#+K: in\n:END:\n", "K"),
+        (
+            "* H\n#+begin_src a\n#+K1: hidden\n#+end_example\n#+END_SRC\n#+K2: v\n",
+            "K2",
+        ),
+        ("#+begin_SRC\n#+K: h\n#+End_src\n#+K2: v\n", "K2"),
+        ("#+BEGIN_VERSE\n#+K: v\n#+END_VERSE\n#+K2: w\n", "K2"),
+        ("#+begin_quote\n#+end_quote\n", ""),
+        (":my-drawer:\n#+K: v\n:END:\n", "K"),
+        (":äö:\n#+K: v\n:END:\n", "K"),
+        // Dynamic blocks: `#+BEGIN: name` ... `#+END:` or `#+END`; unclosed, the begin line
+        // is text, and a stray end line is a keyword.
+        ("#+BEGIN: clocktable\n#+K: in\n#+END:\n", "K"),
+        ("#+begin:x\n#+K: in\n  #+end\n", "K"),
+        ("#+BEGIN: unclosed\n#+K: v\n", "K"),
+        ("#+BEGIN: x\n* H\n#+END:\n", "END"),
+        ("#+END:\n", "END"),
+        ("#+BEGIN: x\n#+BEGIN: y\n#+END:\n#+END:\n", "END"),
+        ("#+BEGIN:\n#+END:\n", "BEGIN,END"),
+    ];
+    for (content, expected) in rows {
+        let document = OrgizeAdapter::new()
+            .parse_document(Path::new("k.org"), content, &ParseOptions::default())
+            .expect("keyword fixture should parse");
+        let keys: Vec<_> = document
+            .metadata
+            .keywords
+            .iter()
+            .map(|keyword| keyword.key.as_str())
+            .collect();
+        assert_eq!(keys.join(","), *expected, "{content:?}");
+    }
 }
 
 #[test]
