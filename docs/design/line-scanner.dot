@@ -1,0 +1,52 @@
+digraph line_scanner {
+  rankdir=TB;
+  nodesep=0.6;
+  ranksep=0.9;
+  fontname="Helvetica";
+  node [fontname="Helvetica", fontsize=11, shape=box, style="rounded"];
+  edge [fontname="Helvetica", fontsize=10];
+  labelloc=t;
+  label="Stage B structure automaton (src/parser/structure_scanner.rs)";
+
+  subgraph cluster_section {
+    label="Section position";
+    style=dashed;
+    FileStart  [label="FileStart\n(before first headline,\nonly comments seen)"];
+    AfterHead  [label="AfterHeadline"];
+    AfterPlan  [label="AfterPlanning"];
+    Body       [label="Body"];
+  }
+
+  subgraph cluster_container {
+    label="Open containers (explicit frame stack)";
+    style=dashed;
+    Drawer  [label="InDrawer\n(content parsed,\nends at first :END:)"];
+    Greater [label="InGreaterBlock\nquote, center, special\n(content parsed)"];
+    Raw     [label="RawBlock\nsrc, example, export,\ncomment, verse\n(content skipped)"];
+  }
+
+  Start [shape=point];
+  Start -> FileStart;
+
+  FileStart -> FileStart [label="# comment"];
+  FileStart -> Body      [label="any other line"];
+  FileStart -> Body      [label=":PROPERTIES: ... :END:\nfile property drawer"];
+
+  FileStart -> AfterHead [label="headline"];
+  Body      -> AfterHead [label="headline\n(closes all frames,\npops heading stack)"];
+  AfterHead -> AfterHead [label="headline"];
+  AfterPlan -> AfterHead [label="headline"];
+
+  AfterHead -> AfterPlan [label="planning line"];
+  AfterHead -> Body      [label=":PROPERTIES: ... :END:\nheading property drawer"];
+  AfterPlan -> Body      [label=":PROPERTIES: ... :END:\nheading property drawer"];
+  AfterHead -> Body      [label="any other line"];
+  AfterPlan -> Body      [label="any other line"];
+
+  Body -> Body   [label="text, keyword, comment,\nfixed-width,\nunmatched begin or :NAME:"];
+  Body -> Drawer [label=":NAME: (or :END:) with :END:\nbefore limit; back at :END:", dir=both];
+  Body -> Greater [label="greater #+begin_NAME with #+end_NAME\nbefore limit; back at #+end_NAME", dir=both];
+  Body -> Raw [label="raw #+begin_NAME with\n#+end_NAME before limit:\nskip to the end line", dir=both];
+  Drawer -> Greater [label="begin inside,\nlimit is the :END: line", style=dotted];
+  Greater -> Drawer [label="drawer inside,\nlimit is the end line", style=dotted];
+}

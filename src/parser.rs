@@ -1,9 +1,11 @@
 pub mod diagnostics;
 pub(crate) mod line_index;
+pub mod line_lexer;
 pub mod link_scanner;
 pub mod model;
 pub mod orgize_adapter;
 pub(crate) mod properties;
+pub mod structure_scanner;
 pub(crate) mod timestamp_raw;
 pub(crate) mod title;
 
@@ -20,3 +22,6 @@ pub use model::{
     TodoType,
 };
 pub use orgize_adapter::OrgizeAdapter;
+
+#[cfg(test)]
+mod structure_differential_tests;
