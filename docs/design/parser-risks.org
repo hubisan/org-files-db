@@ -162,7 +162,7 @@ Harness normalizations, which are not differences:
 
 Unclassified differences make the script exit with status 1. Classified ones live in ~scripts/emacs-oracle-known.json~. Categories: a is an orgfdb bug, b is an Orgize deviation that the adapter does not correct, c is an intentional model difference. The cause of the a rows was not traced to Orgize or to the adapter, so no row is marked b yet.
 
-Remaining differences (last run: 34 differences):
+Remaining differences (last run: 31 differences):
 
 | Difference | Emacs | orgfdb | Cat | DB relevance |
 |-
