@@ -4,6 +4,8 @@ This file records completed changes.
 
 * Unreleased
 
+- =FIXED= ~:PROPERTIES:~ drawers that are not placed directly after the heading (or planning line), or after leading comments at file level, no longer create properties. Rebuild existing databases to refresh affected properties.
+
 - =CHANGED= Library API: ~ValidatedQuery~, ~ValidatedPredicate~ and ~ValidatedOption~ fields are now crate-private with read-only accessors, so only the validator can build these types and the SQL compiler's invariants hold.
 
 - =FIXED= Case-insensitive query predicates (~title~, ~has-text~, ~outline-contains~, ~outline-sequence~, ~keyword~, file and link text predicates) now use Unicode lowercase folding instead of ASCII-only folding, so ~"über"~ matches ~Über~.

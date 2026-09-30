@@ -71,6 +71,8 @@ The adapter reads Org property drawer nodes when Orgize exposes them directly.
 
 It also has a local line-based fallback for compatible property rows that the backend node model does not expose fully.
 
+A drawer only counts as the property drawer when it is the first element of its section, optionally after a planning line; in the file-level section it may only be preceded by comments and blank lines. Drawers after body text or inside blocks are ordinary drawers and create no properties.
+
 The fallback preserves source type, append semantics, and line numbers. Keep duplicate and append cases covered by tests.
 
 File-level ~#+PROPERTY~ and ~#+CATEGORY~ values use the project property model as separate source facts.

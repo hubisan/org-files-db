@@ -2164,3 +2164,80 @@ fn orgize_adapter_strips_valid_org_tag_characters() {
     assert_eq!(title, "Title");
     assert_eq!(tags, vec!["a".to_string(), "b".to_string()]);
 }
+
+fn drawer_placement_properties(content: &str) -> (Vec<String>, Vec<String>) {
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/placement.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("placement fixture should parse");
+    let keys = |index: usize| {
+        document.headings[index]
+            .properties
+            .iter()
+            .map(|property| {
+                format!(
+                    "{}={}",
+                    property.key,
+                    property.value.as_deref().unwrap_or("")
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let heading = if document.headings.len() > 1 {
+        keys(1)
+    } else {
+        Vec::new()
+    };
+    (keys(0), heading)
+}
+
+#[test]
+fn property_drawer_after_body_text_is_not_a_heading_property() {
+    let (_, heading) =
+        drawer_placement_properties("* H\nSome text.\n:PROPERTIES:\n:ID: fake\n:END:\n");
+    assert!(heading.is_empty(), "{heading:?}");
+}
+
+#[test]
+fn property_drawer_inside_block_is_not_a_heading_property() {
+    let (_, heading) = drawer_placement_properties(
+        "* H\n#+begin_quote\n:PROPERTIES:\n:ID: fake\n:END:\n#+end_quote\n",
+    );
+    assert!(heading.is_empty(), "{heading:?}");
+}
+
+#[test]
+fn property_drawer_after_intro_text_is_not_a_file_property() {
+    let (file, _) = drawer_placement_properties("Intro text\n\n:PROPERTIES:\n:ID: fileid\n:END:\n");
+    assert!(file.is_empty(), "{file:?}");
+}
+
+#[test]
+fn property_drawer_directly_after_heading_is_a_property() {
+    let (_, heading) = drawer_placement_properties("* H\n:PROPERTIES:\n:ID: real\n:END:\n");
+    assert_eq!(heading, vec!["ID=real"]);
+}
+
+#[test]
+fn property_drawer_after_planning_line_is_a_property() {
+    let (_, heading) = drawer_placement_properties(
+        "* H\nSCHEDULED: <2026-06-23 Tue>\n:PROPERTIES:\n:ID: real\n:END:\n",
+    );
+    assert_eq!(heading, vec!["ID=real"]);
+}
+
+#[test]
+fn property_drawer_at_file_top_is_a_file_property() {
+    let (file, _) = drawer_placement_properties(":PROPERTIES:\n:ID: fileid\n:END:\n#+TITLE: T\n");
+    assert_eq!(file, vec!["ID=fileid"]);
+}
+
+#[test]
+fn property_drawer_after_comment_is_a_file_property() {
+    let (file, _) =
+        drawer_placement_properties("# comment\n:PROPERTIES:\n:ID: fileid\n:END:\n#+TITLE: T\n");
+    assert_eq!(file, vec!["ID=fileid"]);
+}
