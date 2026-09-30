@@ -9,6 +9,8 @@ Rust CLI that indexes Org files into SQLite and answers queries over them.
   `ticket > spec > conversation`. See `docs/agents/issue-tracker.md`.
 - Stable context, goals, non-goals: `.project/tasks/project-context.org`. Public facts:
   `docs/README.org`. Later phases and backlog are GitHub issues.
+- Implementation, review, model routing, correction budget or completion workflow: read
+  `docs/agents/WORKFLOW.md`.
 - Read history (`.project/tasks/archive/`, `.project/notes/`, `CHANGELOG.org`) only when the
   active issue requires it. Ignore `.project/manual-tests/`, `.project/local/` and
   `old-files/` unless asked.
