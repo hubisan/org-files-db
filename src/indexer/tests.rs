@@ -18,9 +18,8 @@ use crate::{
     file_identity::FileIdentity,
     hex_encoding::encode_lower,
     link_resolver::{
-        CUSTOM_ID_MISSING_DIAGNOSTIC, DUPLICATE_ID_DIAGNOSTIC, FILE_MISSING_DIAGNOSTIC,
-        FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC, HEADING_TITLE_MISSING_DIAGNOSTIC, ID_MISSING_DIAGNOSTIC,
-        SAME_FILE_STAR_HEADING_MISSING_DIAGNOSTIC, UNSUPPORTED_DIAGNOSTIC,
+        CUSTOM_ID_MISSING_DIAGNOSTIC, FILE_MISSING_DIAGNOSTIC, FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC,
+        ID_MISSING_DIAGNOSTIC, UNSUPPORTED_DIAGNOSTIC,
     },
     parser::{OrgParserCore, OrgizeAdapter, ParseDiagnostic, ParseOptions, ParsedOrgDocument},
     query::{
@@ -93,59 +92,14 @@ type TodoProvenanceRow = (
     Option<String>,
     Option<i64>,
 );
-type LinkResolutionRow = (String, Option<String>, Option<String>, Option<String>);
+type LinkSmokeRow = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
 type TargetRemovalLinkRow = (String, String, Option<i64>, Option<String>, Option<String>);
-type FileHeadingSearchResolutionRow = (
-    String,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-);
-type FileOnlyRootResolutionRow = (
-    String,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-);
-type SameFileStarHeadingResolutionRow = (
-    String,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-);
-type SameFileCustomIdResolutionRow = (
-    String,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-);
-type FileContextCustomIdResolutionRow = (
-    String,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-);
-type OrgIdResolutionRow = (
-    String,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-);
 
 #[test]
 fn scoped_link_resolution_matches_full_resolution_after_incremental_edits() {
@@ -3768,302 +3722,37 @@ index_body_text = false
 }
 
 #[test]
-fn rebuild_resolves_file_links_to_known_indexed_files_and_marks_missing_and_external_targets() {
-    let test_dir = TestDir::new("file-link-resolution");
+fn rebuild_resolves_id_file_heading_and_same_file_links_end_to_end() {
+    let test_dir = TestDir::new("link-resolution-smoke");
     let notes_dir = test_dir.path().join("notes");
     let db_path = test_dir.path().join("db.sqlite");
     let config_path = test_dir.path().join("config.toml");
     let source_path = notes_dir.join("source.org");
-    let local_path = notes_dir.join("local.org");
+    let target_path = notes_dir.join("target.org");
     let parent_path = test_dir.path().join("parent.org");
-    let absolute_path = test_dir.path().join("absolute.org");
     let external_path = test_dir.path().join("outside").join("external.org");
-
-    write_file(
-            &source_path,
-            &format!(
-                "#+TITLE: Source\n[[./local.org]]\n[[../parent.org]]\n[[{}]]\n[[./missing.org]]\n[[{}]]\n[[unknown:foo]]\n",
-                absolute_path.to_string_lossy(),
-                external_path.to_string_lossy(),
-            ),
-        );
-    write_file(&local_path, "* Local\n");
-    write_file(&parent_path, "* Parent\n");
-    write_file(&absolute_path, "* Absolute\n");
-    write_config(
-            &config_path,
-            &format!(
-                "db_path = \"db.sqlite\"\nfiles = [\"{}\", \"{}\"]\n\n[[dirs]]\npath = \"notes\"\nrecursive = true\n\n[search]\nfts5_enabled = false\nindex_body_text = false\n",
-                parent_path.file_name().expect("parent file name").to_string_lossy(),
-                absolute_path.file_name().expect("absolute file name").to_string_lossy(),
-            ),
-        );
-
-    let report = Indexer::new(OrgizeAdapter::new())
-        .rebuild_from_config_path(&config_path)
-        .expect("rebuild should succeed");
-    assert_eq!(report.indexed_files.len(), 4);
-
-    let connection = Connection::open(&db_path).expect("db should open");
-    let rows: Vec<LinkResolutionRow> = query_rows(
-        &connection,
-        "SELECT links.raw, links.resolution_status, files.path, links.resolution_diagnostic
-             FROM links
-             LEFT JOIN files ON files.id = links.target_file_id
-             ORDER BY byte_start",
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-    );
-    let path_rows: Vec<(String, Option<String>)> = query_rows(
-        &connection,
-        "SELECT raw, path_absolute
-             FROM links
-             ORDER BY byte_start",
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    );
-
-    assert_eq!(
-        rows,
-        vec![
-            (
-                "[[./local.org]]".to_string(),
-                Some("resolved".to_string()),
-                Some(local_path.to_string_lossy().to_string()),
-                None,
-            ),
-            (
-                "[[../parent.org]]".to_string(),
-                Some("resolved".to_string()),
-                Some(parent_path.to_string_lossy().to_string()),
-                None,
-            ),
-            (
-                format!("[[{}]]", absolute_path.to_string_lossy()),
-                Some("resolved".to_string()),
-                Some(absolute_path.to_string_lossy().to_string()),
-                None,
-            ),
-            (
-                "[[./missing.org]]".to_string(),
-                Some("broken".to_string()),
-                None,
-                Some(FILE_MISSING_DIAGNOSTIC.to_string()),
-            ),
-            (
-                format!("[[{}]]", external_path.to_string_lossy()),
-                Some("unresolved".to_string()),
-                None,
-                Some(FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC.to_string()),
-            ),
-            (
-                "[[unknown:foo]]".to_string(),
-                Some("unsupported".to_string()),
-                None,
-                Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
-            ),
-        ]
-    );
-    assert_eq!(
-        path_rows,
-        vec![
-            (
-                "[[./local.org]]".to_string(),
-                Some(local_path.to_string_lossy().to_string()),
-            ),
-            (
-                "[[../parent.org]]".to_string(),
-                Some(parent_path.to_string_lossy().to_string()),
-            ),
-            (
-                format!("[[{}]]", absolute_path.to_string_lossy()),
-                Some(absolute_path.to_string_lossy().to_string()),
-            ),
-            (
-                "[[./missing.org]]".to_string(),
-                Some(notes_dir.join("missing.org").to_string_lossy().to_string()),
-            ),
-            (
-                format!("[[{}]]", external_path.to_string_lossy()),
-                Some(external_path.to_string_lossy().to_string()),
-            ),
-            ("[[unknown:foo]]".to_string(), None),
-        ]
-    );
-}
-
-#[test]
-fn rebuild_resolves_file_heading_title_search_options() {
-    let test_dir = TestDir::new("file-heading-title-resolution");
-    let notes_dir = test_dir.path().join("notes");
-    let db_path = test_dir.path().join("db.sqlite");
-    let config_path = test_dir.path().join("config.toml");
-    let source_path = notes_dir.join("source.org");
-    let target_path = notes_dir.join("target.org");
-
-    write_file(
-            &source_path,
-            "\
-#+TITLE: Source
-[[file:target.org::*Heading]]
-[[file:target.org::*   Main Index   ]]
-[[file:target.org::*ärger]]
-[[file:target.org::*\\[2026-07-01 Wed\\] Implement deterministic link resolution pass after rebuild]]
-[[file:target.org::*Missing]]
-[[file:target.org::*Duplicate]]
-[[file:target.org::#custom-id]]
-",
-        );
-    write_file(
-        &target_path,
-        "\
-#+TITLE: Target
-* TODO [#A] Heading :tag:
-* Main index
-* Ärger
-* [2026-07-01 Wed] Implement deterministic link resolution pass after rebuild
-* Duplicate
-* Duplicate
-",
-    );
-    write_config(
-        &config_path,
-        r#"
-db_path = "db.sqlite"
-
-[[dirs]]
-path = "notes"
-recursive = true
-
-[search]
-fts5_enabled = false
-index_body_text = false
-"#,
-    );
-
-    Indexer::new(OrgizeAdapter::new())
-        .rebuild_from_config_path(&config_path)
-        .expect("rebuild should succeed");
-
-    let connection = Connection::open(&db_path).expect("db should open");
-    let rows: Vec<FileHeadingSearchResolutionRow> = query_rows(
-        &connection,
-        "SELECT
-                 links.raw,
-                 target_files.path,
-                 target_headings.title,
-                 links.search_option,
-                 links.resolution_status,
-                 links.resolution_diagnostic
-             FROM links
-             LEFT JOIN files AS target_files ON target_files.id = links.target_file_id
-             LEFT JOIN headings AS target_headings ON target_headings.id = links.target_heading_id
-             ORDER BY links.byte_start",
-        |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-                row.get(5)?,
-            ))
-        },
-    );
-
-    assert_eq!(
-            rows,
-            vec![
-                (
-                    "[[file:target.org::*Heading]]".to_string(),
-                    Some(target_path.to_string_lossy().to_string()),
-                    Some("Heading".to_string()),
-                    Some("*Heading".to_string()),
-                    Some("resolved".to_string()),
-                    None,
-                ),
-                (
-                    "[[file:target.org::*   Main Index   ]]".to_string(),
-                    Some(target_path.to_string_lossy().to_string()),
-                    Some("Main index".to_string()),
-                    Some("*   Main Index   ".to_string()),
-                    Some("resolved".to_string()),
-                    None,
-                ),
-                (
-                    "[[file:target.org::*ärger]]".to_string(),
-                    Some(target_path.to_string_lossy().to_string()),
-                    Some("Ärger".to_string()),
-                    Some("*ärger".to_string()),
-                    Some("resolved".to_string()),
-                    None,
-                ),
-                (
-                    "[[file:target.org::*\\[2026-07-01 Wed\\] Implement deterministic link resolution pass after rebuild]]".to_string(),
-                    Some(target_path.to_string_lossy().to_string()),
-                    Some(
-                        "[2026-07-01 Wed] Implement deterministic link resolution pass after rebuild"
-                            .to_string(),
-                    ),
-                    Some(
-                        "*[2026-07-01 Wed] Implement deterministic link resolution pass after rebuild"
-                            .to_string(),
-                    ),
-                    Some("resolved".to_string()),
-                    None,
-                ),
-                (
-                    "[[file:target.org::*Missing]]".to_string(),
-                    Some(target_path.to_string_lossy().to_string()),
-                    None,
-                    Some("*Missing".to_string()),
-                    Some("broken".to_string()),
-                    Some(HEADING_TITLE_MISSING_DIAGNOSTIC.to_string()),
-                ),
-                (
-                    "[[file:target.org::*Duplicate]]".to_string(),
-                    Some(target_path.to_string_lossy().to_string()),
-                    Some("Duplicate".to_string()),
-                    Some("*Duplicate".to_string()),
-                    Some("resolved".to_string()),
-                    None,
-                ),
-                (
-                    "[[file:target.org::#custom-id]]".to_string(),
-                    Some(target_path.to_string_lossy().to_string()),
-                    None,
-                    Some("#custom-id".to_string()),
-                    Some("broken".to_string()),
-                    Some(CUSTOM_ID_MISSING_DIAGNOSTIC.to_string()),
-                ),
-            ]
-        );
-}
-
-#[test]
-fn rebuild_resolves_file_only_links_to_synthetic_root_headings() {
-    let test_dir = TestDir::new("file-only-root-heading-resolution");
-    let notes_dir = test_dir.path().join("notes");
-    let external_dir = test_dir.path().join("external");
-    let db_path = test_dir.path().join("db.sqlite");
-    let config_path = test_dir.path().join("config.toml");
-    let source_path = notes_dir.join("source.org");
-    let target_path = notes_dir.join("target.org");
-    let child_path = notes_dir.join("child").join("child.org");
-    let external_path = external_dir.join("outside.org");
 
     write_file(
         &source_path,
         &format!(
             "\
 #+TITLE: Source
+[[id:foo]]
+<id:angle-id>
+[[id: padded ][Description]]
+[[id:missing]]
 [[file:target.org]]
-[[./target.org]]
-[[file:child/child.org]]
-<file:target.org>
-file:target.org
-[[{}]]
-[[file:target.org::*Explicit heading]]
+[[file:target.org::*Heading]]
 [[file:target.org::#custom-id]]
-[[file:missing.org]]
+[[../parent.org]]
+[[./missing.org]]
+[[{}]]
+[[*Local]]
+[[#local-id]]
+* Local
+:PROPERTIES:
+:CUSTOM_ID: local-id
+:END:
 ",
             external_path.to_string_lossy()
         ),
@@ -4072,407 +3761,26 @@ file:target.org
         &target_path,
         "\
 #+TITLE: Target
-* Explicit heading
-:PROPERTIES:
-:CUSTOM_ID: custom-id
-:END:
-",
-    );
-    write_file(
-        &child_path,
-        "\
-#+TITLE: Child
-",
-    );
-    write_file(
-        &external_path,
-        "\
-#+TITLE: External
-",
-    );
-    write_config(
-        &config_path,
-        r#"
-db_path = "db.sqlite"
-
-[[dirs]]
-path = "notes"
-recursive = true
-
-[search]
-fts5_enabled = false
-index_body_text = false
-"#,
-    );
-
-    Indexer::new(OrgizeAdapter::new())
-        .rebuild_from_config_path(&config_path)
-        .expect("rebuild should succeed");
-
-    let connection = Connection::open(&db_path).expect("db should open");
-    let rows: Vec<FileOnlyRootResolutionRow> = query_rows(
-        &connection,
-        "SELECT
-                 links.raw,
-                 target_files.path,
-                 target_headings.title,
-                 links.resolution_status,
-                 links.resolution_diagnostic
-             FROM links
-             LEFT JOIN files AS target_files ON target_files.id = links.target_file_id
-             LEFT JOIN headings AS target_headings ON target_headings.id = links.target_heading_id
-             ORDER BY links.byte_start",
-        |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-            ))
-        },
-    );
-
-    assert_eq!(
-        rows,
-        vec![
-            (
-                "[[file:target.org]]".to_string(),
-                Some(target_path.to_string_lossy().to_string()),
-                Some("Target".to_string()),
-                Some("resolved".to_string()),
-                None,
-            ),
-            (
-                "[[./target.org]]".to_string(),
-                Some(target_path.to_string_lossy().to_string()),
-                Some("Target".to_string()),
-                Some("resolved".to_string()),
-                None,
-            ),
-            (
-                "[[file:child/child.org]]".to_string(),
-                Some(child_path.to_string_lossy().to_string()),
-                Some("Child".to_string()),
-                Some("resolved".to_string()),
-                None,
-            ),
-            (
-                "<file:target.org>".to_string(),
-                Some(target_path.to_string_lossy().to_string()),
-                Some("Target".to_string()),
-                Some("resolved".to_string()),
-                None,
-            ),
-            (
-                "file:target.org".to_string(),
-                Some(target_path.to_string_lossy().to_string()),
-                Some("Target".to_string()),
-                Some("resolved".to_string()),
-                None,
-            ),
-            (
-                format!("[[{}]]", external_path.to_string_lossy()),
-                None,
-                None,
-                Some("unresolved".to_string()),
-                Some(FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC.to_string()),
-            ),
-            (
-                "[[file:target.org::*Explicit heading]]".to_string(),
-                Some(target_path.to_string_lossy().to_string()),
-                Some("Explicit heading".to_string()),
-                Some("resolved".to_string()),
-                None,
-            ),
-            (
-                "[[file:target.org::#custom-id]]".to_string(),
-                Some(target_path.to_string_lossy().to_string()),
-                Some("Explicit heading".to_string()),
-                Some("resolved".to_string()),
-                None,
-            ),
-            (
-                "[[file:missing.org]]".to_string(),
-                None,
-                None,
-                Some("broken".to_string()),
-                Some(FILE_MISSING_DIAGNOSTIC.to_string()),
-            ),
-        ]
-    );
-}
-
-#[test]
-fn rebuild_resolves_file_context_custom_id_links() {
-    let test_dir = TestDir::new("file-context-custom-id-resolution");
-    let notes_dir = test_dir.path().join("notes");
-    let db_path = test_dir.path().join("db.sqlite");
-    let config_path = test_dir.path().join("config.toml");
-    let source_path = notes_dir.join("source.org");
-    let target_path = notes_dir.join("target.org");
-
-    write_file(
-        &source_path,
-        "\
-#+TITLE: Source
-[[file:target.org::#custom-id]]
-[[file:target.org::# Custom-ID ][Description]]
-[[file:target.org::# abc ]]
-[[file:target.org::# ab]]
-[[./target.org::#dup]]
-<file:target.org::#angle-id>
-file:target.org::#plain-id
-[[file:target.org::#missing]]
-[[file:missing.org::#custom-id]]
-",
-    );
-    write_file(
-        &target_path,
-        "\
-#+TITLE: Target
-* Target heading
-:PROPERTIES:
-:CUSTOM_ID: custom-id
-:END:
-* Spaced target
-:PROPERTIES:
-:CUSTOM_ID:  abc 
-:END:
-* First duplicate
-:PROPERTIES:
-:CUSTOM_ID: dup
-:END:
-* Second duplicate
-:PROPERTIES:
-:CUSTOM_ID: DUP
-:END:
-* Angle heading
-:PROPERTIES:
-:CUSTOM_ID: angle-id
-:END:
-* Plain heading
-:PROPERTIES:
-:CUSTOM_ID: plain-id
-:END:
-",
-    );
-    write_config(
-        &config_path,
-        r#"
-db_path = "db.sqlite"
-
-[[dirs]]
-path = "notes"
-recursive = true
-
-[search]
-fts5_enabled = false
-index_body_text = false
-"#,
-    );
-
-    Indexer::new(OrgizeAdapter::new())
-        .rebuild_from_config_path(&config_path)
-        .expect("rebuild should succeed");
-
-    let connection = Connection::open(&db_path).expect("db should open");
-    let rows: Vec<FileContextCustomIdResolutionRow> = query_rows(
-        &connection,
-        "SELECT
-                 links.raw,
-                 target_files.path,
-                 target_headings.title,
-                 links.raw_description,
-                 links.target_custom_id,
-                 links.resolution_status,
-                 links.resolution_diagnostic
-             FROM links
-             LEFT JOIN files AS target_files ON target_files.id = links.target_file_id
-             LEFT JOIN headings AS target_headings ON target_headings.id = links.target_heading_id
-             ORDER BY links.byte_start",
-        |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-                row.get(5)?,
-                row.get(6)?,
-            ))
-        },
-    );
-
-    assert_eq!(
-        rows,
-        vec![
-            (
-                "[[file:target.org::#custom-id]]".to_string(),
-                Some(target_path.to_string_lossy().to_string()),
-                Some("Target heading".to_string()),
-                None,
-                Some("custom-id".to_string()),
-                Some("resolved".to_string()),
-                None,
-            ),
-            (
-                "[[file:target.org::# Custom-ID ][Description]]".to_string(),
-                Some(target_path.to_string_lossy().to_string()),
-                Some("Target heading".to_string()),
-                Some("Description".to_string()),
-                Some("Custom-ID".to_string()),
-                Some("resolved".to_string()),
-                None,
-            ),
-            (
-                "[[file:target.org::# abc ]]".to_string(),
-                Some(target_path.to_string_lossy().to_string()),
-                Some("Spaced target".to_string()),
-                None,
-                Some("abc".to_string()),
-                Some("resolved".to_string()),
-                None,
-            ),
-            (
-                "[[file:target.org::# ab]]".to_string(),
-                Some(target_path.to_string_lossy().to_string()),
-                None,
-                None,
-                Some("ab".to_string()),
-                Some("broken".to_string()),
-                Some(CUSTOM_ID_MISSING_DIAGNOSTIC.to_string()),
-            ),
-            (
-                "[[./target.org::#dup]]".to_string(),
-                Some(target_path.to_string_lossy().to_string()),
-                Some("First duplicate".to_string()),
-                None,
-                Some("dup".to_string()),
-                Some("resolved".to_string()),
-                None,
-            ),
-            (
-                "<file:target.org::#angle-id>".to_string(),
-                Some(target_path.to_string_lossy().to_string()),
-                Some("Angle heading".to_string()),
-                None,
-                Some("angle-id".to_string()),
-                Some("resolved".to_string()),
-                None,
-            ),
-            (
-                "file:target.org::#plain-id".to_string(),
-                Some(target_path.to_string_lossy().to_string()),
-                Some("Plain heading".to_string()),
-                None,
-                Some("plain-id".to_string()),
-                Some("resolved".to_string()),
-                None,
-            ),
-            (
-                "[[file:target.org::#missing]]".to_string(),
-                Some(target_path.to_string_lossy().to_string()),
-                None,
-                None,
-                Some("missing".to_string()),
-                Some("broken".to_string()),
-                Some(CUSTOM_ID_MISSING_DIAGNOSTIC.to_string()),
-            ),
-            (
-                "[[file:missing.org::#custom-id]]".to_string(),
-                None,
-                None,
-                None,
-                None,
-                Some("broken".to_string()),
-                Some(FILE_MISSING_DIAGNOSTIC.to_string()),
-            ),
-        ]
-    );
-}
-
-#[test]
-fn rebuild_resolves_org_id_links() {
-    let test_dir = TestDir::new("org-id-resolution");
-    let notes_dir = test_dir.path().join("notes");
-    let db_path = test_dir.path().join("db.sqlite");
-    let config_path = test_dir.path().join("config.toml");
-    let source_path = notes_dir.join("source.org");
-    let target_a_path = notes_dir.join("target-a.org");
-    let target_b_path = notes_dir.join("target-b.org");
-    let target_c_path = notes_dir.join("target-c.org");
-
-    write_file(
-        &source_path,
-        "\
-#+TITLE: Source
-id:foo
-[[id: FOO ][Description]]
-[[id:123 56 ]]
-[[id: 23]]
-[[id: ab]]
-[[id:ab ]]
-<id:angle-id>
-id:dup
-[[id:missing]]
-",
-    );
-    write_file(
-        &target_a_path,
-        "\
-#+TITLE: Target A
-* Exact target
+* Heading
 :PROPERTIES:
 :ID: foo
+:CUSTOM_ID: custom-id
 :END:
-* Spaced tail target
-:PROPERTIES:
-:ID: 123 56 
-:END:
-* Spaced head target
-:PROPERTIES:
-:ID:  23
-:END:
-* Angle target
+* Angle
 :PROPERTIES:
 :ID: angle-id
 :END:
-",
-    );
-    write_file(
-        &target_b_path,
-        "\
-#+TITLE: Target B
-* First duplicate
+* Padded
 :PROPERTIES:
-:ID: dup
+:ID:  padded 
 :END:
 ",
     );
-    write_file(
-        &target_c_path,
-        "\
-#+TITLE: Target C
-* Second duplicate
-:PROPERTIES:
-:ID: DUP
-:END:
-",
-    );
+    write_file(&parent_path, "* Parent\n");
+    write_file(&external_path, "* External\n");
     write_config(
         &config_path,
-        r#"
-db_path = "db.sqlite"
-
-[[dirs]]
-path = "notes"
-recursive = true
-
-[search]
-fts5_enabled = false
-index_body_text = false
-"#,
+        "db_path = \"db.sqlite\"\nfiles = [\"parent.org\"]\n\n[[dirs]]\npath = \"notes\"\nrecursive = true\n\n[search]\nfts5_enabled = false\nindex_body_text = false\n",
     );
 
     Indexer::new(OrgizeAdapter::new())
@@ -4480,16 +3788,10 @@ index_body_text = false
         .expect("rebuild should succeed");
 
     let connection = Connection::open(&db_path).expect("db should open");
-    let rows: Vec<OrgIdResolutionRow> = query_rows(
+    let rows: Vec<LinkSmokeRow> = query_rows(
         &connection,
-        "SELECT
-                 links.raw,
-                 target_files.path,
-                 target_headings.title,
-                 links.raw_description,
-                 links.target_id,
-                 links.resolution_status,
-                 links.resolution_diagnostic
+        "SELECT links.raw, links.resolution_status, target_files.path,
+                    target_headings.title, links.resolution_diagnostic
              FROM links
              LEFT JOIN files AS target_files ON target_files.id = links.target_file_id
              LEFT JOIN headings AS target_headings ON target_headings.id = links.target_heading_id
@@ -4501,421 +3803,99 @@ index_body_text = false
                 row.get(2)?,
                 row.get(3)?,
                 row.get(4)?,
-                row.get(5)?,
-                row.get(6)?,
             ))
         },
     );
 
+    let target = Some(target_path.to_string_lossy().to_string());
+    let source = Some(source_path.to_string_lossy().to_string());
+    let resolved = Some("resolved".to_string());
     assert_eq!(
         rows,
         vec![
             (
-                "id:foo".to_string(),
-                Some(target_a_path.to_string_lossy().to_string()),
-                Some("Exact target".to_string()),
+                "[[id:foo]]".to_string(),
+                resolved.clone(),
+                target.clone(),
+                Some("Heading".to_string()),
                 None,
-                Some("foo".to_string()),
-                Some("resolved".to_string()),
-                None,
-            ),
-            (
-                "[[id: FOO ][Description]]".to_string(),
-                Some(target_a_path.to_string_lossy().to_string()),
-                Some("Exact target".to_string()),
-                Some("Description".to_string()),
-                Some("FOO".to_string()),
-                Some("resolved".to_string()),
-                None,
-            ),
-            (
-                "[[id:123 56 ]]".to_string(),
-                Some(target_a_path.to_string_lossy().to_string()),
-                Some("Spaced tail target".to_string()),
-                None,
-                Some("123 56".to_string()),
-                Some("resolved".to_string()),
-                None,
-            ),
-            (
-                "[[id: 23]]".to_string(),
-                Some(target_a_path.to_string_lossy().to_string()),
-                Some("Spaced head target".to_string()),
-                None,
-                Some("23".to_string()),
-                Some("resolved".to_string()),
-                None,
-            ),
-            (
-                "[[id: ab]]".to_string(),
-                None,
-                None,
-                None,
-                Some("ab".to_string()),
-                Some("unresolved".to_string()),
-                Some(ID_MISSING_DIAGNOSTIC.to_string()),
-            ),
-            (
-                "[[id:ab ]]".to_string(),
-                None,
-                None,
-                None,
-                Some("ab".to_string()),
-                Some("unresolved".to_string()),
-                Some(ID_MISSING_DIAGNOSTIC.to_string()),
             ),
             (
                 "<id:angle-id>".to_string(),
-                Some(target_a_path.to_string_lossy().to_string()),
-                Some("Angle target".to_string()),
-                None,
-                Some("angle-id".to_string()),
-                Some("resolved".to_string()),
+                resolved.clone(),
+                target.clone(),
+                Some("Angle".to_string()),
                 None,
             ),
             (
-                "id:dup".to_string(),
+                "[[id: padded ][Description]]".to_string(),
+                resolved.clone(),
+                target.clone(),
+                Some("Padded".to_string()),
                 None,
-                None,
-                None,
-                Some("dup".to_string()),
-                Some("ambiguous".to_string()),
-                Some(DUPLICATE_ID_DIAGNOSTIC.to_string()),
             ),
             (
                 "[[id:missing]]".to_string(),
-                None,
-                None,
-                None,
-                Some("missing".to_string()),
                 Some("unresolved".to_string()),
+                None,
+                None,
                 Some(ID_MISSING_DIAGNOSTIC.to_string()),
             ),
-        ]
-    );
-}
-
-#[test]
-fn rebuild_resolves_same_file_fuzzy_star_heading_links() {
-    let test_dir = TestDir::new("same-file-fuzzy-star-heading-resolution");
-    let notes_dir = test_dir.path().join("notes");
-    let db_path = test_dir.path().join("db.sqlite");
-    let config_path = test_dir.path().join("config.toml");
-    let source_path = notes_dir.join("source.org");
-
-    write_file(
-        &source_path,
-        "\
-#+TITLE: Source
-[[*Heading]]
-[[*Heading][Description]]
-[[*   Peer heading   ]]
-[[*ärger]]
-[[*\\[2026-07-01 Wed\\] Implement deterministic link resolution pass after rebuild]]
-[[*Missing]]
-[[*Duplicate]]
-[[Heading]]
-* TODO [#A] Heading :tag:
-* Peer Heading
-* Ärger
-* [2026-07-01 Wed] Implement deterministic link resolution pass after rebuild
-* Duplicate
-* Duplicate
-",
-    );
-    write_config(
-        &config_path,
-        r#"
-db_path = "db.sqlite"
-
-[[dirs]]
-path = "notes"
-recursive = true
-
-[search]
-fts5_enabled = false
-index_body_text = false
-"#,
-    );
-
-    Indexer::new(OrgizeAdapter::new())
-        .rebuild_from_config_path(&config_path)
-        .expect("rebuild should succeed");
-
-    let connection = Connection::open(&db_path).expect("db should open");
-    let rows: Vec<SameFileStarHeadingResolutionRow> = query_rows(
-        &connection,
-        "SELECT
-                 links.raw,
-                 target_files.path,
-                 target_headings.title,
-                 links.raw_description,
-                 links.resolution_status,
-                 links.resolution_diagnostic,
-                 links.search_option
-             FROM links
-             LEFT JOIN files AS target_files ON target_files.id = links.target_file_id
-             LEFT JOIN headings AS target_headings ON target_headings.id = links.target_heading_id
-             ORDER BY links.byte_start",
-        |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-                row.get(5)?,
-                row.get(6)?,
-            ))
-        },
-    );
-
-    assert_eq!(
-            rows,
-            vec![
-                (
-                    "[[*Heading]]".to_string(),
-                    Some(source_path.to_string_lossy().to_string()),
-                    Some("Heading".to_string()),
-                    None,
-                    Some("resolved".to_string()),
-                    None,
-                    None,
-                ),
-                (
-                    "[[*Heading][Description]]".to_string(),
-                    Some(source_path.to_string_lossy().to_string()),
-                    Some("Heading".to_string()),
-                    Some("Description".to_string()),
-                    Some("resolved".to_string()),
-                    None,
-                    None,
-                ),
-                (
-                    "[[*   Peer heading   ]]".to_string(),
-                    Some(source_path.to_string_lossy().to_string()),
-                    Some("Peer Heading".to_string()),
-                    None,
-                    Some("resolved".to_string()),
-                    None,
-                    None,
-                ),
-                (
-                    "[[*ärger]]".to_string(),
-                    Some(source_path.to_string_lossy().to_string()),
-                    Some("Ärger".to_string()),
-                    None,
-                    Some("resolved".to_string()),
-                    None,
-                    None,
-                ),
-                (
-                    "[[*\\[2026-07-01 Wed\\] Implement deterministic link resolution pass after rebuild]]"
-                        .to_string(),
-                    Some(source_path.to_string_lossy().to_string()),
-                    Some(
-                        "[2026-07-01 Wed] Implement deterministic link resolution pass after rebuild"
-                            .to_string(),
-                    ),
-                    None,
-                    Some("resolved".to_string()),
-                    None,
-                    None,
-                ),
-                (
-                    "[[*Missing]]".to_string(),
-                    Some(source_path.to_string_lossy().to_string()),
-                    None,
-                    None,
-                    Some("broken".to_string()),
-                    Some(SAME_FILE_STAR_HEADING_MISSING_DIAGNOSTIC.to_string()),
-                    None,
-                ),
-                (
-                    "[[*Duplicate]]".to_string(),
-                    Some(source_path.to_string_lossy().to_string()),
-                    Some("Duplicate".to_string()),
-                    None,
-                    Some("resolved".to_string()),
-                    None,
-                    None,
-                ),
-                (
-                    "[[Heading]]".to_string(),
-                    None,
-                    None,
-                    None,
-                    Some("unsupported".to_string()),
-                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
-                    None,
-                ),
-            ]
-        );
-}
-
-#[test]
-fn rebuild_resolves_same_file_custom_id_links() {
-    let test_dir = TestDir::new("same-file-fuzzy-custom-id-resolution");
-    let notes_dir = test_dir.path().join("notes");
-    let db_path = test_dir.path().join("db.sqlite");
-    let config_path = test_dir.path().join("config.toml");
-    let source_path = notes_dir.join("source.org");
-
-    write_file(
-        &source_path,
-        "\
-#+TITLE: Source
-[[#custom-id]]
-[[# Custom-ID ][Description]]
-[[#abc ]]
-[[# abc]]
-[[# ab]]
-[[#dup]]
-[[#missing]]
-[[Heading]]
-* Target heading
-:PROPERTIES:
-:CUSTOM_ID: custom-id
-:END:
-* Spaced tail target
-:PROPERTIES:
-:CUSTOM_ID: abc 
-:END:
-* Spaced head target
-:PROPERTIES:
-:CUSTOM_ID:  abc
-:END:
-* First duplicate
-:PROPERTIES:
-:CUSTOM_ID: dup
-:END:
-* Second duplicate
-:PROPERTIES:
-:CUSTOM_ID: DUP
-:END:
-",
-    );
-    write_config(
-        &config_path,
-        r#"
-db_path = "db.sqlite"
-
-[[dirs]]
-path = "notes"
-recursive = true
-
-[search]
-fts5_enabled = false
-index_body_text = false
-"#,
-    );
-
-    Indexer::new(OrgizeAdapter::new())
-        .rebuild_from_config_path(&config_path)
-        .expect("rebuild should succeed");
-
-    let connection = Connection::open(&db_path).expect("db should open");
-    let rows: Vec<SameFileCustomIdResolutionRow> = query_rows(
-        &connection,
-        "SELECT
-                 links.raw,
-                 target_files.path,
-                 target_headings.title,
-                 links.raw_description,
-                 links.target_custom_id,
-                 links.resolution_status,
-                 links.resolution_diagnostic
-             FROM links
-             LEFT JOIN files AS target_files ON target_files.id = links.target_file_id
-             LEFT JOIN headings AS target_headings ON target_headings.id = links.target_heading_id
-             ORDER BY links.byte_start",
-        |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-                row.get(5)?,
-                row.get(6)?,
-            ))
-        },
-    );
-
-    assert_eq!(
-        rows,
-        vec![
             (
-                "[[#custom-id]]".to_string(),
-                Some(source_path.to_string_lossy().to_string()),
-                Some("Target heading".to_string()),
-                None,
-                Some("custom-id".to_string()),
-                Some("resolved".to_string()),
+                "[[file:target.org]]".to_string(),
+                resolved.clone(),
+                target.clone(),
+                Some("Target".to_string()),
                 None,
             ),
             (
-                "[[# Custom-ID ][Description]]".to_string(),
-                Some(source_path.to_string_lossy().to_string()),
-                Some("Target heading".to_string()),
-                Some("Description".to_string()),
-                Some("Custom-ID".to_string()),
-                Some("resolved".to_string()),
+                "[[file:target.org::*Heading]]".to_string(),
+                resolved.clone(),
+                target.clone(),
+                Some("Heading".to_string()),
                 None,
             ),
             (
-                "[[#abc ]]".to_string(),
-                Some(source_path.to_string_lossy().to_string()),
-                Some("Spaced tail target".to_string()),
-                None,
-                Some("abc".to_string()),
-                Some("resolved".to_string()),
+                "[[file:target.org::#custom-id]]".to_string(),
+                resolved.clone(),
+                target.clone(),
+                Some("Heading".to_string()),
                 None,
             ),
             (
-                "[[# abc]]".to_string(),
-                Some(source_path.to_string_lossy().to_string()),
-                Some("Spaced tail target".to_string()),
-                None,
-                Some("abc".to_string()),
-                Some("resolved".to_string()),
+                "[[../parent.org]]".to_string(),
+                resolved.clone(),
+                Some(parent_path.to_string_lossy().to_string()),
+                Some("parent".to_string()),
                 None,
             ),
             (
-                "[[# ab]]".to_string(),
-                Some(source_path.to_string_lossy().to_string()),
-                None,
-                None,
-                Some("ab".to_string()),
+                "[[./missing.org]]".to_string(),
                 Some("broken".to_string()),
-                Some(CUSTOM_ID_MISSING_DIAGNOSTIC.to_string()),
+                None,
+                None,
+                Some(FILE_MISSING_DIAGNOSTIC.to_string()),
             ),
             (
-                "[[#dup]]".to_string(),
-                Some(source_path.to_string_lossy().to_string()),
-                Some("First duplicate".to_string()),
+                format!("[[{}]]", external_path.to_string_lossy()),
+                Some("unresolved".to_string()),
                 None,
-                Some("dup".to_string()),
-                Some("resolved".to_string()),
+                None,
+                Some(FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC.to_string()),
+            ),
+            (
+                "[[*Local]]".to_string(),
+                resolved.clone(),
+                source.clone(),
+                Some("Local".to_string()),
                 None,
             ),
             (
-                "[[#missing]]".to_string(),
-                Some(source_path.to_string_lossy().to_string()),
+                "[[#local-id]]".to_string(),
+                resolved,
+                source,
+                Some("Local".to_string()),
                 None,
-                None,
-                Some("missing".to_string()),
-                Some("broken".to_string()),
-                Some(CUSTOM_ID_MISSING_DIAGNOSTIC.to_string()),
-            ),
-            (
-                "[[Heading]]".to_string(),
-                None,
-                None,
-                None,
-                None,
-                Some("unsupported".to_string()),
-                Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
             ),
         ]
     );
