@@ -4,6 +4,8 @@ This file records completed changes.
 
 * Unreleased
 
+- =CHANGED= The parser contract version (~PARSER_INDEXER_CONTRACT_VERSION~) was bumped to ~2~, so existing databases reparse all files on the next incremental or watch run; a guard test (~tests/parser_contract_guard.rs~) now enforces bumps when parsed fixture output changes.
+
 - =FIXED= Case-insensitive query predicates (~title~, ~has-text~, ~outline-contains~, ~outline-sequence~, ~keyword~, file and link text predicates) now use Unicode lowercase folding instead of ASCII-only folding, so ~"über"~ matches ~Über~.
 
 - =FIXED= Planning fallback parsing no longer treats links like ~[[file:a/b.org]]~ as timestamps and keeps time ranges such as ~10:00-11:00~ when a repeater deadline like ~+1w/2d~ is present. Rebuild existing databases to refresh affected planning data.

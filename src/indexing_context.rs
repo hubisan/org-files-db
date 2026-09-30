@@ -25,7 +25,7 @@ use crate::{
 pub(crate) const INDEXING_SEMANTICS_CONTRACT_VERSION: &str = "1";
 pub(crate) const INDEXING_DISCOVERY_CONTRACT_VERSION: &str = "1";
 pub(crate) const INDEXING_DERIVED_SEARCH_CONTRACT_VERSION: &str = "1";
-const PARSER_INDEXER_CONTRACT_VERSION: &str = "1";
+pub(crate) const PARSER_INDEXER_CONTRACT_VERSION: &str = "2";
 
 /// The work a later incremental caller must perform before trusting unchanged
 /// source snapshots.
@@ -227,9 +227,13 @@ fn valid_fingerprint(value: &str) -> bool {
 }
 
 fn semantics_fingerprint(config: &Config) -> String {
+    semantics_fingerprint_with_parser_version(config, PARSER_INDEXER_CONTRACT_VERSION)
+}
+
+fn semantics_fingerprint_with_parser_version(config: &Config, parser_version: &str) -> String {
     let mut encoder = FingerprintEncoder::new("indexing-semantics");
     encoder.string("contract", INDEXING_SEMANTICS_CONTRACT_VERSION);
-    encoder.string("parser-indexer-contract", PARSER_INDEXER_CONTRACT_VERSION);
+    encoder.string("parser-indexer-contract", parser_version);
     encoder.todo_keywords("default-open-todo", &config.todo.default_open_keywords);
     encoder.todo_keywords("default-closed-todo", &config.todo.default_closed_keywords);
     encoder.string_set("plain-link-protocols", &config.links.plain_protocols);
@@ -461,6 +465,23 @@ mod tests {
                 IndexingContextComparison::Invalidations(IndexInvalidationSet::REPARSE_ALL_FILES)
             );
         }
+    }
+
+    #[test]
+    fn parser_contract_version_change_requires_reparsing() {
+        let config = Config::default();
+        let (connection, _) = persisted(&config, true);
+        let mut older = IndexingContext::from_config(&config, true);
+        older.semantics_fingerprint =
+            super::semantics_fingerprint_with_parser_version(&config, "1");
+        assert_ne!(
+            older.semantics_fingerprint,
+            IndexingContext::from_config(&config, true).semantics_fingerprint
+        );
+        assert_eq!(
+            older.compare(&connection).expect("comparison should work"),
+            IndexingContextComparison::Invalidations(IndexInvalidationSet::REPARSE_ALL_FILES)
+        );
     }
 
     #[test]
