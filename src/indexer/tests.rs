@@ -1,4 +1,3 @@
-
 use super::{
     capture_stable_source_with, discover_org_files, ChangeApplicationRejection,
     ChangeApplicationResult, ChangePlanningOptions, ChangePlanningResult, DiscoveredOrgFile,
