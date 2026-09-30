@@ -147,7 +147,6 @@ pub(crate) struct HeadingBodyRecord {
     pub body_byte_end: Option<i64>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LinkRecord {
     pub id: Option<i64>,
@@ -363,7 +362,6 @@ impl DbWriter {
             })
     }
 
-    #[allow(dead_code)]
     pub(crate) fn delete_file_data(
         connection: &Connection,
         file_id: i64,
@@ -383,7 +381,6 @@ impl DbWriter {
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub(crate) fn delete_file(connection: &Connection, file_id: i64) -> Result<(), DbWriteError> {
         connection
             .execute("DELETE FROM files WHERE id = ?1", [file_id])
@@ -698,7 +695,6 @@ impl DbWriter {
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub(crate) fn insert_links(
         connection: &Connection,
         rows: &[LinkRecord],

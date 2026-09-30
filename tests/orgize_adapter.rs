@@ -2129,3 +2129,38 @@ fn planning_fallback_keeps_single_time_with_repeater_deadline() {
     assert!(scheduled.end_ts.is_none());
     assert_eq!(scheduled.modifiers[0].repeater_deadline_value, Some(2));
 }
+
+fn parse_single_heading_for_tags(line: &str) -> (String, Vec<String>) {
+    let content = format!("{line}\nBody.\n");
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/tag-chars.org"),
+            &content,
+            &ParseOptions::default(),
+        )
+        .expect("tag character fixture should parse");
+    let heading = document.headings.last().expect("heading");
+    (heading.title.clone(), heading.tags.clone())
+}
+
+#[test]
+fn orgize_adapter_keeps_invalid_tag_block_in_title() {
+    let (title, tags) = parse_single_heading_for_tags("* Title :foo/bar:");
+    assert_eq!(title, "Title :foo/bar:");
+    assert!(tags.is_empty());
+}
+
+#[test]
+fn orgize_adapter_strips_valid_org_tag_characters() {
+    let (title, tags) = parse_single_heading_for_tags("* Title :a_b@c#d%e:");
+    assert_eq!(title, "Title");
+    assert_eq!(tags, vec!["a_b@c#d%e".to_string()]);
+
+    let (title, tags) = parse_single_heading_for_tags("* Titel :Übersicht:");
+    assert_eq!(title, "Titel");
+    assert_eq!(tags, vec!["Übersicht".to_string()]);
+
+    let (title, tags) = parse_single_heading_for_tags("* Title :a:b:");
+    assert_eq!(title, "Title");
+    assert_eq!(tags, vec!["a".to_string(), "b".to_string()]);
+}

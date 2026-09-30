@@ -1002,7 +1002,38 @@ fn reject_explicit_column_filter(expression: &str, scope: &'static str) -> Resul
     if contains_unquoted_colon(expression) {
         return Err(CliError::Search(SearchError::ScopedColumnFilter { scope }));
     }
+    if !parentheses_balanced_outside_quotes(expression) {
+        return Err(CliError::Search(SearchError::ScopedUnbalancedParentheses {
+            scope,
+        }));
+    }
     Ok(())
+}
+
+/// True when unquoted parentheses never close more than they open and end balanced,
+/// so user text cannot break out of the scope wrapper.
+fn parentheses_balanced_outside_quotes(expression: &str) -> bool {
+    let mut in_quotes = false;
+    let mut depth: usize = 0;
+    let mut chars = expression.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' => {
+                if in_quotes && chars.peek() == Some(&'"') {
+                    chars.next();
+                } else {
+                    in_quotes = !in_quotes;
+                }
+            }
+            '(' if !in_quotes => depth += 1,
+            ')' if !in_quotes => match depth.checked_sub(1) {
+                Some(next) => depth = next,
+                None => return false,
+            },
+            _ => {}
+        }
+    }
+    depth == 0
 }
 
 fn contains_unquoted_colon(expression: &str) -> bool {
@@ -1500,6 +1531,9 @@ enum SearchError {
     ScopedColumnFilter {
         scope: &'static str,
     },
+    ScopedUnbalancedParentheses {
+        scope: &'static str,
+    },
     InvalidExpression {
         expression: Option<String>,
     },
@@ -1547,6 +1581,10 @@ impl fmt::Display for SearchError {
                 f,
                 "invalid SQLite FTS5 search expression: explicit column filters are not allowed with --{scope}"
             ),
+            Self::ScopedUnbalancedParentheses { scope } => write!(
+                f,
+                "invalid SQLite FTS5 search expression: unbalanced parentheses are not allowed with --{scope}"
+            ),
             Self::InvalidExpression { expression } => {
                 if let Some(expression) = expression {
                     write!(f, "invalid SQLite FTS5 search expression: {expression}")
@@ -1575,6 +1613,7 @@ impl Error for SearchError {
             | Self::IncompatibleIndexSchema
             | Self::BodyScopeUnavailable
             | Self::ScopedColumnFilter { .. }
+            | Self::ScopedUnbalancedParentheses { .. }
             | Self::InvalidExpression { .. } => None,
             Self::Inspect { source, .. } | Self::Execute { source, .. } => Some(source),
         }
@@ -3559,6 +3598,31 @@ fts5_enabled = false
         assert_eq!(title_rows.len(), 1);
         assert!(no_body_rows.is_empty());
         assert_eq!(body_rows.len(), 1);
+    }
+
+    #[test]
+    fn search_scope_cannot_be_escaped_with_parentheses() {
+        let (_test_dir, config_path, _) = build_search_fixture(
+            "search-scope-escape",
+            &[("notes.org", "* Apple\nbanana\n")],
+            true,
+        );
+        for (scope, expr) in [
+            (CliSearchScope::Title, "nomatch) OR (banana"),
+            (CliSearchScope::Body, "nomatch) OR (Apple"),
+        ] {
+            match search_json_rows(scope, expr, Some(&config_path)) {
+                Err(CliError::Search(SearchError::ScopedUnbalancedParentheses { .. })) => {}
+                other => panic!("expected usage error, got {other:?}"),
+            }
+        }
+        for (scope, expr, n) in [
+            (CliSearchScope::Title, "Apple OR (nomatch AND cherry)", 1),
+            (CliSearchScope::Body, "\"a)b\" OR banana", 1),
+        ] {
+            let rows = search_json_rows(scope, expr, Some(&config_path)).expect("valid");
+            assert_eq!(rows.len(), n);
+        }
     }
 
     #[test]
