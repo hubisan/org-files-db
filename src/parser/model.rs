@@ -197,7 +197,7 @@ pub struct ParsedLink {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ParsedHeading {
     pub file_path: PathBuf,
-    pub level: u8,
+    pub level: u32,
     pub title: String,
     pub title_raw: Option<String>,
     pub body_text: Option<String>,
@@ -221,7 +221,7 @@ pub struct ParsedHeading {
 impl ParsedHeading {
     pub fn new(
         file_path: impl Into<PathBuf>,
-        level: u8,
+        level: u32,
         title: impl Into<String>,
         byte_start: usize,
         byte_end: usize,
