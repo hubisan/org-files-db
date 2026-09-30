@@ -3,63 +3,56 @@
   "fixture": "todo-custom",
   "fact": "title|todo|todo_type",
   "category": "c",
-  "note": "Bare '* WAIT' heading: same as bare '* TODO' (org-element needs trailing text; org-entry-get and agenda treat it as a TODO state)",
+  "note": "Bare '* WAIT' heading: same as bare '* TODO' (org-element needs trailing text; org-entry-get and agenda treat it as a TODO state) (parser-risks.org, Intentional differences)",
   "scope": "^L11 "
  },
  {
   "fixture": "planning-timestamp",
-  "fact": "closed",
+  "fact": "scheduled|closed",
   "category": "c",
-  "note": "Lowercase 'scheduled:' is not planning in orgfdb (fixture pins it); Org 9.6 parses it as a planning line and, through a case-fold quirk, files the timestamp under :closed",
+  "note": "Lowercase/mixed-case planning keywords are planning lines in orgfdb as in Org, but orgfdb files each timestamp under its own keyword; org--get-time-properties matches case-insensitively yet compares with case-sensitive equal, so Org files lowercase scheduled:/deadline: under :closed (Emacs bug, see parser-risks.org Intentional differences)",
   "scope": "^L56 "
  },
  {
   "fixture": "emacs-oracle/links",
   "fact": "link\\.type",
   "category": "c",
-  "note": "file+sys:/file+emacs: keep the full scheme as link_type; Org splits :type file plus :application (query-language.org resolver section)",
+  "note": "file+sys:/file+emacs: keep the full scheme as link_type; Org splits :type file plus :application (query-language.org resolver section) (parser-risks.org, Intentional differences)",
   "text": "file\\+(sys|emacs)"
  },
  {
   "fixture": "emacs-oracle/links",
   "fact": "link\\.(type|path)",
   "category": "c",
-  "note": "Bracket link with an unregistered scheme is typed by orgfdb; Org treats unregistered schemes as fuzzy (links.custom_protocols in config.org)",
+  "note": "Bracket link with an unregistered scheme is typed by orgfdb; Org treats unregistered schemes as fuzzy (links.custom_protocols in config.org) (parser-risks.org, Intentional differences)",
   "text": "unknown:thing"
  },
  {
   "fixture": "emacs-oracle/links",
   "fact": "link-extra-in-orgfdb",
   "category": "c",
-  "note": "Links inside property drawer values are stored with source_context property_drawer (schema.sql); Org does not parse objects in property values",
+  "note": "Links inside property drawer values are stored with source_context property_drawer (schema.sql); Org does not parse objects in property values (parser-risks.org, Intentional differences)",
   "text": "property_drawer"
- },
- {
-  "fixture": "tags-priority",
-  "fact": "title|tags",
-  "category": "c",
-  "note": "Tag block with empty pieces (::a::) stays in the title; orgfdb requires every tag non-empty (parser-risks.org, Title normalization); org-element yields empty tags",
-  "scope": "^L7 "
  },
  {
   "fixture": "tags-priority",
   "fact": "priority|title",
   "category": "c",
-  "note": "Numeric priority [#10] is stored as priority (schema.sql); org-element only reads a single character cookie",
-  "scope": "^L11 "
+  "note": "Numeric priority [#10] is stored as priority (schema.sql); org-element only reads a single character cookie (parser-risks.org, Intentional differences)",
+  "scope": "^L12 "
  },
  {
   "fixture": "tags-priority",
   "fact": "title",
   "category": "c",
   "note": "org-element drops the literal word COMMENT from :raw-value even when no space or tab follows (COMMENT + NBSP is not a comment, commentedp is nil); orgfdb keeps it as title text",
-  "scope": "^L33 "
+  "scope": "^L34 "
  },
  {
   "fixture": "todo-default",
   "fact": "title|todo|todo_type",
   "category": "c",
-  "note": "Bare '* TODO' is a TODO state in orgfdb and in Org's outline/agenda regexps (org-entry-get); org-element requires trailing text",
+  "note": "Bare '* TODO' is a TODO state in orgfdb and in Org's outline/agenda regexps (org-entry-get); org-element requires trailing text (parser-risks.org, Intentional differences)",
   "scope": "^L4 "
  }
 ]

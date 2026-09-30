@@ -2232,6 +2232,33 @@ fn orgize_adapter_strips_valid_org_tag_characters() {
     assert_eq!(tags, vec!["a".to_string(), "b".to_string()]);
 }
 
+/// Expected values come from Emacs 29.3 / Org 9.6.15 (`:raw-value`); Emacs also reports the
+/// empty segments as `""` tags, orgfdb keeps only the non-empty ones.
+#[test]
+fn empty_tag_segments_are_stripped_from_title_like_org() {
+    let rows: [(&str, &str, &[&str]); 14] = [
+        ("* T ::a::", "T", &["a"]),
+        ("* T :a::b:", "T", &["a", "b"]),
+        ("* T :a::", "T", &["a"]),
+        ("* T :::", "T", &[]),
+        ("* T :a:b:   ", "T", &["a", "b"]),
+        ("* T :a: :b:", "T :a:", &["b"]),
+        ("* T :a:  :b:", "T :a:", &["b"]),
+        ("* T x :a:", "T x", &["a"]),
+        ("* T ::", "T ::", &[]),
+        ("* T : :", "T : :", &[]),
+        ("* T ::a", "T ::a", &[]),
+        ("* T :a:b", "T :a:b", &[]),
+        ("* T :a :b:", "T :a", &["b"]),
+        ("* T :a:::b:", "T", &["a", "b"]),
+    ];
+    for (line, want_title, want_tags) in rows {
+        let (title, tags) = parse_single_heading_for_tags(line);
+        assert_eq!(title, want_title, "{line:?}");
+        assert_eq!(tags, want_tags, "{line:?}");
+    }
+}
+
 fn drawer_placement_properties(content: &str) -> (Vec<String>, Vec<String>) {
     let document = OrgizeAdapter::new()
         .parse_document(

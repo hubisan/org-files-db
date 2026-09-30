@@ -26,7 +26,10 @@ pub(super) fn populate_text_planning_fallback(
         .map(|(line, _)| line)
         .unwrap_or(after_heading);
 
-    if !planning_line.contains('/') && !planning_line.contains("%%(") {
+    if !planning_line.contains('/')
+        && !planning_line.contains("%%(")
+        && !starts_with_planning_keyword(planning_line)
+    {
         return None;
     }
 
@@ -72,6 +75,20 @@ pub(super) fn populate_text_planning_fallback(
     Some(line_offset..line_end)
 }
 
+/// Org matches the planning keywords case-insensitively (`scheduled:`, `Deadline:`).
+fn strip_planning_keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
+    let head = text.get(..keyword.len())?;
+    head.eq_ignore_ascii_case(keyword)
+        .then(|| &text[keyword.len()..])
+}
+
+fn starts_with_planning_keyword(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    ["SCHEDULED:", "DEADLINE:", "CLOSED:"]
+        .iter()
+        .any(|keyword| strip_planning_keyword(trimmed, keyword).is_some())
+}
+
 fn parse_planning_fallback_entries(line: &str) -> Vec<(ParsedTimestampRole, String, usize)> {
     let mut entries = Vec::new();
     let mut offset = 0;
@@ -82,11 +99,11 @@ fn parse_planning_fallback_entries(line: &str) -> Vec<(ParsedTimestampRole, Stri
         let leading_ws = remaining.len() - trimmed.len();
         let entry_offset = offset + leading_ws;
 
-        let (role, rest) = if let Some(rest) = trimmed.strip_prefix("SCHEDULED:") {
+        let (role, rest) = if let Some(rest) = strip_planning_keyword(trimmed, "SCHEDULED:") {
             (ParsedTimestampRole::Scheduled, rest)
-        } else if let Some(rest) = trimmed.strip_prefix("DEADLINE:") {
+        } else if let Some(rest) = strip_planning_keyword(trimmed, "DEADLINE:") {
             (ParsedTimestampRole::Deadline, rest)
-        } else if let Some(rest) = trimmed.strip_prefix("CLOSED:") {
+        } else if let Some(rest) = strip_planning_keyword(trimmed, "CLOSED:") {
             (ParsedTimestampRole::Closed, rest)
         } else {
             break;
@@ -460,7 +477,7 @@ mod tests {
     #[test]
     fn planning_fallback_entries_report_role_raw_and_offset() {
         let sched = "<%%(diary-float t 42)>";
-        let rows: [(&str, Vec<Entry>); 11] = [
+        let rows: [(&str, Vec<Entry>); 13] = [
             ("", vec![]),
             ("   ", vec![]),
             ("nothing", vec![]),
@@ -489,7 +506,20 @@ mod tests {
                 vec![(Role::Scheduled, "<2024-01-01>", 11)],
             ),
             ("SCHEDULED: <2024-01-01", vec![]),
-            ("scheduled: <2024-01-01>", vec![]),
+            // Emacs 29.3 / Org 9.6.15 detects the line case-insensitively; orgfdb maps each
+            // keyword by name (Emacs itself files lowercase scheduled:/deadline: under :closed).
+            (
+                "scheduled: <2024-01-01>",
+                vec![(Role::Scheduled, "<2024-01-01>", 11)],
+            ),
+            (
+                "Deadline: <2024-01-01> closed: [2024-01-02]",
+                vec![
+                    (Role::Deadline, "<2024-01-01>", 10),
+                    (Role::Closed, "[2024-01-02]", 31),
+                ],
+            ),
+            ("sCHEDULEDx: <2024-01-01>", vec![]),
         ];
         for (line, want) in rows {
             let got = parse_planning_fallback_entries(line);

@@ -188,6 +188,28 @@ pub(super) fn restore_title_link_placeholders(
     title
 }
 
+/// Non-empty tags of the last tag block on the headline line at `start`. Org reads only that
+/// block (`* T :a: :b:` has the tag `b`); Orgize would also report the earlier `:a:`.
+pub(super) fn source_title_tags(content: &str, start: usize) -> Vec<String> {
+    let line_start = content[..start].rfind('\n').map_or(0, |offset| offset + 1);
+    let line_end = content[start..]
+        .find('\n')
+        .map_or(content.len(), |offset| start + offset);
+    let without_stars = content[line_start..line_end]
+        .trim_start_matches('*')
+        .trim_start_matches(is_org_blank);
+    let trimmed = without_stars.trim_end_matches(is_org_blank);
+    let last = trimmed.rsplit(is_org_blank).next().unwrap_or(trimmed);
+    if !is_org_tag_block(last) {
+        return Vec::new();
+    }
+    last[1..last.len() - 1]
+        .split(':')
+        .filter(|tag| !tag.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 fn strip_trailing_org_tags(value: &str) -> &str {
     let trimmed = value.trim_end_matches(is_org_blank);
     let mut parts = trimmed.rsplitn(2, is_org_blank);
@@ -200,16 +222,15 @@ fn strip_trailing_org_tags(value: &str) -> &str {
     }
 }
 
+/// Org's tag block (`:[[:alnum:]_@#%:]+:`): empty segments (`::a::`, `:a::b:`) still count, so
+/// the block is stripped from the title like `org-element` does (`:::` is a block, `::` is not).
 fn is_org_tag_block(value: &str) -> bool {
-    value.starts_with(':')
+    value.len() > 2
+        && value.starts_with(':')
         && value.ends_with(':')
-        && value.len() > 2
-        && value[1..value.len() - 1].split(':').all(|segment| {
-            !segment.is_empty()
-                && segment
-                    .chars()
-                    .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '#' | '%'))
-        })
+        && value[1..value.len() - 1]
+            .chars()
+            .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '#' | '%' | ':'))
 }
 
 #[cfg(test)]
@@ -429,8 +450,12 @@ mod tests {
             ("Title :a:\u{a0}", "Title :a:\u{a0}"),
             ("Title :a-b:", "Title :a-b:"),
             ("Title ::", "Title ::"),
-            ("Title :::", "Title :::"),
-            ("Title :a::b:", "Title :a::b:"),
+            ("Title :::", "Title"),
+            ("Title :a::b:", "Title"),
+            ("Title ::a::", "Title"),
+            ("Title :a::", "Title"),
+            ("Title : :", "Title : :"),
+            ("Title ::a", "Title ::a"),
             ("Title :a:b", "Title :a:b"),
             ("Title:a:", "Title:a:"),
             ("Title : a:", "Title : a:"),

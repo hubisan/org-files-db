@@ -53,7 +53,7 @@ SCHEDULED: <2024-11-20 Wed>
 *** Looks like planning in body
 This mentions DEADLINE: <2024-12-01 Sun> inside text.
 
-*** Lowercase is ignores as planning, becomes just a timestamp.
+*** Lowercase keyword is planning (Org matches case-insensitively)
 scheduled: <2024-11-20 Wed>
 
 *** Multiple same keyword

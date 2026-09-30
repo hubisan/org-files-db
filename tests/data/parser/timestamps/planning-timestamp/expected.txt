@@ -131,6 +131,12 @@ heading.17.timestamp_count=1
 heading.17.timestamp.0.role=body
 heading.17.timestamp.0.raw_value=<2024-12-01 Sun>
 
+heading.18.planning.scheduled_raw=<2024-11-20 Wed>
+heading.18.planning.scheduled_ts=1732060800
+heading.18.timestamp_count=1
+heading.18.timestamp.0.role=scheduled
+heading.18.timestamp.0.raw_value=<2024-11-20 Wed>
+
 heading.19.planning.scheduled_raw=<2024-11-21 Thu>
 heading.19.planning.scheduled_ts=1732147200
 heading.19.timestamp_count=2

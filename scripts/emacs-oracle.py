@@ -47,7 +47,8 @@ def emacs_facts(path):
     # Harness: orgfdb stores an empty keyword value as NULL, Emacs as "".
     d["file"]["keywords"] = [[k, v or None] for k, v in d["file"]["keywords"]]
     for h in d["headings"]:
-        h["tags"] = sorted(h["tags"])  # the tags table keeps no order
+        # The tags table keeps no order and no empty tags (Org reports "" for ::a::).
+        h["tags"] = sorted(t for t in h["tags"] if t)
     d["file"]["file_tags"] = sorted(d["file"]["file_tags"])
     return d
 
