@@ -5,8 +5,10 @@ use std::{
 
 use rusqlite::{params, Connection};
 
+mod indexed_universe;
+pub(crate) use indexed_universe::IndexedUniverse;
+
 use crate::db::DbWriteError;
-use crate::exclusions::ExclusionMatcher;
 use crate::file_identity::{display_path, FileIdentity};
 
 pub(crate) const UNSUPPORTED_DIAGNOSTIC: &str = "unsupported link type";
@@ -27,24 +29,6 @@ pub(crate) struct LinkResolver;
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct LinkResolutionReport {
     pub(crate) changed_source_paths: BTreeSet<String>,
-}
-
-#[derive(Debug)]
-pub(crate) struct IndexedUniverse {
-    global_exclusions: ExclusionMatcher,
-    globally_excluded_paths: BTreeSet<PathBuf>,
-    explicit_inclusions: BTreeSet<PathBuf>,
-    explicit_logical_paths: BTreeSet<PathBuf>,
-    file_mappings: Vec<(PathBuf, PathBuf)>,
-    root_scopes: Vec<IndexedRootScope>,
-}
-
-#[derive(Debug)]
-struct IndexedRootScope {
-    logical_root: PathBuf,
-    recursive: bool,
-    local_exclusions: ExclusionMatcher,
-    directory_mappings: Vec<(PathBuf, PathBuf)>,
 }
 
 #[derive(Debug)]
@@ -109,7 +93,7 @@ impl ResolutionIndex {
             if let Some(value) = value {
                 index
                     .global_ids
-                    .entry(unicode_lowercase(&value))
+                    .entry(value.to_lowercase())
                     .or_default()
                     .push((file_id, heading_id));
             }
@@ -135,7 +119,7 @@ impl ResolutionIndex {
             let (file_id, id, title) = row.map_err(err("link_resolver.index.titles.row"))?;
             index
                 .titles
-                .entry((file_id, unicode_lowercase(&title)))
+                .entry((file_id, title.to_lowercase()))
                 .or_default()
                 .push(id);
         }
@@ -164,7 +148,7 @@ impl ResolutionIndex {
             if let Some(value) = value {
                 index
                     .custom_ids
-                    .entry((file_id, unicode_lowercase(&value)))
+                    .entry((file_id, value.to_lowercase()))
                     .or_default()
                     .push(id);
             }
@@ -189,19 +173,19 @@ impl ResolutionIndex {
 
     fn global_id_targets(&self, target: &str) -> &[(i64, i64)] {
         self.global_ids
-            .get(&unicode_lowercase(target))
+            .get(&target.to_lowercase())
             .map_or(&[], Vec::as_slice)
     }
 
     fn headings_by_title(&self, file_id: i64, title: &str) -> &[i64] {
         self.titles
-            .get(&(file_id, unicode_lowercase(title)))
+            .get(&(file_id, title.to_lowercase()))
             .map_or(&[], Vec::as_slice)
     }
 
     fn custom_id_headings(&self, file_id: i64, target: &str) -> &[i64] {
         self.custom_ids
-            .get(&(file_id, unicode_lowercase(target)))
+            .get(&(file_id, target.to_lowercase()))
             .map_or(&[], Vec::as_slice)
     }
 
@@ -400,7 +384,7 @@ impl LinkResolver {
             return Self::resolve_same_file_fuzzy_link(connection, link, index);
         }
 
-        Self::mark_unsupported(connection, link.id)
+        Self::write_resolution(connection, link.id, Resolution::unsupported())
     }
 
     fn resolve_file_link(
@@ -416,7 +400,11 @@ impl LinkResolver {
             Path::new(&link.path),
             home_dir.as_deref(),
         ) else {
-            return Self::mark_file_path_unsupported(connection, link.id);
+            return Self::write_resolution(
+                connection,
+                link.id,
+                Resolution::file_path_unsupported(),
+            );
         };
 
         if let Some(target_file_id) = known_files.by_path.get(&path_absolute).copied() {
@@ -430,10 +418,18 @@ impl LinkResolver {
         }
 
         if indexed_universe.contains(&path_absolute) {
-            return Self::mark_broken_file(connection, link.id, &path_absolute);
+            return Self::write_resolution(
+                connection,
+                link.id,
+                Resolution::broken_file(&path_absolute),
+            );
         }
 
-        Self::mark_unresolved_file(connection, link.id, &path_absolute)
+        Self::write_resolution(
+            connection,
+            link.id,
+            Resolution::unresolved_file(&path_absolute),
+        )
     }
 
     fn resolve_same_file_fuzzy_link(
@@ -451,23 +447,25 @@ impl LinkResolver {
         }
 
         let Some(heading_title) = same_file_fuzzy_star_heading_target(link.path.as_str()) else {
-            return Self::mark_unsupported(connection, link.id);
+            return Self::write_resolution(connection, link.id, Resolution::unsupported());
         };
 
         let heading_ids = index.headings_by_title(link.source_file_id, heading_title.as_str());
         match heading_ids {
-            [target_heading_id] => Self::mark_resolved_same_file_heading(
+            [target_heading_id] => Self::write_resolution(
                 connection,
                 link.id,
-                link.source_file_id,
-                *target_heading_id,
+                Resolution::resolved_same_file_heading(link.source_file_id, *target_heading_id),
             ),
-            [] => Self::mark_broken_same_file_heading(connection, link.id, link.source_file_id),
-            [target_heading_id, ..] => Self::mark_resolved_same_file_heading(
+            [] => Self::write_resolution(
                 connection,
                 link.id,
-                link.source_file_id,
-                *target_heading_id,
+                Resolution::broken_same_file_heading(link.source_file_id),
+            ),
+            [target_heading_id, ..] => Self::write_resolution(
+                connection,
+                link.id,
+                Resolution::resolved_same_file_heading(link.source_file_id, *target_heading_id),
             ),
         }
     }
@@ -490,25 +488,28 @@ impl LinkResolver {
     ) -> Result<(), DbWriteError> {
         let heading_ids = index.custom_id_headings(link.source_file_id, custom_id_target);
         match heading_ids {
-            [target_heading_id] => Self::mark_resolved_same_file_custom_id(
+            [target_heading_id] => Self::write_resolution(
                 connection,
                 link.id,
-                link.source_file_id,
-                *target_heading_id,
-                custom_id_target,
+                Resolution::resolved_same_file_custom_id(
+                    link.source_file_id,
+                    *target_heading_id,
+                    custom_id_target,
+                ),
             ),
-            [] => Self::mark_broken_same_file_custom_id(
+            [] => Self::write_resolution(
                 connection,
                 link.id,
-                link.source_file_id,
-                custom_id_target,
+                Resolution::broken_same_file_custom_id(link.source_file_id, custom_id_target),
             ),
-            [target_heading_id, ..] => Self::mark_resolved_same_file_custom_id(
+            [target_heading_id, ..] => Self::write_resolution(
                 connection,
                 link.id,
-                link.source_file_id,
-                *target_heading_id,
-                custom_id_target,
+                Resolution::resolved_same_file_custom_id(
+                    link.source_file_id,
+                    *target_heading_id,
+                    custom_id_target,
+                ),
             ),
         }
     }
@@ -522,15 +523,21 @@ impl LinkResolver {
         let matches = index.global_id_targets(&target_id);
 
         match matches {
-            [(target_file_id, target_heading_id)] => Self::mark_resolved_org_id(
+            [(target_file_id, target_heading_id)] => Self::write_resolution(
                 connection,
                 link.id,
-                *target_file_id,
-                *target_heading_id,
-                &target_id,
+                Resolution::resolved_org_id(*target_file_id, *target_heading_id, &target_id),
             ),
-            [] => Self::mark_unresolved_org_id(connection, link.id, &target_id),
-            [..] => Self::mark_ambiguous_org_id(connection, link.id, &target_id),
+            [] => Self::write_resolution(
+                connection,
+                link.id,
+                Resolution::unresolved_org_id(&target_id),
+            ),
+            [..] => Self::write_resolution(
+                connection,
+                link.id,
+                Resolution::ambiguous_org_id(&target_id),
+            ),
         }
     }
 
@@ -563,27 +570,29 @@ impl LinkResolver {
                     index,
                 );
             }
-            return Self::mark_resolved_file(connection, link.id, path_absolute, target_file_id);
+            return Self::write_resolution(
+                connection,
+                link.id,
+                Resolution::resolved_file(path_absolute, target_file_id),
+            );
         };
 
         let heading_ids = index.headings_by_title(target_file_id, heading_title.as_str());
         match heading_ids {
-            [target_heading_id] => Self::mark_resolved_heading(
+            [target_heading_id] => Self::write_resolution(
                 connection,
                 link.id,
-                path_absolute,
-                target_file_id,
-                *target_heading_id,
+                Resolution::resolved_heading(path_absolute, target_file_id, *target_heading_id),
             ),
-            [] => {
-                Self::mark_broken_heading_title(connection, link.id, path_absolute, target_file_id)
-            }
-            [target_heading_id, ..] => Self::mark_resolved_heading(
+            [] => Self::write_resolution(
                 connection,
                 link.id,
-                path_absolute,
-                target_file_id,
-                *target_heading_id,
+                Resolution::broken_heading_title(path_absolute, target_file_id),
+            ),
+            [target_heading_id, ..] => Self::write_resolution(
+                connection,
+                link.id,
+                Resolution::resolved_heading(path_absolute, target_file_id, *target_heading_id),
             ),
         }
     }
@@ -598,28 +607,30 @@ impl LinkResolver {
     ) -> Result<(), DbWriteError> {
         let heading_ids = index.custom_id_headings(target_file_id, custom_id_target);
         match heading_ids {
-            [target_heading_id] => Self::mark_resolved_file_custom_id(
+            [target_heading_id] => Self::write_resolution(
                 connection,
                 link.id,
-                path_absolute,
-                target_file_id,
-                *target_heading_id,
-                custom_id_target,
+                Resolution::resolved_file_custom_id(
+                    path_absolute,
+                    target_file_id,
+                    *target_heading_id,
+                    custom_id_target,
+                ),
             ),
-            [] => Self::mark_broken_file_custom_id(
+            [] => Self::write_resolution(
                 connection,
                 link.id,
-                path_absolute,
-                target_file_id,
-                custom_id_target,
+                Resolution::broken_file_custom_id(path_absolute, target_file_id, custom_id_target),
             ),
-            [target_heading_id, ..] => Self::mark_resolved_file_custom_id(
+            [target_heading_id, ..] => Self::write_resolution(
                 connection,
                 link.id,
-                path_absolute,
-                target_file_id,
-                *target_heading_id,
-                custom_id_target,
+                Resolution::resolved_file_custom_id(
+                    path_absolute,
+                    target_file_id,
+                    *target_heading_id,
+                    custom_id_target,
+                ),
             ),
         }
     }
@@ -633,816 +644,316 @@ impl LinkResolver {
     ) -> Result<(), DbWriteError> {
         let root_heading_ids = index.root_headings(target_file_id);
         match root_heading_ids {
-            [target_heading_id] => Self::mark_resolved_heading(
+            [target_heading_id] => Self::write_resolution(
                 connection,
                 link_id,
-                path_absolute,
-                target_file_id,
-                *target_heading_id,
+                Resolution::resolved_heading(path_absolute, target_file_id, *target_heading_id),
             ),
-            [] => Self::mark_resolved_file_with_diagnostic(
+            [] => Self::write_resolution(
                 connection,
                 link_id,
-                path_absolute,
-                target_file_id,
-                MISSING_SYNTHETIC_ROOT_DIAGNOSTIC,
+                Resolution::resolved_file_with_diagnostic(
+                    path_absolute,
+                    target_file_id,
+                    MISSING_SYNTHETIC_ROOT_DIAGNOSTIC,
+                ),
             ),
-            [..] => {
-                Self::mark_ambiguous_file_root(connection, link_id, path_absolute, target_file_id)
-            }
+            [..] => Self::write_resolution(
+                connection,
+                link_id,
+                Resolution::ambiguous_file_root(path_absolute, target_file_id),
+            ),
         }
     }
 
-    fn mark_unsupported(connection: &Connection, link_id: i64) -> Result<(), DbWriteError> {
-        connection
-            .execute(
-                "UPDATE links
-                 SET resolution_status = ?2,
-                     resolution_diagnostic = ?3
-                 WHERE id = ?1",
-                params![link_id, "unsupported", UNSUPPORTED_DIAGNOSTIC],
-            )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.mark_unsupported",
-                source,
-            })?;
-        Ok(())
-    }
-
-    fn mark_resolved_file(
+    fn write_resolution(
         connection: &Connection,
         link_id: i64,
-        path_absolute: &Path,
-        target_file_id: i64,
+        resolution: Resolution<'_>,
     ) -> Result<(), DbWriteError> {
+        let (set_path, path_absolute) = resolution.path_absolute.bind();
+        let (set_file, target_file_id) = resolution.target_file_id.bind();
+        let (set_heading, target_heading_id) = resolution.target_heading_id.bind();
+        let (set_custom_id, target_custom_id) = resolution.target_custom_id.bind();
+        let (set_id, target_id) = resolution.target_id.bind();
         connection
             .execute(
                 "UPDATE links
-                 SET path_absolute = ?2,
-                     target_file_id = ?3,
-                     resolution_status = ?4,
-                     resolution_diagnostic = NULL
+                 SET path_absolute = CASE WHEN ?2 THEN ?3 ELSE path_absolute END,
+                     target_file_id = CASE WHEN ?4 THEN ?5 ELSE target_file_id END,
+                     target_heading_id = CASE WHEN ?6 THEN ?7 ELSE target_heading_id END,
+                     target_custom_id = CASE WHEN ?8 THEN ?9 ELSE target_custom_id END,
+                     target_id = CASE WHEN ?10 THEN ?11 ELSE target_id END,
+                     resolution_status = ?12,
+                     resolution_diagnostic = ?13
                  WHERE id = ?1",
                 params![
                     link_id,
-                    display_path(path_absolute),
+                    set_path,
+                    path_absolute,
+                    set_file,
                     target_file_id,
-                    "resolved"
-                ],
-            )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.mark_resolved_file",
-                source,
-            })?;
-        Ok(())
-    }
-
-    fn mark_resolved_file_with_diagnostic(
-        connection: &Connection,
-        link_id: i64,
-        path_absolute: &Path,
-        target_file_id: i64,
-        resolution_diagnostic: &str,
-    ) -> Result<(), DbWriteError> {
-        connection
-            .execute(
-                "UPDATE links
-                 SET path_absolute = ?2,
-                     target_file_id = ?3,
-                     target_heading_id = NULL,
-                     resolution_status = ?4,
-                     resolution_diagnostic = ?5
-                 WHERE id = ?1",
-                params![
-                    link_id,
-                    display_path(path_absolute),
-                    target_file_id,
-                    "resolved",
-                    resolution_diagnostic,
-                ],
-            )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.mark_resolved_file_with_diagnostic",
-                source,
-            })?;
-        Ok(())
-    }
-
-    fn mark_resolved_heading(
-        connection: &Connection,
-        link_id: i64,
-        path_absolute: &Path,
-        target_file_id: i64,
-        target_heading_id: i64,
-    ) -> Result<(), DbWriteError> {
-        connection
-            .execute(
-                "UPDATE links
-                 SET path_absolute = ?2,
-                     target_file_id = ?3,
-                     target_heading_id = ?4,
-                     resolution_status = ?5,
-                     resolution_diagnostic = NULL
-                 WHERE id = ?1",
-                params![
-                    link_id,
-                    display_path(path_absolute),
-                    target_file_id,
+                    set_heading,
                     target_heading_id,
-                    "resolved"
-                ],
-            )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.mark_resolved_heading",
-                source,
-            })?;
-        Ok(())
-    }
-
-    fn mark_resolved_file_custom_id(
-        connection: &Connection,
-        link_id: i64,
-        path_absolute: &Path,
-        target_file_id: i64,
-        target_heading_id: i64,
-        target_custom_id: &str,
-    ) -> Result<(), DbWriteError> {
-        connection
-            .execute(
-                "UPDATE links
-                 SET path_absolute = ?2,
-                     target_file_id = ?3,
-                     target_heading_id = ?4,
-                     target_custom_id = ?5,
-                     target_id = NULL,
-                     resolution_status = ?6,
-                     resolution_diagnostic = NULL
-                 WHERE id = ?1",
-                params![
-                    link_id,
-                    display_path(path_absolute),
-                    target_file_id,
-                    target_heading_id,
+                    set_custom_id,
                     target_custom_id,
-                    "resolved"
-                ],
-            )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.mark_resolved_file_custom_id",
-                source,
-            })?;
-        Ok(())
-    }
-
-    fn mark_resolved_same_file_heading(
-        connection: &Connection,
-        link_id: i64,
-        target_file_id: i64,
-        target_heading_id: i64,
-    ) -> Result<(), DbWriteError> {
-        connection
-            .execute(
-                "UPDATE links
-                 SET target_file_id = ?2,
-                     target_heading_id = ?3,
-                     resolution_status = ?4,
-                     resolution_diagnostic = NULL
-                 WHERE id = ?1",
-                params![link_id, target_file_id, target_heading_id, "resolved"],
-            )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.mark_resolved_same_file_heading",
-                source,
-            })?;
-        Ok(())
-    }
-
-    fn mark_resolved_same_file_custom_id(
-        connection: &Connection,
-        link_id: i64,
-        target_file_id: i64,
-        target_heading_id: i64,
-        target_custom_id: &str,
-    ) -> Result<(), DbWriteError> {
-        connection
-            .execute(
-                "UPDATE links
-                 SET target_file_id = ?2,
-                     target_heading_id = ?3,
-                     target_custom_id = ?4,
-                     target_id = NULL,
-                     resolution_status = ?5,
-                     resolution_diagnostic = NULL
-                 WHERE id = ?1",
-                params![
-                    link_id,
-                    target_file_id,
-                    target_heading_id,
-                    target_custom_id,
-                    "resolved"
-                ],
-            )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.mark_resolved_same_file_custom_id",
-                source,
-            })?;
-        Ok(())
-    }
-
-    fn mark_resolved_org_id(
-        connection: &Connection,
-        link_id: i64,
-        target_file_id: i64,
-        target_heading_id: i64,
-        target_id: &str,
-    ) -> Result<(), DbWriteError> {
-        connection
-            .execute(
-                "UPDATE links
-                 SET target_file_id = ?2,
-                     target_heading_id = ?3,
-                     target_custom_id = NULL,
-                     target_id = ?4,
-                     resolution_status = ?5,
-                     resolution_diagnostic = NULL
-                 WHERE id = ?1",
-                params![
-                    link_id,
-                    target_file_id,
-                    target_heading_id,
+                    set_id,
                     target_id,
-                    "resolved"
+                    resolution.status,
+                    resolution.diagnostic,
                 ],
             )
             .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.mark_resolved_org_id",
-                source,
-            })?;
-        Ok(())
-    }
-
-    fn mark_broken_file(
-        connection: &Connection,
-        link_id: i64,
-        path_absolute: &Path,
-    ) -> Result<(), DbWriteError> {
-        connection
-            .execute(
-                "UPDATE links
-                 SET path_absolute = ?2,
-                     target_file_id = NULL,
-                     resolution_status = ?3,
-                     resolution_diagnostic = ?4
-                 WHERE id = ?1",
-                params![
-                    link_id,
-                    display_path(path_absolute),
-                    "broken",
-                    FILE_MISSING_DIAGNOSTIC
-                ],
-            )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.mark_broken_file",
-                source,
-            })?;
-        Ok(())
-    }
-
-    fn mark_unresolved_file(
-        connection: &Connection,
-        link_id: i64,
-        path_absolute: &Path,
-    ) -> Result<(), DbWriteError> {
-        connection
-            .execute(
-                "UPDATE links
-                 SET path_absolute = ?2,
-                     target_file_id = NULL,
-                     resolution_status = ?3,
-                     resolution_diagnostic = ?4
-                 WHERE id = ?1",
-                params![
-                    link_id,
-                    display_path(path_absolute),
-                    "unresolved",
-                    FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC
-                ],
-            )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.mark_unresolved_file",
-                source,
-            })?;
-        Ok(())
-    }
-
-    fn mark_ambiguous_file_root(
-        connection: &Connection,
-        link_id: i64,
-        path_absolute: &Path,
-        target_file_id: i64,
-    ) -> Result<(), DbWriteError> {
-        connection
-            .execute(
-                "UPDATE links
-                 SET path_absolute = ?2,
-                     target_file_id = ?3,
-                     target_heading_id = NULL,
-                     resolution_status = ?4,
-                     resolution_diagnostic = ?5
-                 WHERE id = ?1",
-                params![
-                    link_id,
-                    display_path(path_absolute),
-                    target_file_id,
-                    "ambiguous",
-                    DUPLICATE_SYNTHETIC_ROOT_DIAGNOSTIC,
-                ],
-            )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.mark_ambiguous_file_root",
-                source,
-            })?;
-        Ok(())
-    }
-
-    fn mark_broken_heading_title(
-        connection: &Connection,
-        link_id: i64,
-        path_absolute: &Path,
-        target_file_id: i64,
-    ) -> Result<(), DbWriteError> {
-        connection
-            .execute(
-                "UPDATE links
-                 SET path_absolute = ?2,
-                     target_file_id = ?3,
-                     target_heading_id = NULL,
-                     resolution_status = ?4,
-                     resolution_diagnostic = ?5
-                 WHERE id = ?1",
-                params![
-                    link_id,
-                    display_path(path_absolute),
-                    target_file_id,
-                    "broken",
-                    HEADING_TITLE_MISSING_DIAGNOSTIC
-                ],
-            )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.mark_broken_heading_title",
-                source,
-            })?;
-        Ok(())
-    }
-
-    fn mark_broken_file_custom_id(
-        connection: &Connection,
-        link_id: i64,
-        path_absolute: &Path,
-        target_file_id: i64,
-        target_custom_id: &str,
-    ) -> Result<(), DbWriteError> {
-        connection
-            .execute(
-                "UPDATE links
-                 SET path_absolute = ?2,
-                     target_file_id = ?3,
-                     target_heading_id = NULL,
-                     target_custom_id = ?4,
-                     target_id = NULL,
-                     resolution_status = ?5,
-                     resolution_diagnostic = ?6
-                 WHERE id = ?1",
-                params![
-                    link_id,
-                    display_path(path_absolute),
-                    target_file_id,
-                    target_custom_id,
-                    "broken",
-                    CUSTOM_ID_MISSING_DIAGNOSTIC
-                ],
-            )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.mark_broken_file_custom_id",
-                source,
-            })?;
-        Ok(())
-    }
-
-    fn mark_broken_same_file_heading(
-        connection: &Connection,
-        link_id: i64,
-        target_file_id: i64,
-    ) -> Result<(), DbWriteError> {
-        connection
-            .execute(
-                "UPDATE links
-                 SET target_file_id = ?2,
-                     target_heading_id = NULL,
-                     resolution_status = ?3,
-                     resolution_diagnostic = ?4
-                 WHERE id = ?1",
-                params![
-                    link_id,
-                    target_file_id,
-                    "broken",
-                    SAME_FILE_STAR_HEADING_MISSING_DIAGNOSTIC
-                ],
-            )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.mark_broken_same_file_heading",
-                source,
-            })?;
-        Ok(())
-    }
-
-    fn mark_broken_same_file_custom_id(
-        connection: &Connection,
-        link_id: i64,
-        target_file_id: i64,
-        target_custom_id: &str,
-    ) -> Result<(), DbWriteError> {
-        connection
-            .execute(
-                "UPDATE links
-                 SET target_file_id = ?2,
-                     target_heading_id = NULL,
-                     target_custom_id = ?3,
-                     target_id = NULL,
-                     resolution_status = ?4,
-                     resolution_diagnostic = ?5
-                 WHERE id = ?1",
-                params![
-                    link_id,
-                    target_file_id,
-                    target_custom_id,
-                    "broken",
-                    CUSTOM_ID_MISSING_DIAGNOSTIC
-                ],
-            )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.mark_broken_same_file_custom_id",
-                source,
-            })?;
-        Ok(())
-    }
-
-    fn mark_unresolved_org_id(
-        connection: &Connection,
-        link_id: i64,
-        target_id: &str,
-    ) -> Result<(), DbWriteError> {
-        connection
-            .execute(
-                "UPDATE links
-                 SET target_file_id = NULL,
-                     target_heading_id = NULL,
-                     target_custom_id = NULL,
-                     target_id = ?2,
-                     resolution_status = ?3,
-                     resolution_diagnostic = ?4
-                 WHERE id = ?1",
-                params![link_id, target_id, "unresolved", ID_MISSING_DIAGNOSTIC],
-            )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.mark_unresolved_org_id",
-                source,
-            })?;
-        Ok(())
-    }
-
-    fn mark_ambiguous_org_id(
-        connection: &Connection,
-        link_id: i64,
-        target_id: &str,
-    ) -> Result<(), DbWriteError> {
-        connection
-            .execute(
-                "UPDATE links
-                 SET target_file_id = NULL,
-                     target_heading_id = NULL,
-                     target_custom_id = NULL,
-                     target_id = ?2,
-                     resolution_status = ?3,
-                     resolution_diagnostic = ?4
-                 WHERE id = ?1",
-                params![link_id, target_id, "ambiguous", DUPLICATE_ID_DIAGNOSTIC],
-            )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.mark_ambiguous_org_id",
-                source,
-            })?;
-        Ok(())
-    }
-
-    fn mark_file_path_unsupported(
-        connection: &Connection,
-        link_id: i64,
-    ) -> Result<(), DbWriteError> {
-        connection
-            .execute(
-                "UPDATE links
-                 SET path_absolute = NULL,
-                     target_file_id = NULL,
-                     resolution_status = ?2,
-                     resolution_diagnostic = ?3
-                 WHERE id = ?1",
-                params![link_id, "unsupported", FILE_PATH_UNSUPPORTED_DIAGNOSTIC],
-            )
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.mark_file_path_unsupported",
+                operation: "link_resolver.write_resolution",
                 source,
             })?;
         Ok(())
     }
 }
 
-impl Default for IndexedUniverse {
-    fn default() -> Self {
+/// How one `links` UPDATE treats a target column: leave it untouched, set it to NULL, or
+/// set it to a value.
+#[derive(Debug, Clone, Copy)]
+enum Column<T> {
+    Keep,
+    Null,
+    Set(T),
+}
+
+impl<T> Column<T> {
+    fn bind(self) -> (bool, Option<T>) {
+        match self {
+            Self::Keep => (false, None),
+            Self::Null => (true, None),
+            Self::Set(value) => (true, Some(value)),
+        }
+    }
+}
+
+/// The resolution status, diagnostic and target columns written for one link.
+#[derive(Debug)]
+struct Resolution<'a> {
+    status: &'static str,
+    diagnostic: Option<&'a str>,
+    path_absolute: Column<String>,
+    target_file_id: Column<i64>,
+    target_heading_id: Column<i64>,
+    target_custom_id: Column<&'a str>,
+    target_id: Column<&'a str>,
+}
+
+impl<'a> Resolution<'a> {
+    fn base(status: &'static str, diagnostic: Option<&'a str>) -> Self {
         Self {
-            global_exclusions: ExclusionMatcher::empty(),
-            globally_excluded_paths: BTreeSet::new(),
-            explicit_inclusions: BTreeSet::new(),
-            explicit_logical_paths: BTreeSet::new(),
-            file_mappings: Vec::new(),
-            root_scopes: Vec::new(),
-        }
-    }
-}
-
-impl IndexedUniverse {
-    pub(crate) fn set_global_exclusions(&mut self, exclusions: ExclusionMatcher) {
-        self.global_exclusions = exclusions;
-    }
-
-    pub(crate) fn add_root_scope(
-        &mut self,
-        logical_root: PathBuf,
-        canonical_root: PathBuf,
-        recursive: bool,
-        local_exclusions: ExclusionMatcher,
-    ) -> usize {
-        let scope_id = self.root_scopes.len();
-        self.root_scopes.push(IndexedRootScope {
-            directory_mappings: vec![(logical_root.clone(), canonical_root.clone())],
-            logical_root,
-            recursive,
-            local_exclusions,
-        });
-        scope_id
-    }
-
-    pub(crate) fn add_directory_mapping(
-        &mut self,
-        scope_id: usize,
-        logical_directory: PathBuf,
-        canonical_directory: PathBuf,
-    ) {
-        let scope = &mut self.root_scopes[scope_id];
-        if !scope
-            .directory_mappings
-            .iter()
-            .any(|mapping| mapping == &(logical_directory.clone(), canonical_directory.clone()))
-        {
-            scope
-                .directory_mappings
-                .push((logical_directory, canonical_directory));
+            status,
+            diagnostic,
+            path_absolute: Column::Keep,
+            target_file_id: Column::Keep,
+            target_heading_id: Column::Keep,
+            target_custom_id: Column::Keep,
+            target_id: Column::Keep,
         }
     }
 
-    pub(crate) fn add_explicit_logical_path(&mut self, path: PathBuf) {
-        self.explicit_logical_paths.insert(path);
+    fn unsupported() -> Self {
+        Self::base("unsupported", Some(UNSUPPORTED_DIAGNOSTIC))
     }
 
-    pub(crate) fn add_explicit_mapping(&mut self, logical_path: PathBuf, canonical_path: PathBuf) {
-        self.add_explicit_logical_path(logical_path.clone());
-        self.explicit_inclusions.insert(canonical_path.clone());
-        self.add_source_mapping(logical_path, canonical_path);
-    }
-
-    pub(crate) fn add_source_mapping(&mut self, logical_path: PathBuf, canonical_path: PathBuf) {
-        if !self
-            .file_mappings
-            .iter()
-            .any(|mapping| mapping == &(logical_path.clone(), canonical_path.clone()))
-        {
-            self.file_mappings.push((logical_path, canonical_path));
+    fn file_path_unsupported() -> Self {
+        Self {
+            path_absolute: Column::Null,
+            target_file_id: Column::Null,
+            ..Self::base("unsupported", Some(FILE_PATH_UNSUPPORTED_DIAGNOSTIC))
         }
     }
 
-    pub(crate) fn add_globally_excluded_path(&mut self, path: PathBuf) {
-        self.file_mappings
-            .retain(|(_, mapped_path)| mapped_path != &path);
-        self.globally_excluded_paths.insert(path);
-    }
-
-    pub(crate) fn root_scope_excludes_file(&self, scope_id: usize, path: &Path) -> bool {
-        self.root_scopes[scope_id]
-            .local_exclusions
-            .matches_file(path)
-    }
-
-    pub(crate) fn root_scope_excludes_directory(&self, scope_id: usize, path: &Path) -> bool {
-        self.root_scopes[scope_id]
-            .local_exclusions
-            .matches_directory(path)
-    }
-
-    // Compatibility helpers retained for focused resolver fixtures.
-    #[cfg(test)]
-    pub(crate) fn add_recursive_root(&mut self, path: PathBuf) {
-        self.add_root_scope(path.clone(), path, true, ExclusionMatcher::empty());
-    }
-
-    #[cfg(test)]
-    pub(crate) fn add_exact_path(&mut self, path: PathBuf) {
-        self.add_explicit_mapping(path.clone(), path);
-    }
-
-    pub(crate) fn contains(&self, path: &Path) -> bool {
-        if self.globally_excluded_paths.contains(path)
-            || self.root_scopes.iter().any(|scope| {
-                scope
-                    .logical_candidates(path)
-                    .any(|logical_path| self.global_exclusions.matches_file(&logical_path))
-            })
-        {
-            return false;
+    fn resolved_file(path_absolute: &Path, target_file_id: i64) -> Self {
+        Self {
+            path_absolute: Column::Set(display_path(path_absolute)),
+            target_file_id: Column::Set(target_file_id),
+            ..Self::base("resolved", None)
         }
-
-        self.explicit_inclusions.contains(path)
-            || self.root_scopes.iter().any(|scope| scope.includes(path))
     }
 
-    pub(crate) fn is_explicit_candidate(&self, logical_path: &Path, canonical_path: &Path) -> bool {
-        self.explicit_logical_paths.contains(logical_path)
-            || self.explicit_inclusions.contains(canonical_path)
-    }
-
-    pub(crate) fn is_known_source(&self, canonical_path: &Path) -> bool {
-        self.file_mappings
-            .iter()
-            .any(|(_, mapped_path)| mapped_path.as_path() == canonical_path)
-    }
-
-    pub(crate) fn source_mapping_for_logical_path(&self, logical_path: &Path) -> Option<&Path> {
-        self.file_mappings
-            .iter()
-            .find(|(logical, _)| logical.as_path() == logical_path)
-            .map(|(_, canonical)| canonical.as_path())
-    }
-
-    pub(crate) fn is_known_directory_path(&self, path: &Path) -> bool {
-        self.canonical_directory_for_known_path(path).is_some()
-    }
-
-    pub(crate) fn is_configured_root_path(&self, path: &Path) -> bool {
-        self.root_scopes.iter().any(|scope| {
-            let canonical_root = scope
-                .directory_mappings
-                .first()
-                .map(|(_, canonical)| canonical.as_path());
-            scope.logical_root.as_path() == path || canonical_root == Some(path)
-        })
-    }
-
-    pub(crate) fn canonical_directory_for_known_path(&self, path: &Path) -> Option<&Path> {
-        self.root_scopes.iter().find_map(|scope| {
-            scope
-                .directory_mappings
-                .iter()
-                .find(|(logical, canonical)| {
-                    logical.as_path() == path || canonical.as_path() == path
-                })
-                .map(|(_, canonical)| canonical.as_path())
-        })
-    }
-
-    pub(crate) fn is_explicit_logical_path(&self, path: &Path) -> bool {
-        self.explicit_logical_paths.contains(path)
-    }
-
-    pub(crate) fn includes_logical_file(&self, path: &Path) -> bool {
-        if self.global_exclusions.matches_file(path) {
-            return false;
+    fn resolved_file_with_diagnostic(
+        path_absolute: &Path,
+        target_file_id: i64,
+        diagnostic: &'a str,
+    ) -> Self {
+        Self {
+            target_heading_id: Column::Null,
+            ..Self::status_file(path_absolute, target_file_id, "resolved", Some(diagnostic))
         }
-
-        self.explicit_logical_paths.contains(path)
-            || self
-                .root_scopes
-                .iter()
-                .any(|scope| scope.includes_logical(path))
     }
 
-    pub(crate) fn watcher_directory_hints(&self) -> Vec<(PathBuf, bool)> {
-        let mut hints = BTreeMap::<PathBuf, bool>::new();
-
-        for scope in &self.root_scopes {
-            for (_, canonical) in &scope.directory_mappings {
-                let recursive = hints.entry(canonical.clone()).or_insert(false);
-                *recursive |= scope.recursive;
-            }
+    fn resolved_heading(path_absolute: &Path, target_file_id: i64, target_heading_id: i64) -> Self {
+        Self {
+            target_heading_id: Column::Set(target_heading_id),
+            ..Self::resolved_file(path_absolute, target_file_id)
         }
+    }
 
-        for (_, canonical_file) in &self.file_mappings {
-            if let Some(parent) = canonical_file.parent() {
-                hints.entry(parent.to_path_buf()).or_insert(false);
-            }
+    fn resolved_file_custom_id(
+        path_absolute: &Path,
+        target_file_id: i64,
+        target_heading_id: i64,
+        target_custom_id: &'a str,
+    ) -> Self {
+        Self {
+            target_custom_id: Column::Set(target_custom_id),
+            target_id: Column::Null,
+            ..Self::resolved_heading(path_absolute, target_file_id, target_heading_id)
         }
-
-        hints.into_iter().collect()
     }
 
-    pub(crate) fn normalize_candidate_path(
-        &self,
-        path: &Path,
-        existing_canonical_path: Option<&Path>,
-    ) -> Option<PathBuf> {
-        if !path.is_absolute() || self.globally_excluded_paths.contains(path) {
-            return None;
+    fn resolved_same_file_heading(target_file_id: i64, target_heading_id: i64) -> Self {
+        Self {
+            target_file_id: Column::Set(target_file_id),
+            target_heading_id: Column::Set(target_heading_id),
+            ..Self::base("resolved", None)
         }
+    }
 
-        if let Some((_, canonical_path)) =
-            self.file_mappings
-                .iter()
-                .find(|(logical_path, canonical_path)| {
-                    path == logical_path.as_path() || path == canonical_path.as_path()
-                })
-        {
-            if self.globally_excluded_paths.contains(canonical_path) {
-                return None;
-            }
-            return Some(canonical_path.clone());
+    fn resolved_same_file_custom_id(
+        target_file_id: i64,
+        target_heading_id: i64,
+        target_custom_id: &'a str,
+    ) -> Self {
+        Self {
+            target_custom_id: Column::Set(target_custom_id),
+            target_id: Column::Null,
+            ..Self::resolved_same_file_heading(target_file_id, target_heading_id)
         }
+    }
 
-        if let Some(canonical_path) = existing_canonical_path {
-            if self.globally_excluded_paths.contains(canonical_path) {
-                return None;
-            }
-            if self.contains(canonical_path) || self.includes_logical(path) {
-                return Some(canonical_path.to_path_buf());
-            }
+    fn resolved_org_id(target_file_id: i64, target_heading_id: i64, target_id: &'a str) -> Self {
+        Self {
+            target_custom_id: Column::Null,
+            target_id: Column::Set(target_id),
+            ..Self::resolved_same_file_heading(target_file_id, target_heading_id)
         }
+    }
 
-        if self.contains(path) {
-            return Some(path.to_path_buf());
+    fn broken_file(path_absolute: &Path) -> Self {
+        Self::unindexed_file(path_absolute, "broken", FILE_MISSING_DIAGNOSTIC)
+    }
+
+    fn unresolved_file(path_absolute: &Path) -> Self {
+        Self::unindexed_file(
+            path_absolute,
+            "unresolved",
+            FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC,
+        )
+    }
+
+    fn ambiguous_file_root(path_absolute: &Path, target_file_id: i64) -> Self {
+        Self {
+            target_heading_id: Column::Null,
+            ..Self::status_file(
+                path_absolute,
+                target_file_id,
+                "ambiguous",
+                Some(DUPLICATE_SYNTHETIC_ROOT_DIAGNOSTIC),
+            )
         }
-
-        let mut candidates = self
-            .root_scopes
-            .iter()
-            .flat_map(|scope| scope.canonical_candidates(path))
-            .filter(|(_, candidate)| self.contains(candidate))
-            .collect::<Vec<_>>();
-        candidates.sort_by(|(left_depth, left), (right_depth, right)| {
-            right_depth
-                .cmp(left_depth)
-                .then_with(|| left.as_os_str().cmp(right.as_os_str()))
-        });
-        candidates.into_iter().next().map(|(_, path)| path)
     }
 
-    fn includes_logical(&self, path: &Path) -> bool {
-        self.includes_logical_file(path)
-    }
-}
-
-impl IndexedRootScope {
-    fn canonical_candidates(&self, path: &Path) -> Vec<(usize, PathBuf)> {
-        self.directory_mappings
-            .iter()
-            .filter_map(|(logical, canonical)| {
-                path.strip_prefix(logical)
-                    .ok()
-                    .map(|suffix| (logical.components().count(), canonical.join(suffix)))
-            })
-            .collect()
+    fn broken_heading_title(path_absolute: &Path, target_file_id: i64) -> Self {
+        Self {
+            target_heading_id: Column::Null,
+            ..Self::status_file(
+                path_absolute,
+                target_file_id,
+                "broken",
+                Some(HEADING_TITLE_MISSING_DIAGNOSTIC),
+            )
+        }
     }
 
-    fn logical_candidates<'a>(&'a self, path: &'a Path) -> impl Iterator<Item = PathBuf> + 'a {
-        self.directory_mappings
-            .iter()
-            .filter_map(move |(logical, canonical)| {
-                path.strip_prefix(canonical)
-                    .ok()
-                    .map(|suffix| logical.join(suffix))
-            })
+    fn broken_file_custom_id(
+        path_absolute: &Path,
+        target_file_id: i64,
+        target_custom_id: &'a str,
+    ) -> Self {
+        Self {
+            target_heading_id: Column::Null,
+            target_custom_id: Column::Set(target_custom_id),
+            target_id: Column::Null,
+            ..Self::status_file(
+                path_absolute,
+                target_file_id,
+                "broken",
+                Some(CUSTOM_ID_MISSING_DIAGNOSTIC),
+            )
+        }
     }
 
-    fn includes(&self, path: &Path) -> bool {
-        self.logical_candidates(path)
-            .any(|logical_path| self.includes_logical(&logical_path))
+    fn broken_same_file_heading(target_file_id: i64) -> Self {
+        Self::broken_same_file_heading_with(
+            SAME_FILE_STAR_HEADING_MISSING_DIAGNOSTIC,
+            target_file_id,
+        )
     }
 
-    fn includes_logical(&self, path: &Path) -> bool {
-        let Ok(relative) = path.strip_prefix(&self.logical_root) else {
-            return false;
-        };
-        let direct_child = relative.components().count() <= 1;
-        (self.recursive || direct_child)
-            && !self
-                .local_exclusions
-                .matches_path_or_excluded_ancestor(path, &self.logical_root)
+    fn broken_same_file_custom_id(target_file_id: i64, target_custom_id: &'a str) -> Self {
+        Self {
+            target_custom_id: Column::Set(target_custom_id),
+            target_id: Column::Null,
+            ..Self::broken_same_file_heading_with(CUSTOM_ID_MISSING_DIAGNOSTIC, target_file_id)
+        }
+    }
+
+    fn unresolved_org_id(target_id: &'a str) -> Self {
+        Self::org_id_without_target("unresolved", ID_MISSING_DIAGNOSTIC, target_id)
+    }
+
+    fn ambiguous_org_id(target_id: &'a str) -> Self {
+        Self::org_id_without_target("ambiguous", DUPLICATE_ID_DIAGNOSTIC, target_id)
+    }
+
+    /// A file link whose path is recorded but whose target file is not indexed.
+    fn unindexed_file(path_absolute: &Path, status: &'static str, diagnostic: &'a str) -> Self {
+        Self {
+            path_absolute: Column::Set(display_path(path_absolute)),
+            target_file_id: Column::Null,
+            ..Self::base(status, Some(diagnostic))
+        }
+    }
+
+    /// A file link that points at an indexed file, with the given status and diagnostic.
+    fn status_file(
+        path_absolute: &Path,
+        target_file_id: i64,
+        status: &'static str,
+        diagnostic: Option<&'a str>,
+    ) -> Self {
+        Self {
+            path_absolute: Column::Set(display_path(path_absolute)),
+            target_file_id: Column::Set(target_file_id),
+            ..Self::base(status, diagnostic)
+        }
+    }
+
+    fn broken_same_file_heading_with(diagnostic: &'a str, target_file_id: i64) -> Self {
+        Self {
+            target_file_id: Column::Set(target_file_id),
+            target_heading_id: Column::Null,
+            ..Self::base("broken", Some(diagnostic))
+        }
+    }
+
+    fn org_id_without_target(
+        status: &'static str,
+        diagnostic: &'a str,
+        target_id: &'a str,
+    ) -> Self {
+        Self {
+            target_file_id: Column::Null,
+            target_heading_id: Column::Null,
+            target_custom_id: Column::Null,
+            target_id: Column::Set(target_id),
+            ..Self::base(status, Some(diagnostic))
+        }
     }
 }
 
@@ -1563,18 +1074,14 @@ fn trim_link_target_padding(value: &str) -> &str {
     value.trim_matches([' ', '\t'])
 }
 
-fn unicode_lowercase(value: &str) -> String {
-    value.to_lowercase()
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
         file_custom_id_search_target, heading_title_search_target,
         normalize_custom_id_lookup_target, normalize_custom_id_target, normalize_file_target_path,
         normalize_id_target, same_file_fuzzy_custom_id_target, same_file_fuzzy_star_heading_target,
-        unicode_lowercase, IndexedUniverse, LinkResolver, CUSTOM_ID_MISSING_DIAGNOSTIC,
-        DUPLICATE_ID_DIAGNOSTIC, FILE_MISSING_DIAGNOSTIC, FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC,
+        IndexedUniverse, LinkResolver, CUSTOM_ID_MISSING_DIAGNOSTIC, DUPLICATE_ID_DIAGNOSTIC,
+        FILE_MISSING_DIAGNOSTIC, FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC,
         HEADING_TITLE_MISSING_DIAGNOSTIC, MISSING_SYNTHETIC_ROOT_DIAGNOSTIC,
         SAME_FILE_STAR_HEADING_MISSING_DIAGNOSTIC, UNSUPPORTED_DIAGNOSTIC,
     };
@@ -3339,11 +2846,6 @@ mod tests {
                 Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
             )
         );
-    }
-
-    #[test]
-    fn unicode_lowercase_handles_german_umlauts() {
-        assert_eq!(unicode_lowercase("Ärger"), "ärger".to_string());
     }
 
     #[test]
