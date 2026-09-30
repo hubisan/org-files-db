@@ -865,40 +865,8 @@ mod tests {
         open_database, open_existing_database_read_only, open_in_memory_database_with_schema,
         SchemaDefinition, CURRENT_SCHEMA_VERSION,
     };
-    use std::{
-        fs,
-        path::{Path, PathBuf},
-        time::{SystemTime, UNIX_EPOCH},
-    };
-
-    struct TestDir {
-        path: PathBuf,
-    }
-
-    impl TestDir {
-        fn new(name: &str) -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system time should be after unix epoch")
-                .as_nanos();
-            let path = std::env::temp_dir().join(format!(
-                "org-files-db-index-state-tests-{name}-{}-{unique}",
-                std::process::id()
-            ));
-            fs::create_dir_all(&path).expect("test directory should be created");
-            Self { path }
-        }
-
-        fn path(&self) -> &Path {
-            &self.path
-        }
-    }
-
-    impl Drop for TestDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
-    }
+    use crate::test_support::TestDir;
+    use std::{fs, path::PathBuf};
 
     #[test]
     fn new_database_has_stable_identity_and_generation_zero() {

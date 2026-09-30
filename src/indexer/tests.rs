@@ -4,6 +4,7 @@ use super::{
     FileMetadata, FileSnapshotReader, IndexInvalidationSet, IndexedFile, Indexer, IndexerError,
     PersistedFileSnapshot, PlannedCurrentFile, PlanningScope, RebuildOptions,
 };
+use crate::test_support::{write_file, TestDir};
 use crate::{
     config::{Config, ConfiguredDir, SearchConfig},
     db::{
@@ -34,7 +35,6 @@ use std::{
     fs,
     os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 struct ScriptedSnapshotReader {
@@ -146,37 +146,6 @@ type OrgIdResolutionRow = (
     Option<String>,
     Option<String>,
 );
-
-struct TestDir {
-    path: PathBuf,
-}
-
-impl TestDir {
-    fn new(name: &str) -> Self {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time should be after unix epoch")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "org-files-db-indexer-tests-{}-{}-{}",
-            name,
-            std::process::id(),
-            unique
-        ));
-        fs::create_dir_all(&path).expect("test dir should be created");
-        Self { path }
-    }
-
-    fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for TestDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
-}
 
 #[test]
 fn scoped_link_resolution_matches_full_resolution_after_incremental_edits() {
@@ -308,13 +277,6 @@ fn scoped_link_resolution_matches_full_resolution_after_incremental_edits() {
     fs::remove_file(&d).unwrap();
     apply(&mut connection, &d);
     assert_matches_full(&mut connection, "second file deleted");
-}
-
-fn write_file(path: &Path, content: &str) {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).expect("parent dir should exist");
-    }
-    fs::write(path, content).expect("file should be written");
 }
 
 fn write_config(path: &Path, body: &str) {

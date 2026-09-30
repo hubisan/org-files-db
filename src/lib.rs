@@ -37,3 +37,6 @@ pub(crate) mod watcher_runtime;
 
 #[cfg(test)]
 mod watcher_integration_tests;
+
+#[cfg(test)]
+pub(crate) mod test_support;

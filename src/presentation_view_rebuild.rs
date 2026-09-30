@@ -939,6 +939,7 @@ mod tests {
         PresentationViewRebuildHandle, RebuildTarget, RunningWorker, SharedState, TargetStatus,
         ViewState, WORKER_POLL_INTERVAL,
     };
+    use crate::test_support::TestDir;
     use crate::{
         config::Config,
         db::{
@@ -959,36 +960,10 @@ mod tests {
         collections::BTreeMap,
         fs,
         io::Cursor,
-        path::PathBuf,
         process::{Command, Stdio},
         sync::{mpsc, Arc, Mutex},
-        time::{Duration, SystemTime, UNIX_EPOCH},
+        time::Duration,
     };
-
-    struct TestDir {
-        path: PathBuf,
-    }
-
-    impl TestDir {
-        fn new(name: &str) -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system time should be after unix epoch")
-                .as_nanos();
-            let path = std::env::temp_dir().join(format!(
-                "org-files-db-view-rebuild-{name}-{}-{unique}",
-                std::process::id()
-            ));
-            fs::create_dir_all(&path).expect("test directory should be created");
-            Self { path }
-        }
-    }
-
-    impl Drop for TestDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
-    }
 
     fn write_fixture(test_dir: &TestDir) -> Config {
         let org_path = test_dir.path.join("notes.org");

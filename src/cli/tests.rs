@@ -19,45 +19,14 @@ use crate::db::{
     DB_METADATA_FTS_SCHEMA_VERSION_KEY, FTS_SCHEMA_CONTRACT_VERSION,
 };
 use crate::presentation::PresentationSpec;
+use crate::test_support::{write_file, TestDir};
 use clap::Parser;
 use rusqlite::Connection;
 use serde_json::Value;
 use std::{
     fs,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
 };
-
-struct TestDir {
-    path: PathBuf,
-}
-
-impl TestDir {
-    fn new(name: &str) -> Self {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time should be after unix epoch")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "org-files-db-cli-tests-{}-{}-{}",
-            name,
-            std::process::id(),
-            unique
-        ));
-        fs::create_dir_all(&path).expect("test dir should be created");
-        Self { path }
-    }
-
-    fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for TestDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
-}
 
 fn seed_single_heading_tag(
     connection: &Connection,
@@ -81,13 +50,6 @@ fn seed_single_heading_tag(
             position: 0,
         }],
     )
-}
-
-fn write_file(path: &Path, content: &str) {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).expect("parent dir should be created");
-    }
-    fs::write(path, content).expect("file should be written");
 }
 
 fn write_search_config(
