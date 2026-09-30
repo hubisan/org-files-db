@@ -236,17 +236,6 @@ pub(in crate::indexer) fn load_persisted_file_snapshots(
     Ok(PersistedFileSnapshots::Valid(snapshots))
 }
 
-pub(in crate::indexer) fn error_path(error: &IndexerError) -> PathBuf {
-    match error {
-        IndexerError::Discover { path, .. }
-        | IndexerError::InvalidFileMetadata { path, .. }
-        | IndexerError::UnstableFileSnapshot { path }
-        | IndexerError::Parse { path, .. }
-        | IndexerError::ReadFile { path, .. } => path.clone(),
-        _ => PathBuf::new(),
-    }
-}
-
 pub(in crate::indexer) fn file_metadata(path: &Path) -> Result<FileMetadata, IndexerError> {
     let metadata = fs::metadata(path).map_err(|source| IndexerError::ReadFile {
         path: path.to_path_buf(),

@@ -907,33 +907,31 @@ fn real_backend_handles_explicit_replacement_and_offline_restart_changes() {
 }
 
 #[test]
-fn real_backend_invalid_input_leaves_the_last_committed_state_intact() {
+fn real_backend_invalid_input_is_skipped_and_the_watcher_keeps_running() {
     let test_dir = TestDir::new("invalid-input");
     let notes = test_dir.path().join("notes");
     let note = notes.join("note.org");
+    let other = notes.join("other.org");
     fs::create_dir_all(&notes).expect("notes directory should exist");
     write_file(&note, "* Committed\n** Child\nBody\n");
+    write_file(&other, "* Other\n");
     let config = recursive_config(&test_dir, &notes, test_dir.path().join("db.sqlite"));
     let mut harness = RealWatcherHarness::new_started(config);
-    let committed_paths = indexed_paths(&harness.connection);
-    let committed_titles = heading_titles(&harness.connection);
 
     write_bytes(&note, &[0xff, 0xfe, 0xfd]);
-    let error = harness.wait_for_runtime_error("invalid UTF-8 Org input");
+    write_file(&other, "* Other Updated\n");
+    harness.wait_until("other file indexed despite invalid sibling", |connection| {
+        heading_titles(connection).contains(&"Other Updated".to_string())
+    });
 
-    assert!(
-        matches!(error.as_ref(), WatcherRuntimeError::Execution { .. }),
-        "invalid input should fail indexer execution, got {error}"
-    );
-    assert_eq!(indexed_paths(&harness.connection), committed_paths);
-    assert_eq!(heading_titles(&harness.connection), committed_titles);
+    assert!(heading_titles(&harness.connection).contains(&"Committed".to_string()));
     assert_eq!(
         harness
             .runtime
             .as_ref()
             .expect("runtime should remain inspectable")
             .state(),
-        WatcherRuntimeState::Terminated
+        WatcherRuntimeState::Running
     );
 }
 

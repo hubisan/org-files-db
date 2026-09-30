@@ -13,7 +13,7 @@ use crate::{
     file_identity::FileIdentity,
     indexer::{
         CandidatePathNormalizer, CandidatePathResolution, ChangeApplicationRejection,
-        ChangeApplicationResult, Indexer, IndexerError,
+        ChangeApplicationResult, Indexer, IndexerError, SkippedSource,
     },
     parser::OrgParserCore,
 };
@@ -157,12 +157,35 @@ pub(crate) trait WatcherBatchExecutor {
     type Error;
 
     fn execute(&mut self, batch: NormalizedWatcherBatch) -> Result<(), Self::Error>;
+
+    /// Returns the cause when `error` is transient: the batch is requeued with
+    /// backoff and the watcher keeps running. The default treats every error
+    /// as fatal.
+    fn transient_failure(_error: &Self::Error) -> Option<String> {
+        None
+    }
 }
 
 #[derive(Debug)]
 pub(crate) enum WatcherExecutionError {
     Indexer(IndexerError),
     Rejected(ChangeApplicationRejection),
+    /// The batch was applied, but these sources hit a transient failure and
+    /// were skipped; the batch must be retried.
+    TransientSkips(Vec<SkippedSource>),
+}
+
+impl WatcherExecutionError {
+    /// Transient failures are requeued with backoff. Everything else,
+    /// including unavailable watch roots, stale plans and rejected plans,
+    /// terminates the watcher.
+    pub(crate) fn is_transient(&self) -> bool {
+        match self {
+            Self::Indexer(error) => error.is_transient(),
+            Self::Rejected(_) => false,
+            Self::TransientSkips(_) => true,
+        }
+    }
 }
 
 impl fmt::Display for WatcherExecutionError {
@@ -173,14 +196,17 @@ impl fmt::Display for WatcherExecutionError {
                 f,
                 "watcher reconciliation was rejected because a full rebuild is required"
             ),
-            Self::Rejected(ChangeApplicationRejection::FailedSources) => write!(
-                f,
-                "watcher reconciliation was rejected because one or more sources failed preparation"
-            ),
             Self::Rejected(ChangeApplicationRejection::Stale) => write!(
                 f,
                 "watcher reconciliation was rejected because the indexing plan became stale"
             ),
+            Self::TransientSkips(skipped) => {
+                write!(f, "{} source(s) could not be read reliably:", skipped.len())?;
+                for source in skipped {
+                    write!(f, " {}: {};", source.path.display(), source.cause)?;
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -189,7 +215,7 @@ impl Error for WatcherExecutionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Indexer(source) => Some(source),
-            Self::Rejected(_) => None,
+            Self::Rejected(_) | Self::TransientSkips(_) => None,
         }
     }
 }
@@ -233,11 +259,33 @@ where
         .map_err(WatcherExecutionError::Indexer)?;
 
         match result {
-            ChangeApplicationResult::Applied(_) => Ok(()),
+            ChangeApplicationResult::Applied(report) => {
+                for source in &report.skipped {
+                    eprintln!(
+                        "warning: {}: skipped: {}",
+                        source.path.display(),
+                        source.cause
+                    );
+                }
+                let transient = report
+                    .skipped
+                    .into_iter()
+                    .filter(|source| source.transient)
+                    .collect::<Vec<_>>();
+                if transient.is_empty() {
+                    Ok(())
+                } else {
+                    Err(WatcherExecutionError::TransientSkips(transient))
+                }
+            }
             ChangeApplicationResult::Rejected(rejection) => {
                 Err(WatcherExecutionError::Rejected(rejection))
             }
         }
+    }
+
+    fn transient_failure(error: &Self::Error) -> Option<String> {
+        error.is_transient().then(|| error.to_string())
     }
 }
 
@@ -249,6 +297,18 @@ pub(crate) struct WatcherExecutionController {
     pending_deadline: Option<Instant>,
     active: Option<NormalizedWatcherBatch>,
     accepting_inputs: bool,
+    retry_attempts: u32,
+    retry_not_before: Option<Instant>,
+}
+
+/// First transient retry delay; it doubles per consecutive failure.
+const WATCHER_RETRY_INITIAL_DELAY: Duration = Duration::from_secs(1);
+const WATCHER_RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
+
+fn watcher_retry_delay(attempt: u32) -> Duration {
+    WATCHER_RETRY_INITIAL_DELAY
+        .saturating_mul(1u32.checked_shl(attempt).unwrap_or(u32::MAX))
+        .min(WATCHER_RETRY_MAX_DELAY)
 }
 
 impl WatcherExecutionController {
@@ -267,6 +327,8 @@ impl WatcherExecutionController {
             pending_deadline: None,
             active: None,
             accepting_inputs: true,
+            retry_attempts: 0,
+            retry_not_before: None,
         })
     }
 
@@ -310,7 +372,10 @@ impl WatcherExecutionController {
     }
 
     pub(crate) fn next_deadline(&self) -> Option<Instant> {
-        self.pending_deadline
+        self.pending_deadline.map(|deadline| {
+            self.retry_not_before
+                .map_or(deadline, |retry| deadline.max(retry))
+        })
     }
 
     pub(crate) fn start_ready_execution(&mut self, now: Instant) -> Option<NormalizedWatcherBatch> {
@@ -318,10 +383,9 @@ impl WatcherExecutionController {
             return None;
         }
 
-        let ready = !self.accepting_inputs
-            || self
-                .pending_deadline
-                .is_some_and(|deadline| now >= deadline);
+        // Shutdown flushes immediately and skips any retry backoff.
+        let ready =
+            !self.accepting_inputs || self.next_deadline().is_some_and(|deadline| now >= deadline);
         if !ready {
             return None;
         }
@@ -334,7 +398,35 @@ impl WatcherExecutionController {
 
     pub(crate) fn finish_execution_success(&mut self) -> Result<(), WatcherControllerError> {
         self.take_active()?;
+        self.retry_attempts = 0;
+        self.retry_not_before = None;
         Ok(())
+    }
+
+    /// Requeues the active batch after a transient failure. Retries back off
+    /// exponentially (1 s doubling to 30 s) and continue indefinitely; new
+    /// inputs merge into the pending batch but do not shorten the backoff.
+    /// Returns the attempt number and the delay before the retry.
+    pub(crate) fn finish_execution_transient_failure(
+        &mut self,
+        now: Instant,
+    ) -> Result<(u32, Duration), WatcherControllerError> {
+        let failed = self.take_active()?;
+        Ok(self.requeue_transient_batch(failed, now))
+    }
+
+    pub(crate) fn requeue_transient_batch(
+        &mut self,
+        batch: NormalizedWatcherBatch,
+        now: Instant,
+    ) -> (u32, Duration) {
+        let delay = watcher_retry_delay(self.retry_attempts);
+        self.retry_attempts = self.retry_attempts.saturating_add(1);
+        let not_before = now.checked_add(delay).unwrap_or(now);
+        self.retry_not_before = Some(not_before);
+        self.merge_pending(batch);
+        self.pending_deadline = Some(not_before);
+        (self.retry_attempts, delay)
     }
 
     pub(crate) fn finish_execution_failure(
@@ -1148,6 +1240,69 @@ mod tests {
             Some(NormalizedWatcherBatch::Candidates(vec![alpha, beta]))
         );
         controller.finish_execution_success().unwrap();
+    }
+
+    #[test]
+    fn transient_failures_back_off_exponentially_to_the_cap_and_reset_on_success() {
+        let test_dir = TestDir::new("transient-backoff");
+        let config = recursive_config(&test_dir);
+        let note = test_dir.path().join("notes/note.org");
+        write_file(&note, "* Note\n");
+        let note = fs::canonicalize(note).unwrap();
+        let mut controller = controller(&config, Duration::from_millis(10));
+        let start = Instant::now();
+        controller
+            .push_input(paths(WatcherPathEventKind::Modify, [note.clone()]), start)
+            .unwrap();
+        let mut now = start + Duration::from_millis(10);
+        let expected_seconds = [1, 2, 4, 8, 16, 30, 30, 30];
+        for (index, seconds) in expected_seconds.into_iter().enumerate() {
+            let batch = controller.start_ready_execution(now).expect("batch is due");
+            assert_eq!(
+                batch,
+                NormalizedWatcherBatch::Candidates(vec![note.clone()])
+            );
+            let (attempt, delay) = controller.finish_execution_transient_failure(now).unwrap();
+            assert_eq!(attempt as usize, index + 1);
+            assert_eq!(delay, Duration::from_secs(seconds));
+            // New input merges but does not shorten the backoff.
+            controller
+                .push_input(paths(WatcherPathEventKind::Modify, [note.clone()]), now)
+                .unwrap();
+            assert_eq!(
+                controller.start_ready_execution(now + delay - Duration::from_millis(1)),
+                None
+            );
+            now += delay;
+        }
+        assert!(controller.start_ready_execution(now).is_some());
+        controller.finish_execution_success().unwrap();
+        controller
+            .push_input(paths(WatcherPathEventKind::Modify, [note.clone()]), now)
+            .unwrap();
+        now += Duration::from_millis(10);
+        assert!(controller.start_ready_execution(now).is_some());
+        let (attempt, delay) = controller.finish_execution_transient_failure(now).unwrap();
+        assert_eq!((attempt, delay), (1, Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn shutdown_bypasses_retry_backoff() {
+        let test_dir = TestDir::new("shutdown-backoff");
+        let config = recursive_config(&test_dir);
+        let note = test_dir.path().join("notes/note.org");
+        write_file(&note, "* Note\n");
+        let note = fs::canonicalize(note).unwrap();
+        let mut controller = controller(&config, Duration::from_millis(10));
+        let start = Instant::now();
+        controller
+            .push_input(paths(WatcherPathEventKind::Modify, [note]), start)
+            .unwrap();
+        let now = start + Duration::from_millis(10);
+        assert!(controller.start_ready_execution(now).is_some());
+        controller.finish_execution_transient_failure(now).unwrap();
+        controller.begin_shutdown();
+        assert!(controller.start_ready_execution(now).is_some());
     }
 
     #[test]

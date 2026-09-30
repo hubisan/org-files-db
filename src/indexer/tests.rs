@@ -11,7 +11,6 @@ use crate::{
         open_in_memory_database_with_schema, sqlite_supports_fts5, DbReader, DbWriter,
         FileRecordInput, HeadingRecord, SchemaDefinition, CURRENT_SCHEMA_VERSION,
         DB_METADATA_BODY_TEXT_AVAILABLE_KEY, DB_METADATA_INDEXING_DERIVED_SEARCH_FINGERPRINT_KEY,
-        DB_METADATA_INDEXING_DISCOVERY_FINGERPRINT_KEY,
         DB_METADATA_INDEXING_SEMANTICS_FINGERPRINT_KEY, DB_METADATA_INDEXING_SEMANTICS_VERSION_KEY,
         DB_METADATA_SOURCE_ROOT_EVIDENCE_KEY, DB_METADATA_SOURCE_ROOT_EVIDENCE_VERSION_KEY,
     },
@@ -5315,7 +5314,7 @@ fn rebuild_excludes_structured_metadata_from_stored_heading_bodies() {
 }
 
 #[test]
-fn faulty_file_stops_cleanly_with_clear_error() {
+fn faulty_file_is_skipped_with_a_diagnostic_while_others_are_indexed() {
     struct FailingParser;
 
     impl OrgParserCore for FailingParser {
@@ -5364,18 +5363,6 @@ fn faulty_file_stops_cleanly_with_clear_error() {
     Indexer::new(OrgizeAdapter::new())
         .rebuild(&mut connection, &initial_config)
         .expect("initial rebuild should succeed");
-    let persisted_context: (String, String) = connection
-        .query_row(
-            "SELECT
-                    (SELECT value FROM db_metadata WHERE key = ?1),
-                    (SELECT value FROM db_metadata WHERE key = ?2)",
-            [
-                DB_METADATA_INDEXING_SEMANTICS_FINGERPRINT_KEY,
-                DB_METADATA_INDEXING_DISCOVERY_FINGERPRINT_KEY,
-            ],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .expect("persisted context should load");
     let context_entry_count: i64 = connection
         .query_row(
             "SELECT COUNT(*) FROM db_metadata WHERE key LIKE 'indexing_%'",
@@ -5389,17 +5376,18 @@ fn faulty_file_stops_cleanly_with_clear_error() {
         ..initial_config
     };
 
-    let error = Indexer::new(FailingParser)
+    let report = Indexer::new(FailingParser)
         .rebuild(&mut connection, &config)
-        .expect_err("rebuild should stop on parser failure");
+        .expect("rebuild should skip the failing file");
 
-    match error {
-        IndexerError::Parse { path, diagnostic } => {
-            assert_eq!(path, bad_path);
-            assert_eq!(diagnostic.message, "intentional test parse failure");
-        }
-        other => panic!("unexpected error: {other}"),
-    }
+    assert_eq!(report.indexed_files.len(), 1);
+    let skipped = report
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.message.starts_with("skipped: "))
+        .expect("skipped file should be reported");
+    assert_eq!(skipped.file_path.as_deref(), Some(bad_path.as_path()));
+    assert!(skipped.message.contains("intentional test parse failure"));
 
     let files_count: i64 = connection
         .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
@@ -5409,20 +5397,7 @@ fn faulty_file_stops_cleanly_with_clear_error() {
         .expect("heading count should load");
 
     assert_eq!(files_count, 1);
-    assert_eq!(headings_count, 2);
-    let unchanged_context: (String, String) = connection
-        .query_row(
-            "SELECT
-                    (SELECT value FROM db_metadata WHERE key = ?1),
-                    (SELECT value FROM db_metadata WHERE key = ?2)",
-            [
-                DB_METADATA_INDEXING_SEMANTICS_FINGERPRINT_KEY,
-                DB_METADATA_INDEXING_DISCOVERY_FINGERPRINT_KEY,
-            ],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .expect("persisted context should remain readable");
-    assert_eq!(unchanged_context, persisted_context);
+    assert_eq!(headings_count, 1);
 }
 
 #[test]
@@ -6943,7 +6918,7 @@ fn actionable_plan_rejects_a_changed_database_baseline_and_terminal_results() {
 }
 
 #[test]
-fn preparation_failure_preserves_an_existing_database() {
+fn rebuild_with_only_an_unreadable_file_indexes_nothing_and_reports_it() {
     let test_dir = TestDir::new("prepared-failure-rollback");
     let config_path = test_dir.path().join("config.toml");
     let path = test_dir.path().join("note.org");
@@ -6958,18 +6933,17 @@ fn preparation_failure_preserves_an_existing_database() {
         .expect("initial rebuild should succeed");
     fs::write(&path, b"* Invalid\n\xff").expect("invalid replacement should write");
 
-    assert!(matches!(
-        indexer.rebuild_from_config_path(&config_path),
-        Err(IndexerError::ReadFile { .. })
-    ));
+    let report = indexer
+        .rebuild_from_config_path(&config_path)
+        .expect("an unreadable file is skipped, not fatal");
+    assert!(report.indexed_files.is_empty());
+    assert_eq!(report.diagnostics.len(), 1);
     let connection =
         Connection::open(test_dir.path().join("db.sqlite")).expect("database should open");
-    let title: String = connection
-        .query_row("SELECT title FROM headings WHERE level = 1", [], |row| {
-            row.get(0)
-        })
-        .expect("previous heading should remain");
-    assert_eq!(title, "Original");
+    let count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+        .expect("file count should load");
+    assert_eq!(count, 0);
 }
 
 #[test]
@@ -7453,4 +7427,234 @@ fn assert_materialized_paths_are_four_digits(rows: &[(i64, String, String)]) {
             );
         }
     }
+}
+
+fn skip_policy_config(test_dir: &TestDir, files: Vec<PathBuf>) -> Config {
+    Config {
+        db_path: test_dir.path().join("db.sqlite"),
+        files,
+        dirs: Vec::new(),
+        discovery: Default::default(),
+        links: Default::default(),
+        todo: Default::default(),
+        search: SearchConfig {
+            fts5_enabled: false,
+            index_body_text: false,
+        },
+        query: Default::default(),
+    }
+}
+
+fn skip_policy_titles(connection: &Connection) -> Vec<String> {
+    connection
+        .prepare("SELECT title FROM headings WHERE level = 1 ORDER BY title")
+        .expect("title query should prepare")
+        .query_map([], |row| row.get::<_, String>(0))
+        .expect("title query should execute")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("titles should read")
+}
+
+#[test]
+fn rebuild_skips_invalid_utf8_file_and_indexes_the_others() {
+    let test_dir = TestDir::new("rebuild-skip-invalid-utf8");
+    let good = test_dir.path().join("good.org");
+    let bad = test_dir.path().join("bad.org");
+    let config = skip_policy_config(&test_dir, vec![good.clone(), bad.clone()]);
+    write_file(&good, "* Good\n");
+    fs::write(&bad, b"* Bad\n\xff").expect("invalid source should write");
+    let mut connection = crate::db::open_database_with_schema(
+        &config.db_path,
+        &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+    )
+    .expect("database should open");
+
+    let report = Indexer::new(OrgizeAdapter::new())
+        .rebuild(&mut connection, &config)
+        .expect("one invalid file must not fail the rebuild");
+
+    assert_eq!(skip_policy_titles(&connection), vec!["Good"]);
+    assert_eq!(report.indexed_files.len(), 1);
+    let skipped = report
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.message.starts_with("skipped: "))
+        .collect::<Vec<_>>();
+    assert_eq!(skipped.len(), 1);
+    assert_eq!(
+        skipped[0].file_path,
+        Some(fs::canonicalize(&bad).expect("path should resolve"))
+    );
+    assert!(skipped[0].message.contains("UTF-8"));
+}
+
+#[test]
+fn rebuild_skips_unparsable_file_with_excessive_heading_depth() {
+    let test_dir = TestDir::new("rebuild-skip-deep-heading");
+    let good = test_dir.path().join("good.org");
+    let deep = test_dir.path().join("deep.org");
+    let config = skip_policy_config(&test_dir, vec![good.clone(), deep.clone()]);
+    write_file(&good, "* Good\n");
+    write_file(&deep, &format!("{} Deep\n", "*".repeat(101)));
+    let mut connection = crate::db::open_database_with_schema(
+        &config.db_path,
+        &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+    )
+    .expect("database should open");
+
+    let report = Indexer::new(OrgizeAdapter::new())
+        .rebuild(&mut connection, &config)
+        .expect("one unparsable file must not fail the rebuild");
+
+    assert_eq!(skip_policy_titles(&connection), vec!["Good"]);
+    assert_eq!(
+        report
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.message.starts_with("skipped: "))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn incremental_run_skips_invalid_file_keeps_its_rows_and_retries_it_later() {
+    let test_dir = TestDir::new("incremental-skip-and-retry");
+    let good = test_dir.path().join("good.org");
+    let bad = test_dir.path().join("bad.org");
+    let config = skip_policy_config(&test_dir, vec![good.clone(), bad.clone()]);
+    write_file(&good, "* Good\n");
+    write_file(&bad, "* Bad original\n");
+    let indexer = Indexer::new(OrgizeAdapter::new());
+    let mut connection = crate::db::open_database_with_schema(
+        &config.db_path,
+        &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+    )
+    .expect("database should open");
+    indexer
+        .rebuild(&mut connection, &config)
+        .expect("initial rebuild should succeed");
+
+    write_file(&good, "* Good updated\n");
+    fs::write(&bad, b"* Bad\n\xff").expect("invalid source should write");
+    let ChangeApplicationResult::Applied(report) = indexer
+        .reconcile_configured_sources(&mut connection, &config)
+        .expect("reconciliation should not fail")
+    else {
+        panic!("other files should still be applied");
+    };
+    assert_eq!(report.modified, 1);
+    assert_eq!(report.deleted, 0);
+    assert_eq!(report.skipped.len(), 1);
+    assert!(!report.skipped[0].transient);
+    assert!(report.skipped[0].cause.contains("UTF-8"));
+    assert_eq!(
+        skip_policy_titles(&connection),
+        vec!["Bad original", "Good updated"]
+    );
+
+    // The skipped file was not recorded as indexed, so it is retried.
+    let ChangeApplicationResult::Applied(report) = indexer
+        .reconcile_configured_sources(&mut connection, &config)
+        .expect("reconciliation should not fail")
+    else {
+        panic!("reconciliation should apply");
+    };
+    assert_eq!(report.skipped.len(), 1);
+
+    write_file(&bad, "* Bad fixed\n");
+    let ChangeApplicationResult::Applied(report) = indexer
+        .reconcile_configured_sources(&mut connection, &config)
+        .expect("reconciliation should not fail")
+    else {
+        panic!("reconciliation should apply");
+    };
+    assert!(report.skipped.is_empty());
+    assert_eq!(
+        skip_policy_titles(&connection),
+        vec!["Bad fixed", "Good updated"]
+    );
+}
+
+#[test]
+fn candidate_reconciliation_skips_invalid_new_file_without_failing_others() {
+    let test_dir = TestDir::new("candidate-skip-new-invalid");
+    let root = test_dir.path().join("notes");
+    fs::create_dir_all(&root).expect("root should exist");
+    let mut config = skip_policy_config(&test_dir, Vec::new());
+    config.dirs = vec![ConfiguredDir {
+        path: root.clone(),
+        recursive: true,
+        exclude: Vec::new(),
+    }];
+    let indexer = Indexer::new(OrgizeAdapter::new());
+    let mut connection = crate::db::open_database_with_schema(
+        &config.db_path,
+        &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+    )
+    .expect("database should open");
+    indexer
+        .rebuild_with_options(&mut connection, &config, true)
+        .expect("initial rebuild should succeed");
+    let good = fs::canonicalize(&root)
+        .expect("root should resolve")
+        .join("good.org");
+    let bad = fs::canonicalize(&root)
+        .expect("root should resolve")
+        .join("bad.org");
+    write_file(&good, "* Good\n");
+    fs::write(&bad, b"\xff").expect("invalid source should write");
+
+    let ChangeApplicationResult::Applied(report) = indexer
+        .reconcile_candidate_paths(&mut connection, &config, [good, bad])
+        .expect("reconciliation should not fail")
+    else {
+        panic!("reconciliation should apply");
+    };
+
+    assert_eq!(report.created, 1);
+    assert_eq!(report.skipped.len(), 1);
+    assert_eq!(skip_policy_titles(&connection), vec!["Good"]);
+}
+
+#[test]
+fn transient_classification_covers_busy_database_and_vanished_files_only() {
+    use crate::db::DbWriteError;
+    let busy =
+        rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY), None);
+    let locked = rusqlite::Error::SqliteFailure(
+        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_LOCKED),
+        None,
+    );
+    let corrupt = rusqlite::Error::SqliteFailure(
+        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CORRUPT),
+        None,
+    );
+    assert!(IndexerError::Write(DbWriteError::Transaction { source: busy }).is_transient());
+    assert!(IndexerError::Write(DbWriteError::Write {
+        operation: "test",
+        source: locked
+    })
+    .is_transient());
+    assert!(!IndexerError::Write(DbWriteError::Transaction { source: corrupt }).is_transient());
+    assert!(IndexerError::ReadFile {
+        path: PathBuf::from("x.org"),
+        source: std::io::Error::from(std::io::ErrorKind::NotFound),
+    }
+    .is_transient());
+    assert!(IndexerError::UnstableFileSnapshot {
+        path: PathBuf::from("x.org")
+    }
+    .is_transient());
+    assert!(!IndexerError::ReadFile {
+        path: PathBuf::from("x.org"),
+        source: std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+    }
+    .is_transient());
+    // A missing watch root (discovery) must stay terminal.
+    assert!(!IndexerError::Discover {
+        path: PathBuf::from("root"),
+        source: std::io::Error::from(std::io::ErrorKind::NotFound),
+    }
+    .is_transient());
 }
