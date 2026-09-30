@@ -705,4 +705,4 @@ Search returns normalized structural heading fields. It does not return structur
 - ~1~ means a runtime, data, query, database, serialization, or indexing error.
 - ~2~ means a CLI usage error.
 
-Query parse and validation errors use exit code ~1~. Invalid Clap arguments use exit code ~2~.
+Query parse and validation errors use exit code ~1~. Invalid Clap arguments use exit code ~2~. ~--help~, ~-h~ and ~--version~ print to standard output and exit with code ~0~.

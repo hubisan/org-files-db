@@ -6,6 +6,8 @@ This file records completed changes.
 
 - =CHANGED= Link resolution now builds ID, heading-title, ~CUSTOM_ID~ and root-heading lookups once per pass instead of querying per link; rebuilding a file with 10,000 linked headings drops from about 88 s to about 3 s.
 
+- =FIXED= ~--help~ and ~--version~ now print to standard output and exit with code ~0~ instead of writing to standard error with exit code ~2~.
+
 - =CHANGED= Parsing large Org files is now linear in file size: line numbers use a per-document line index, and link scanning no longer rescans ignored ranges or context spans per position.
 
 - =FIXED= Parsing no longer panics when an in-buffer ~#+TODO:~ keyword contains a bracket link (e.g. ~#+TODO: [[b]] | DONE~).
