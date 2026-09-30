@@ -4,7 +4,7 @@ use std::{
     error::Error,
     ffi::OsStr,
     fmt, fs,
-    io::{self, BufRead, BufReader, Write},
+    io::{self, BufRead, BufReader, Read, Write},
     os::unix::{
         ffi::OsStrExt,
         fs::{FileTypeExt, PermissionsExt},
@@ -16,7 +16,7 @@ use std::{
         Arc, Mutex,
     },
     thread::{self, JoinHandle},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
@@ -32,6 +32,17 @@ use crate::{
 const CONTROL_PROTOCOL_VERSION: u32 = 2;
 const CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const CONTROL_SOCKET_HASH_BYTES: usize = 16;
+/// Server-side read/write timeout per accepted connection. Requests are one short JSON line
+/// sent right after connecting, so a peer that stays silent this long is dropped.
+const CONTROL_SERVER_IO_TIMEOUT: Duration = Duration::from_secs(5);
+/// Client-side read/write timeout. It exceeds the server timeout because the single accept
+/// thread may be busy timing out another peer before it serves this request.
+const CONTROL_CLIENT_IO_TIMEOUT: Duration = Duration::from_secs(30);
+/// Maximum request line the server reads (64 KiB); registrations carry a query and a
+/// presentation spec, which are far smaller.
+const CONTROL_MAX_REQUEST_BYTES: u64 = 64 * 1024;
+/// How long ~view read~ waits for a pending rebuild (or a changing cache) before failing.
+pub(crate) const VIEW_READ_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -413,6 +424,15 @@ impl PresentationViewControlServer {
         registry: &PresentationViewRegistryHandle,
         rebuild: Option<PresentationViewRebuildHandle>,
     ) -> Result<Self, ViewControlServerError> {
+        Self::start_with_io_timeout(socket_path, registry, rebuild, CONTROL_SERVER_IO_TIMEOUT)
+    }
+
+    fn start_with_io_timeout(
+        socket_path: &Path,
+        registry: &PresentationViewRegistryHandle,
+        rebuild: Option<PresentationViewRebuildHandle>,
+        io_timeout: Duration,
+    ) -> Result<Self, ViewControlServerError> {
         prepare_control_socket(socket_path)?;
         let listener =
             UnixListener::bind(socket_path).map_err(|source| ViewControlServerError::Bind {
@@ -436,8 +456,15 @@ impl PresentationViewControlServer {
         let thread_shutdown = Arc::clone(&shutdown);
         let thread = match thread::Builder::new()
             .name("orgfdb-view-control".to_string())
-            .spawn(move || run_control_server(listener, thread_registry, rebuild, thread_shutdown))
-        {
+            .spawn(move || {
+                run_control_server(
+                    listener,
+                    thread_registry,
+                    rebuild,
+                    thread_shutdown,
+                    io_timeout,
+                )
+            }) {
             Ok(thread) => thread,
             Err(source) => {
                 let _ = fs::remove_file(socket_path);
@@ -468,11 +495,12 @@ fn run_control_server(
     registry: PresentationViewRegistryHandle,
     rebuild: Option<PresentationViewRebuildHandle>,
     shutdown: Arc<AtomicBool>,
+    io_timeout: Duration,
 ) {
     while !shutdown.load(Ordering::Acquire) {
         match listener.accept() {
             Ok((stream, _address)) => {
-                handle_control_connection(stream, &registry, rebuild.as_ref())
+                handle_control_connection(stream, &registry, rebuild.as_ref(), io_timeout)
             }
             Err(source) if source.kind() == io::ErrorKind::WouldBlock => {
                 thread::sleep(CONTROL_POLL_INTERVAL);
@@ -486,20 +514,45 @@ fn handle_control_connection(
     stream: UnixStream,
     registry: &PresentationViewRegistryHandle,
     rebuild: Option<&PresentationViewRebuildHandle>,
+    io_timeout: Duration,
 ) {
-    let mut reader = BufReader::new(stream);
+    // Timeouts keep one silent or stalled peer from blocking the accept thread (and with it
+    // all other requests and watcher shutdown). A peer that times out is simply dropped.
+    if stream.set_nonblocking(false).is_err()
+        || stream.set_read_timeout(Some(io_timeout)).is_err()
+        || stream.set_write_timeout(Some(io_timeout)).is_err()
+    {
+        return;
+    }
+    let mut reader = BufReader::new((&stream).take(CONTROL_MAX_REQUEST_BYTES));
     let mut request_line = String::new();
     let response = match reader.read_line(&mut request_line) {
         Ok(0) => return,
+        Ok(_) if !request_line.ends_with('\n') && reader.get_ref().limit() == 0 => {
+            ViewControlResponse::Error {
+                code: "request_too_large".to_string(),
+                message: format!(
+                    "presentation view request exceeds {CONTROL_MAX_REQUEST_BYTES} bytes"
+                ),
+            }
+        }
         Ok(_) => parse_and_apply_request(&request_line, registry, rebuild),
+        Err(source)
+            if matches!(
+                source.kind(),
+                io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+            ) =>
+        {
+            return;
+        }
         Err(source) => ViewControlResponse::Error {
             code: "read_request".to_string(),
             message: format!("failed to read presentation view request: {source}"),
         },
     };
 
-    let stream = reader.get_mut();
-    if serde_json::to_writer(&mut *stream, &response).is_ok() {
+    let mut stream = &stream;
+    if serde_json::to_writer(&mut stream, &response).is_ok() {
         let _ = stream.write_all(b"\n");
     }
 }
@@ -618,9 +671,22 @@ pub(crate) fn wait_for_presentation_view(
     config: &Config,
     name: String,
 ) -> Result<PresentationViewReadTicket, ViewControlClientError> {
+    wait_for_presentation_view_until(config, name, Instant::now() + VIEW_READ_TIMEOUT)
+}
+
+pub(crate) fn wait_for_presentation_view_until(
+    config: &Config,
+    name: String,
+    deadline: Instant,
+) -> Result<PresentationViewReadTicket, ViewControlClientError> {
     loop {
         match send_control_request(config, ViewControlRequest::read(name.clone()))? {
-            ViewControlResponse::ReadPending => thread::sleep(CONTROL_POLL_INTERVAL),
+            ViewControlResponse::ReadPending => {
+                if Instant::now() >= deadline {
+                    return Err(ViewControlClientError::ReadTimeout { name });
+                }
+                thread::sleep(CONTROL_POLL_INTERVAL);
+            }
             ViewControlResponse::ReadReady { ticket } => return Ok(*ticket),
             response => return Err(unexpected_response("read", response)),
         }
@@ -653,6 +719,10 @@ fn send_control_request_to_path(
             path: socket_path.to_path_buf(),
             source,
         })?;
+    stream
+        .set_read_timeout(Some(CONTROL_CLIENT_IO_TIMEOUT))
+        .and_then(|()| stream.set_write_timeout(Some(CONTROL_CLIENT_IO_TIMEOUT)))
+        .map_err(ViewControlClientError::Write)?;
     serde_json::to_writer(&mut stream, &request).map_err(ViewControlClientError::Serialize)?;
     stream
         .write_all(b"\n")
@@ -931,6 +1001,9 @@ pub(crate) enum ViewControlClientError {
     Write(io::Error),
     Read(io::Error),
     EmptyResponse,
+    ReadTimeout {
+        name: String,
+    },
     Deserialize(serde_json::Error),
     Remote {
         code: String,
@@ -961,6 +1034,11 @@ impl fmt::Display for ViewControlClientError {
             Self::Write(source) => write!(f, "failed to write presentation view request: {source}"),
             Self::Read(source) => write!(f, "failed to read presentation view response: {source}"),
             Self::EmptyResponse => write!(f, "presentation view control connection returned no response"),
+            Self::ReadTimeout { name } => write!(
+                f,
+                "timed out after {}s waiting for presentation view `{name}` to become readable; check that the watcher is running and can rebuild the view",
+                VIEW_READ_TIMEOUT.as_secs()
+            ),
             Self::Deserialize(source) => write!(f, "failed to parse presentation view response: {source}"),
             Self::Remote { code, message } => write!(f, "presentation view request failed ({code}): {message}"),
             Self::UnexpectedResponse { operation, response } => write!(
@@ -977,7 +1055,10 @@ impl Error for ViewControlClientError {
             Self::Path(source) => Some(source),
             Self::Connect { source, .. } | Self::Write(source) | Self::Read(source) => Some(source),
             Self::Serialize(source) | Self::Deserialize(source) => Some(source),
-            Self::EmptyResponse | Self::Remote { .. } | Self::UnexpectedResponse { .. } => None,
+            Self::EmptyResponse
+            | Self::ReadTimeout { .. }
+            | Self::Remote { .. }
+            | Self::UnexpectedResponse { .. } => None,
         }
     }
 }
@@ -988,13 +1069,18 @@ mod tests {
         control_socket_path_in_root, send_control_request_to_path, PresentationViewControlServer,
         PresentationViewDefinition, PresentationViewInclude, PresentationViewOutputMode,
         PresentationViewRegistrationAction, PresentationViewRegistryHandle, ViewControlClientError,
-        ViewControlRequest, ViewControlResponse, ViewControlServerError,
+        ViewControlRequest, ViewControlResponse, ViewControlServerError, CONTROL_MAX_REQUEST_BYTES,
     };
     use serde_json::json;
     use std::{
         fs,
         path::PathBuf,
         time::{SystemTime, UNIX_EPOCH},
+    };
+    use std::{
+        io::{BufRead, BufReader, Write},
+        os::unix::net::UnixStream,
+        time::{Duration, Instant},
     };
 
     struct TestDir {
@@ -1064,6 +1150,40 @@ mod tests {
                 .len()
                 < 64
         );
+    }
+
+    #[test]
+    fn silent_and_oversized_clients_do_not_block_other_clients_or_shutdown() {
+        let test_dir = TestDir::new("silent-client");
+        let socket_path = test_dir.path.join("control.sock");
+        let server = PresentationViewControlServer::start_with_io_timeout(
+            &socket_path,
+            &PresentationViewRegistryHandle::new("test-session".to_string()),
+            None,
+            Duration::from_millis(100),
+        )
+        .expect("control server should start");
+
+        let _silent = UnixStream::connect(&socket_path).expect("silent client should connect");
+        let mut oversized = UnixStream::connect(&socket_path).expect("client should connect");
+        let _ = oversized.write_all(&vec![b'x'; CONTROL_MAX_REQUEST_BYTES as usize + 1]);
+        let mut reply = String::new();
+        let _ = BufReader::new(&oversized).read_line(&mut reply);
+        assert!(reply.contains("request_too_large"), "reply: {reply}");
+
+        let started = Instant::now();
+        let response = send_control_request_to_path(
+            &socket_path,
+            ViewControlRequest::register(definition("agenda", 40)),
+        )
+        .expect("second client should be served after the silent one times out");
+        assert!(matches!(response, ViewControlResponse::Registered { .. }));
+        assert!(started.elapsed() < Duration::from_secs(3));
+
+        let _hanging = UnixStream::connect(&socket_path).expect("hanging client should connect");
+        let started = Instant::now();
+        drop(server);
+        assert!(started.elapsed() < Duration::from_secs(3));
     }
 
     #[test]

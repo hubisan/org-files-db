@@ -4,6 +4,7 @@ use std::{
     io::{self, Read, Write},
     path::{Path, PathBuf},
     process::ExitCode,
+    time::Instant,
 };
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -26,8 +27,8 @@ use crate::{
     },
     presentation_view::{
         register_presentation_view, remove_presentation_view, show_presentation_view,
-        wait_for_presentation_view, PresentationViewDefinition, PresentationViewInclude,
-        PresentationViewOutputMode, ViewControlClientError,
+        wait_for_presentation_view_until, PresentationViewDefinition, PresentationViewInclude,
+        PresentationViewOutputMode, ViewControlClientError, VIEW_READ_TIMEOUT,
     },
     presentation_view_cache::{
         PresentationViewCachePathError, PresentationViewCacheReadError, PresentationViewCacheStore,
@@ -563,9 +564,10 @@ fn read_presentation_view_payload(
     name: &str,
     writer: &mut impl Write,
 ) -> Result<(), CliError> {
+    let deadline = Instant::now() + VIEW_READ_TIMEOUT;
     loop {
-        let ticket =
-            wait_for_presentation_view(config, name.to_string()).map_err(CliError::ViewControl)?;
+        let ticket = wait_for_presentation_view_until(config, name.to_string(), deadline)
+            .map_err(CliError::ViewControl)?;
         let store = PresentationViewCacheStore::for_session(config, ticket.view.session_id.clone())
             .map_err(CliError::PresentationViewCachePath)?;
         match store.open_valid(
@@ -580,7 +582,13 @@ fn read_presentation_view_payload(
                     .map_err(CliError::PresentationViewCacheRead)?;
                 return Ok(());
             }
-            Err(source) if cache_read_target_changed(&source) => continue,
+            Err(source) if cache_read_target_changed(&source) => {
+                if Instant::now() >= deadline {
+                    return Err(CliError::ViewControl(ViewControlClientError::ReadTimeout {
+                        name: name.to_string(),
+                    }));
+                }
+            }
             Err(source) => return Err(CliError::PresentationViewCacheRead(source)),
         }
     }
