@@ -3,6 +3,9 @@ pub(crate) mod line_index;
 pub mod link_scanner;
 pub mod model;
 pub mod orgize_adapter;
+pub(crate) mod properties;
+pub(crate) mod timestamp_raw;
+pub(crate) mod title;
 
 pub use diagnostics::{DiagnosticSeverity, ParseDiagnostic};
 pub use link_scanner::{
