@@ -135,7 +135,7 @@ Keep normalization tests tied to the same source ranges used for links and headi
 
 * Register
 
-Each entry records one known Orgize deviation or project workaround. The Orgize strategy is tracked in #41. Test names refer to ~tests/orgize_adapter.rs~ unless noted. Emacs was not available while writing this register, so Org behavior is stated per Org syntax and not verified against ~org-element-parse-buffer~.
+Each entry records one known Orgize deviation or project workaround. The Orgize strategy is tracked in #41. Test names refer to ~tests/orgize_adapter.rs~ unless noted. Org behavior was verified against Emacs 29.3 / Org 9.6.15 for R13 and R17; other entries state Org behavior per Org syntax and were not verified against ~org-element-parse-buffer~.
 
 ** R1 Link nodes unused, own link scanner
 
@@ -300,8 +300,9 @@ Each entry records one known Orgize deviation or project workaround. The Orgize 
   #+end_src
 - Orgize: may expose the drawer as a generic ~DRAWER~ instead of a property drawer.
 - Org: it is the property drawer only at the start of its section (after planning, or comments and blank lines in the file section).
-- Workaround: ~properties_drawer_node_in_document~, ~properties_drawer_node_in_headline~ and ~properties_drawer_node_in_section~ in ~src/parser/orgize_adapter.rs~ accept a generic drawer named PROPERTIES only at the section start.
-- Test: ~property_drawer_directly_after_heading_is_a_property~, ~property_drawer_after_planning_line_is_a_property~, ~property_drawer_after_body_text_is_not_a_heading_property~, ~property_drawer_after_comment_is_a_file_property~.
+- Orgize also builds a generic drawer for placements Org rejects (blank line, ~# comment~ or a second planning line before it on a heading; blank lines before it at file level), and it puts leading file blank lines outside the section.
+- Workaround: ~properties_drawer_node_in_document~ and ~properties_drawer_node_in_headline~ in ~src/parser/orgize_adapter.rs~ accept a generic drawer named PROPERTIES only as the first element of a heading section, or at file level after comment lines only (checked on the source text, since blank lines sit inside or outside nodes).
+- Test: ~property_drawer_placement_matches_org~ (table checked against Emacs 29.3 / Org 9.6.15).
 - Tracked in #41.
 
 ** R14 Empty property rows recovered line by line
@@ -357,7 +358,8 @@ Each entry records one known Orgize deviation or project workaround. The Orgize 
 - Orgize: ~ParseConfig~ takes the keyword sets up front and does not read ~#+TODO~ lines of the buffer.
 - Org: in-buffer declarations override the defaults.
 - Workaround: a pre-parse collects document keywords and resolves the effective set (~collect_document_keywords~, ~resolve_todo_keywords_from_keywords~ in ~src/todo_keywords.rs~) before ~parse_org_document~ in ~src/parser/orgize_adapter.rs~ builds ~ParseConfig~.
-- Test: ~orgize_adapter_prefers_org_todo_keywords_over_configured_defaults~, ~orgize_adapter_treats_org_todo_keywords_as_overrides~.
+- Spec syntax: Orgize has no keyword spec parser at all, so ~split_todo_keyword_spec~ in ~src/todo_keywords.rs~ mirrors ~org-set-regexps-and-options~ (Org 9.6.15): the name is the text before the first ~(~ when the spec ends with ~)~, the fast key is the character right after ~(~ unless it is ~!~, ~@~ or ~/~, and log settings are ignored. Specs without a trailing ~)~ are literal names. Org assigns automatic fast keys to keywords without an explicit one; the project stores only explicit keys.
+- Test: ~orgize_adapter_prefers_org_todo_keywords_over_configured_defaults~, ~orgize_adapter_treats_org_todo_keywords_as_overrides~, ~in_buffer_todo_keyword_specs_match_org~, ~todo_keywords::tests::parse_todo_keyword_spec_matches_org~ (verified against Emacs 29.3 / Org 9.6.15).
 - Tracked in #41.
 
 ** R18 Diary timestamps in planning lines

@@ -51,7 +51,10 @@ impl TodoKeywordSourceKind {
 pub(crate) fn parse_todo_keyword_spec(spec: &str) -> TodoKeyword {
     let spec = spec.trim();
     if let Some((name, fast_key)) = split_todo_keyword_spec(spec) {
-        TodoKeyword::with_fast_key(name, fast_key)
+        match fast_key {
+            Some(fast_key) => TodoKeyword::with_fast_key(name, fast_key),
+            None => TodoKeyword::new(name),
+        }
     } else {
         TodoKeyword::new(spec)
     }
@@ -277,32 +280,56 @@ fn finalize_entries(
         .collect()
 }
 
-fn split_todo_keyword_spec(spec: &str) -> Option<(&str, char)> {
-    let open_paren = spec.rfind('(')?;
-    let close_paren = spec.rfind(')')?;
-    if close_paren != spec.len() - 1 || open_paren >= close_paren {
-        return None;
-    }
-
-    let name = spec[..open_paren].trim();
+/// Splits a keyword spec like Org's `org-set-regexps-and-options`: the name is everything
+/// before the first `(` when the spec ends with `)`; the fast key is the character right
+/// after `(` unless it is `!`, `@` or `/` (log settings without a key) or the `)` itself.
+/// The log part is ignored. Specs without a trailing `)` are literal names.
+fn split_todo_keyword_spec(spec: &str) -> Option<(&str, Option<char>)> {
+    let body = spec.strip_suffix(')')?;
+    let open_paren = body.find('(')?;
+    let name = &body[..open_paren];
     if name.is_empty() {
         return None;
     }
-
-    let mut suffix_chars = spec[open_paren + 1..close_paren].chars();
-    let fast_key = suffix_chars.next()?;
-    match suffix_chars.next() {
-        None => {}
-        Some('!') | Some('@') if suffix_chars.next().is_none() => {}
-        _ => return None,
-    }
-
+    let fast_key = body[open_paren + 1..]
+        .chars()
+        .next()
+        .filter(|c| !matches!(c, '!' | '@' | '/'));
     Some((name, fast_key))
+}
+
+/// True when the parenthesized part follows Org's grammar `(KEY?[!@]?(/[!@])?)`, with at
+/// least one element. Used to reject malformed config specs that Org would read oddly.
+pub(crate) fn is_valid_todo_keyword_spec_suffix(spec: &str) -> bool {
+    let Some(body) = spec.strip_suffix(')') else {
+        return !spec.contains(['(', ')']);
+    };
+    let Some(open_paren) = body.find('(') else {
+        return false;
+    };
+    let mut rest = body[open_paren + 1..].chars().peekable();
+    let mut seen = 0;
+    if rest
+        .next_if(|c| !c.is_whitespace() && !matches!(c, '!' | '@' | '/' | '(' | ')'))
+        .is_some()
+    {
+        seen += 1;
+    }
+    if rest.next_if(|c| matches!(c, '!' | '@')).is_some() {
+        seen += 1;
+    }
+    if rest.next_if(|c| *c == '/').is_some() {
+        if rest.next_if(|c| matches!(c, '!' | '@')).is_none() {
+            return false;
+        }
+        seen += 1;
+    }
+    seen > 0 && rest.next().is_none() && !body[..open_paren].contains(['(', ')'])
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_todo_keyword_spec, TodoKeyword};
+    use super::{is_valid_todo_keyword_spec_suffix, parse_todo_keyword_spec, TodoKeyword};
 
     #[test]
     fn parse_todo_keyword_spec_trims_outer_whitespace() {
@@ -312,28 +339,51 @@ mod tests {
         );
     }
 
+    /// Expected values come from Emacs 29.3 / Org 9.6.15 (`org-todo-keywords-1` and the
+    /// explicit keys in `org-todo-key-alist`).
     #[test]
-    fn parse_todo_keyword_spec_leaves_malformed_suffixes_literal() {
-        assert_eq!(
-            parse_todo_keyword_spec("TODO(w@)"),
-            TodoKeyword::with_fast_key("TODO", 'w')
-        );
-        assert_eq!(
-            parse_todo_keyword_spec("TODO()"),
-            TodoKeyword::new("TODO()")
-        );
-        assert_eq!(
-            parse_todo_keyword_spec("TODO(ab)"),
-            TodoKeyword::new("TODO(ab)")
-        );
-        assert_eq!(
-            parse_todo_keyword_spec("TODO(t"),
-            TodoKeyword::new("TODO(t")
-        );
-        assert_eq!(
-            parse_todo_keyword_spec("TODO)t"),
-            TodoKeyword::new("TODO)t")
-        );
+    fn parse_todo_keyword_spec_matches_org() {
+        let cases: &[(&str, &str, Option<char>)] = &[
+            ("ZZZ", "ZZZ", None),
+            ("ZZZ(x)", "ZZZ", Some('x')),
+            ("ZZZ(x!)", "ZZZ", Some('x')),
+            ("ZZZ(x@)", "ZZZ", Some('x')),
+            ("ZZZ(x/!)", "ZZZ", Some('x')),
+            ("ZZZ(x@/!)", "ZZZ", Some('x')),
+            ("ZZZ(x!/@)", "ZZZ", Some('x')),
+            ("ZZZ(@/!)", "ZZZ", None),
+            ("ZZZ(!)", "ZZZ", None),
+            ("ZZZ(@)", "ZZZ", None),
+            ("ZZZ(/!)", "ZZZ", None),
+            ("ZZZ(ww)", "ZZZ", Some('w')),
+            ("ZZZ()", "ZZZ", None),
+            ("ZZZ(x)(y)", "ZZZ", Some('x')),
+            ("ZZZ(w", "ZZZ(w", None),
+            ("ZZZ(x)y", "ZZZ(x)y", None),
+        ];
+        for (spec, name, key) in cases {
+            let keyword = parse_todo_keyword_spec(spec);
+            assert_eq!(
+                (keyword.name.as_str(), keyword.fast_key),
+                (*name, *key),
+                "{spec}"
+            );
+        }
+    }
+
+    #[test]
+    fn strict_spec_suffix_accepts_only_org_forms() {
+        for ok in [
+            "A", "A(x)", "A(x!)", "A(x@)", "A(x/!)", "A(x@/!)", "A(x!/@)", "A(@/!)", "A(!)",
+            "A(@)", "A(/!)",
+        ] {
+            assert!(is_valid_todo_keyword_spec_suffix(ok), "{ok}");
+        }
+        for bad in [
+            "A(ww)", "A()", "A(w", "A)w", "A(x)y", "A(x)(y)", "A(x/)", "A(/)", "A(x!!)", "A())",
+        ] {
+            assert!(!is_valid_todo_keyword_spec_suffix(bad), "{bad}");
+        }
     }
 }
 

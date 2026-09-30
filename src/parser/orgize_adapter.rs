@@ -72,7 +72,7 @@ impl OrgParserCore for OrgizeAdapter {
         let mut level_zero = level_zero_heading(path, content, parsed.metadata.title.as_deref());
         level_zero.tags = file_level_tags_from_keywords(&parsed.metadata.keywords);
         populate_heading_body(document.section(), content, &mut level_zero);
-        if let Some(properties) = properties_drawer_node_in_document(&document) {
+        if let Some(properties) = properties_drawer_node_in_document(&document, content) {
             level_zero.properties.extend(parsed_properties_from_drawer(
                 &properties,
                 content,
@@ -1456,15 +1456,21 @@ fn parse_property_keyword_value(value: &str) -> Option<(String, Option<String>, 
     Some((key, raw_value, append))
 }
 
-fn properties_drawer_node_in_document(document: &OrgDocument) -> Option<SyntaxNode> {
-    document
+fn properties_drawer_node_in_document(document: &OrgDocument, content: &str) -> Option<SyntaxNode> {
+    let candidate = document
         .properties()
         .map(|drawer| drawer.syntax().clone())
         .or_else(|| {
-            document
-                .section()
-                .and_then(|section| properties_drawer_node_in_section(&section))
-        })
+            let section = document.section()?;
+            let first = section
+                .syntax()
+                .children()
+                .find(|node| node.kind() != SyntaxKind::COMMENT)?;
+            is_properties_drawer(&first).then_some(first)
+        })?;
+    // Org: only comment lines may precede the file-level drawer, not even blank lines.
+    let before = &content[..usize::from(candidate.text_range().start())];
+    before.lines().all(is_org_comment_line).then_some(candidate)
 }
 
 fn properties_drawer_node_in_headline(headline: &Headline) -> Option<SyntaxNode> {
@@ -1472,23 +1478,25 @@ fn properties_drawer_node_in_headline(headline: &Headline) -> Option<SyntaxNode>
         .properties()
         .map(|drawer| drawer.syntax().clone())
         .or_else(|| {
-            headline
-                .section()
-                .and_then(|section| properties_drawer_node_in_section(&section))
+            // Org: the drawer must directly follow the headline or its planning line, so
+            // it has to be the very first element of the section (blank lines and
+            // comments in front disqualify it).
+            let first = headline.section()?.syntax().children().next()?;
+            is_properties_drawer(&first).then_some(first)
         })
 }
 
-/// Org only treats a drawer as the property drawer when it is the first element of the
-/// section, optionally after a planning line (zeroth section: after comments only).
-fn properties_drawer_node_in_section(section: &Section) -> Option<SyntaxNode> {
-    let first = section
-        .syntax()
-        .children()
-        .find(|node| !matches!(node.kind(), SyntaxKind::PLANNING | SyntaxKind::COMMENT))?;
-    (first.kind() == SyntaxKind::PROPERTY_DRAWER
-        || Drawer::cast(first.clone())
-            .is_some_and(|drawer| drawer.name().eq_ignore_ascii_case("PROPERTIES")))
-    .then_some(first)
+fn is_properties_drawer(node: &SyntaxNode) -> bool {
+    node.kind() == SyntaxKind::PROPERTY_DRAWER
+        || Drawer::cast(node.clone())
+            .is_some_and(|drawer| drawer.name().eq_ignore_ascii_case("PROPERTIES"))
+}
+
+/// Org comment line: optional indentation, then `#` followed by a space or the line end.
+fn is_org_comment_line(line: &str) -> bool {
+    line.trim_start_matches([' ', '\t'])
+        .strip_prefix('#')
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
 }
 
 fn parsed_properties_from_drawer(

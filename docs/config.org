@@ -241,7 +241,7 @@ Supported keys:
 
 In-buffer ~#+TODO~, ~#+SEQ_TODO~, and ~#+TYP_TODO~ declarations take precedence over these defaults.
 
-Each entry is ~NAME~ or ~NAME(x)~, optionally ~NAME(x!)~ or ~NAME(x@)~. Names must be non-empty and must not contain whitespace, ~(~, ~)~ or ~|~. A keyword may appear only once across both lists. Invalid entries fail config loading with an error naming the field and the entry. In-buffer declarations are not validated this way.
+Each entry is ~NAME~ or ~NAME(SPEC)~, where ~SPEC~ follows Org: an optional fast key (any character except ~!~, ~@~ and ~/~), an optional ~!~ or ~@~ log setting, and an optional ~/!~ or ~/@~ log setting for leaving the state. Examples: ~TODO(t)~, ~DONE(d!)~, ~WAIT(w@/!)~, ~WAIT(@/!)~, ~WAIT(/!)~. Only the fast key is stored; log settings are accepted and ignored. Names must be non-empty and must not contain whitespace, ~(~, ~)~ or ~|~; entries such as ~WAIT(~, ~WAIT()~, ~WAIT(ww)~ or ~WAIT(w)x~ are rejected. A keyword may appear only once across both lists. Invalid entries fail config loading with an error naming the field and the entry. In-buffer declarations are not validated this way and are read like Org does (name before the first ~(~ when the entry ends with ~)~, fast key right after it).
 
 ** ~todo.default_open_keywords~
 

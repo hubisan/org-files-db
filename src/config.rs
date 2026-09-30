@@ -449,6 +449,11 @@ fn todo_keyword_list(
                 value: spec.clone(),
                 message,
             };
+            if !crate::todo_keywords::is_valid_todo_keyword_spec_suffix(spec.trim()) {
+                return Err(invalid(
+                    "expected `NAME` or `NAME(x)`, optionally with log settings like `NAME(x@/!)`",
+                ));
+            }
             let keyword = parse_todo_keyword_spec(&spec);
             if keyword.name.is_empty() {
                 return Err(invalid("keyword must not be empty"));
@@ -1263,6 +1268,50 @@ timezone = "Europe/Zurich"
     }
 
     #[test]
+    fn accepts_every_org_todo_keyword_spec_form() {
+        let test_dir = TestDir::new("todo-spec-forms");
+        let config_path = test_dir.path().join("config.toml");
+        write_file(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+
+[todo]
+default_open_keywords = ["A", "B(b)", "C(c!)", "D(d@)", "E(e/!)", "WAIT(w@/!)", "G(g!/@)", "H(@/!)", "I(!)", "J(/!)"]
+default_closed_keywords = ["DONE(d!)"]
+"#,
+        );
+
+        let config = Config::load_from_file(&config_path).expect("config should load");
+        let keys: Vec<_> = config
+            .todo
+            .default_open_keywords
+            .iter()
+            .map(|k| (k.name.as_str(), k.fast_key))
+            .collect();
+
+        assert_eq!(
+            keys,
+            vec![
+                ("A", None),
+                ("B", Some('b')),
+                ("C", Some('c')),
+                ("D", Some('d')),
+                ("E", Some('e')),
+                ("WAIT", Some('w')),
+                ("G", Some('g')),
+                ("H", None),
+                ("I", None),
+                ("J", None),
+            ]
+        );
+        assert_eq!(
+            config.todo.default_closed_keywords,
+            vec![TodoKeyword::with_fast_key("DONE", 'd')]
+        );
+    }
+
+    #[test]
     fn rejects_invalid_todo_keyword_specs() {
         let test_dir = TestDir::new("invalid-todo-keywords");
         let config_path = test_dir.path().join("config.toml");
@@ -1290,6 +1339,24 @@ timezone = "Europe/Zurich"
                 r#"["DONE"]"#,
                 "todo.default_open_keywords",
                 "TODO(t)",
+            ),
+            (
+                r#"["WAIT("]"#,
+                r#"["DONE"]"#,
+                "todo.default_open_keywords",
+                "WAIT(",
+            ),
+            (
+                r#"["WAIT()"]"#,
+                r#"["DONE"]"#,
+                "todo.default_open_keywords",
+                "WAIT()",
+            ),
+            (
+                r#"["WAIT(w)x"]"#,
+                r#"["DONE"]"#,
+                "todo.default_open_keywords",
+                "WAIT(w)x",
             ),
             (
                 r#"["TODO", "WAIT"]"#,
