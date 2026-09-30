@@ -2134,7 +2134,7 @@ fn compile_has_text_predicate(
                 validate_regexp_pattern(QueryTarget::Headings, "has-text", &value)?;
                 "orgfdb_regexp(?, heading_bodies.body_text) = 1".to_string()
             } else {
-                "INSTR(LOWER(heading_bodies.body_text), LOWER(?)) > 0".to_string()
+                "INSTR(orgfdb_lower(heading_bodies.body_text), orgfdb_lower(?)) > 0".to_string()
             }
         ));
         params.push(QueryParam::Text(value));
@@ -2172,7 +2172,7 @@ fn compile_outline_contains_predicate(
             validate_regexp_pattern(QueryTarget::Headings, "outline-contains", &value)?;
             "orgfdb_regexp(?, CAST(breadcrumb.value AS TEXT)) = 1".to_string()
         } else {
-            "INSTR(LOWER(CAST(breadcrumb.value AS TEXT)), LOWER(?)) > 0".to_string()
+            "INSTR(orgfdb_lower(CAST(breadcrumb.value AS TEXT)), orgfdb_lower(?)) > 0".to_string()
         };
         parts.push(format!(
             "EXISTS (
@@ -2236,9 +2236,11 @@ fn compile_outline_sequence_predicate(
             validate_regexp_pattern(QueryTarget::Headings, "outline-sequence", &value)?;
             predicates.push(format!("orgfdb_regexp(?, {expression}) = 1"));
         } else if exact {
-            predicates.push(format!("LOWER({expression}) = LOWER(?)"));
+            predicates.push(format!("orgfdb_lower({expression}) = orgfdb_lower(?)"));
         } else {
-            predicates.push(format!("INSTR(LOWER({expression}), LOWER(?)) > 0"));
+            predicates.push(format!(
+                "INSTR(orgfdb_lower({expression}), orgfdb_lower(?)) > 0"
+            ));
         }
         params.push(QueryParam::Text(value));
     }
@@ -2542,9 +2544,11 @@ fn compile_text_predicate(
             validate_regexp_pattern(target, predicate.name.as_str(), &value)?;
             parts.push(format!("orgfdb_regexp(?, {sql_column}) = 1"));
         } else if exact {
-            parts.push(format!("LOWER({sql_column}) = LOWER(?)"));
+            parts.push(format!("orgfdb_lower({sql_column}) = orgfdb_lower(?)"));
         } else {
-            parts.push(format!("INSTR(LOWER({sql_column}), LOWER(?)) > 0"));
+            parts.push(format!(
+                "INSTR(orgfdb_lower({sql_column}), orgfdb_lower(?)) > 0"
+            ));
         }
         params.push(QueryParam::Text(value));
     }
@@ -2890,11 +2894,11 @@ fn compile_keyword_predicate(
         metadata_predicate_strategy == MetadataPredicateSqlStrategy::PredicateDrivenIn && !regexp;
     let mut sql = if predicate_driven {
         format!(
-            "({heading_id_sql} IN (SELECT keywords.heading_id FROM keywords WHERE keywords.keyword = ? COLLATE NOCASE"
+            "({heading_id_sql} IN (SELECT keywords.heading_id FROM keywords WHERE orgfdb_lower(keywords.keyword) = orgfdb_lower(?)"
         )
     } else {
         format!(
-            "(EXISTS (SELECT 1 FROM keywords WHERE keywords.heading_id = {heading_id_sql} AND keywords.keyword = ? COLLATE NOCASE"
+            "(EXISTS (SELECT 1 FROM keywords WHERE keywords.heading_id = {heading_id_sql} AND orgfdb_lower(keywords.keyword) = orgfdb_lower(?)"
         )
     };
     let mut params = vec![QueryParam::Text(key)];
@@ -4751,6 +4755,54 @@ mod tests {
     }
 
     #[test]
+    fn execution_case_insensitive_predicates_fold_unicode() {
+        let connection = seeded_connection();
+        connection
+            .execute(
+                "UPDATE headings SET title = 'Über Straße' WHERE id = 12",
+                [],
+            )
+            .expect("title update");
+        connection
+            .execute(
+                r#"UPDATE outline_path SET breadcrumbs_json = '["Über Straße"]' WHERE heading_id = 12"#,
+                [],
+            )
+            .expect("outline update");
+        connection
+            .execute(
+                "UPDATE keywords SET keyword = 'Ärger' WHERE heading_id = 10",
+                [],
+            )
+            .expect("keyword update");
+
+        for query in [
+            r#"(headings (title "über"))"#,
+            r#"(headings (title "ÜBER"))"#,
+            r#"(headings (title "straße"))"#,
+        ] {
+            let rows = execute_sqlite_query(&connection, &validated(query))
+                .expect("title query should execute");
+            assert_eq!(heading_ids(rows), vec![12], "{query}");
+        }
+
+        let rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(files (keyword "ärger" "Alice"))"#),
+        )
+        .expect("keyword query should execute");
+        assert_eq!(file_paths(rows), vec!["/tmp/query-alpha.org".to_string()]);
+
+        let rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (outline-contains "über"))"#),
+        )
+        .expect("outline query should execute");
+        let ids = heading_ids(rows);
+        assert!(ids.contains(&12), "{ids:?}");
+    }
+
+    #[test]
     fn execution_matches_hierarchy_predicates() {
         let connection = seeded_connection();
 
@@ -5167,7 +5219,7 @@ mod tests {
         ))
         .expect("production keyword query should compile");
         assert!(keyword.sql.contains(
-            "IN (SELECT keywords.heading_id FROM keywords WHERE keywords.keyword = ? COLLATE NOCASE AND keywords.value = ?"
+            "IN (SELECT keywords.heading_id FROM keywords WHERE orgfdb_lower(keywords.keyword) = orgfdb_lower(?) AND keywords.value = ?"
         ));
 
         let regexp = compile_sqlite_query(&validated(
@@ -5208,7 +5260,7 @@ mod tests {
         )
         .expect("predicate-driven keyword query should compile");
         assert!(keyword.sql.contains(
-            "IN (SELECT keywords.heading_id FROM keywords WHERE keywords.keyword = ? COLLATE NOCASE AND keywords.value = ?"
+            "IN (SELECT keywords.heading_id FROM keywords WHERE orgfdb_lower(keywords.keyword) = orgfdb_lower(?) AND keywords.value = ?"
         ));
     }
 

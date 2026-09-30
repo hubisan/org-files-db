@@ -182,6 +182,20 @@ PRAGMA synchronous = NORMAL;
 }
 
 fn register_connection_functions(connection: &Connection, target: &str) -> Result<(), DbError> {
+    connection
+        .create_scalar_function(
+            "orgfdb_lower",
+            1,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| {
+                let value: Option<String> = ctx.get(0)?;
+                Ok(value.map(|value| value.to_lowercase()))
+            },
+        )
+        .map_err(|source| DbError::Initialize {
+            target: target.to_string(),
+            source,
+        })?;
     let cache = RefCell::new(HashMap::<String, Regex>::new());
     connection
         .create_scalar_function(
