@@ -563,7 +563,12 @@ where
         let generation_change =
             generation_change_for_plan(&plan, &resolution_report.changed_source_paths);
         if !generation_change.is_empty() {
-            advance_index_generation(&tx, &generation_change).map_err(IndexerError::Write)?;
+            advance_index_generation(
+                &tx,
+                &generation_change,
+                config.index.journal_retention_generations,
+            )
+            .map_err(IndexerError::Write)?;
         }
         tx.commit()
             .map_err(|source| IndexerError::Write(DbWriteError::Transaction { source }))?;
@@ -805,8 +810,12 @@ where
         source_root_evidence
             .persist(&tx)
             .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
-        advance_index_generation(&tx, &IndexGenerationChange::full_invalidation())
-            .map_err(IndexerError::Write)?;
+        advance_index_generation(
+            &tx,
+            &IndexGenerationChange::full_invalidation(),
+            config.index.journal_retention_generations,
+        )
+        .map_err(IndexerError::Write)?;
 
         tx.commit()
             .map_err(|source| IndexerError::Write(DbWriteError::Transaction { source }))?;

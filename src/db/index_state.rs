@@ -472,7 +472,13 @@ pub(crate) fn read_index_changes(
 pub(crate) fn advance_index_generation(
     transaction: &Transaction<'_>,
     change: &IndexGenerationChange,
+    retention_generations: i64,
 ) -> Result<IndexState, DbWriteError> {
+    if retention_generations < 1 {
+        return Err(DbWriteError::InvalidInput(
+            "journal retention must keep at least one generation",
+        ));
+    }
     if change.is_empty() {
         return Err(DbWriteError::InvalidInput(
             "index generation change must contain affected files or full invalidation",
@@ -535,7 +541,43 @@ pub(crate) fn advance_index_generation(
                 source,
             })?;
     }
+    prune_generation_journal(transaction, state.generation, retention_generations)?;
     Ok(state)
+}
+
+/// Deletes journal rows older than the newest `retention_generations` generations.
+///
+/// Both deletes are range deletes on the generation primary keys. After pruning, the
+/// oldest kept generation is `current - retention + 1`, so `oldest_available_generation`
+/// reads as `current - retention`.
+fn prune_generation_journal(
+    transaction: &Transaction<'_>,
+    current_generation: i64,
+    retention_generations: i64,
+) -> Result<(), DbWriteError> {
+    let cutoff = current_generation.saturating_sub(retention_generations);
+    if cutoff < 1 {
+        return Ok(());
+    }
+    transaction
+        .execute(
+            "DELETE FROM index_generation_files WHERE generation <= ?1",
+            [cutoff],
+        )
+        .map_err(|source| DbWriteError::Write {
+            operation: "advance_index_generation.prune_files",
+            source,
+        })?;
+    transaction
+        .execute(
+            "DELETE FROM index_generations WHERE generation <= ?1",
+            [cutoff],
+        )
+        .map_err(|source| DbWriteError::Write {
+            operation: "advance_index_generation.prune_generations",
+            source,
+        })?;
+    Ok(())
 }
 
 fn deduplicate_actions(
@@ -861,6 +903,7 @@ impl std::error::Error for IndexStateIntegrityError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::DEFAULT_JOURNAL_RETENTION_GENERATIONS;
     use crate::db::{
         open_database, open_existing_database_read_only, open_in_memory_database_with_schema,
         SchemaDefinition, CURRENT_SCHEMA_VERSION,
@@ -895,6 +938,7 @@ mod tests {
             advance_index_generation(
                 &tx,
                 &IndexGenerationChange::from_files(vec![AffectedFile::upsert("/tmp/a.org")]),
+                DEFAULT_JOURNAL_RETENTION_GENERATIONS,
             )
             .expect("generation should advance inside transaction");
         }
@@ -928,7 +972,8 @@ mod tests {
             ]),
         ] {
             let tx = connection.transaction().expect("transaction should start");
-            advance_index_generation(&tx, &change).expect("generation should advance");
+            advance_index_generation(&tx, &change, DEFAULT_JOURNAL_RETENTION_GENERATIONS)
+                .expect("generation should advance");
             tx.commit().expect("transaction should commit");
         }
         let changes =
@@ -965,6 +1010,7 @@ mod tests {
             advance_index_generation(
                 &tx,
                 &IndexGenerationChange::from_files(vec![AffectedFile::upsert(path)]),
+                DEFAULT_JOURNAL_RETENTION_GENERATIONS,
             )
             .expect("generation should advance");
             tx.commit().expect("transaction should commit");
@@ -1001,6 +1047,7 @@ mod tests {
                 AffectedFile::delete("/tmp/a.org"),
                 AffectedFile::upsert("/tmp/a.org"),
             ]),
+            DEFAULT_JOURNAL_RETENTION_GENERATIONS,
         )
         .expect("generation should advance");
         tx.commit().expect("transaction should commit");
@@ -1022,6 +1069,7 @@ mod tests {
                 AffectedFile::upsert("/tmp/a.org"),
                 AffectedFile::delete("/tmp/a.org"),
             ]),
+            DEFAULT_JOURNAL_RETENTION_GENERATIONS,
         )
         .expect("generation should advance");
         tx.commit().expect("transaction should commit");
@@ -1046,8 +1094,12 @@ mod tests {
             .expect("state should load")
             .database_id;
         let tx = connection.transaction().expect("transaction should start");
-        advance_index_generation(&tx, &IndexGenerationChange::full_invalidation())
-            .expect("generation should advance");
+        advance_index_generation(
+            &tx,
+            &IndexGenerationChange::full_invalidation(),
+            DEFAULT_JOURNAL_RETENTION_GENERATIONS,
+        )
+        .expect("generation should advance");
         tx.commit().expect("transaction should commit");
         let changes =
             read_index_changes(&connection, &database_id, 0).expect("changes should load");
@@ -1145,6 +1197,7 @@ mod tests {
                 AffectedFile::upsert("/tmp/a.org"),
                 AffectedFile::delete("/tmp/b.org"),
             ]),
+            DEFAULT_JOURNAL_RETENTION_GENERATIONS,
         )
         .expect("batch should advance");
         tx.commit().expect("transaction should commit");
@@ -1175,8 +1228,12 @@ mod tests {
         let before = read_index_state(&connection).expect("state should load");
         {
             let tx = connection.transaction().expect("transaction should start");
-            let error = advance_index_generation(&tx, &IndexGenerationChange::default())
-                .expect_err("empty change should fail");
+            let error = advance_index_generation(
+                &tx,
+                &IndexGenerationChange::default(),
+                DEFAULT_JOURNAL_RETENTION_GENERATIONS,
+            )
+            .expect_err("empty change should fail");
             assert!(error.to_string().contains("must contain affected files"));
         }
         assert_eq!(
@@ -1204,6 +1261,7 @@ mod tests {
         advance_index_generation(
             &tx,
             &IndexGenerationChange::from_files(vec![AffectedFile::delete("/tmp/deleted.org")]),
+            DEFAULT_JOURNAL_RETENTION_GENERATIONS,
         )
         .expect("deletion generation should advance");
         tx.commit().expect("transaction should commit");
@@ -1238,6 +1296,7 @@ mod tests {
         advance_index_generation(
             &tx,
             &IndexGenerationChange::from_files(vec![AffectedFile::upsert("/tmp/atomic.org")]),
+            DEFAULT_JOURNAL_RETENTION_GENERATIONS,
         )
         .expect("generation should advance inside transaction");
 
@@ -1402,5 +1461,119 @@ mod tests {
         assert!(error
             .to_string()
             .contains("neither full invalidation nor affected files"));
+    }
+
+    fn advance_files(connection: &mut Connection, path: &str, retention: i64) {
+        let tx = connection.transaction().expect("transaction should start");
+        advance_index_generation(
+            &tx,
+            &IndexGenerationChange::from_files(vec![AffectedFile::upsert(path)]),
+            retention,
+        )
+        .expect("generation should advance");
+        tx.commit().expect("transaction should commit");
+    }
+
+    fn journal_counts(connection: &Connection) -> (i64, i64, i64, i64) {
+        connection
+            .query_row(
+                "SELECT
+                     (SELECT COUNT(*) FROM index_generations),
+                     (SELECT COUNT(*) FROM index_generation_files),
+                     (SELECT MIN(generation) FROM index_generations),
+                     (SELECT MAX(generation) FROM index_generations)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("counts should load")
+    }
+
+    #[test]
+    fn retention_keeps_exactly_the_newest_generations() {
+        let mut connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+        for index in 1..=3 {
+            advance_files(&mut connection, &format!("/tmp/{index}.org"), 3);
+        }
+        assert_eq!(journal_counts(&connection), (3, 3, 1, 3));
+
+        advance_files(&mut connection, "/tmp/4.org", 3);
+        assert_eq!(journal_counts(&connection), (3, 3, 2, 4));
+        for index in 5..=10 {
+            advance_files(&mut connection, &format!("/tmp/{index}.org"), 3);
+        }
+        assert_eq!(journal_counts(&connection), (3, 3, 8, 10));
+        assert_eq!(
+            read_index_state(&connection)
+                .expect("state should load")
+                .generation,
+            10
+        );
+    }
+
+    #[test]
+    fn retention_of_one_keeps_only_the_current_generation() {
+        let mut connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+        for index in 1..=4 {
+            advance_files(&mut connection, &format!("/tmp/{index}.org"), 1);
+        }
+        assert_eq!(journal_counts(&connection), (1, 1, 4, 4));
+    }
+
+    #[test]
+    fn retention_below_one_is_rejected_without_advancing() {
+        let mut connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+        let tx = connection.transaction().expect("transaction should start");
+        let error = advance_index_generation(
+            &tx,
+            &IndexGenerationChange::from_files(vec![AffectedFile::upsert("/tmp/a.org")]),
+            0,
+        )
+        .expect_err("zero retention should fail");
+        assert!(error.to_string().contains("at least one generation"));
+    }
+
+    #[test]
+    fn changes_report_history_gap_after_pruning() {
+        let mut connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+        let database_id = read_index_state(&connection)
+            .expect("state should load")
+            .database_id;
+        for index in 1..=5 {
+            advance_files(&mut connection, &format!("/tmp/{index}.org"), 3);
+        }
+
+        let gap = read_index_changes(&connection, &database_id, 1).expect("changes should load");
+        assert_eq!(gap.oldest_available_generation, 2);
+        assert_eq!(gap.cache_action, CacheAction::Rebuild);
+        assert!(!gap.complete);
+        assert_eq!(gap.reason.as_deref(), Some("history-unavailable"));
+
+        let edge = read_index_changes(&connection, &database_id, 2).expect("changes should load");
+        assert_eq!(edge.cache_action, CacheAction::Patch);
+        assert!(edge.complete);
+        assert_eq!(
+            edge.upsert_files,
+            vec!["/tmp/3.org", "/tmp/4.org", "/tmp/5.org"]
+        );
+
+        let unchanged =
+            read_index_changes(&connection, &database_id, 5).expect("changes should load");
+        assert_eq!(unchanged.cache_action, CacheAction::Unchanged);
     }
 }

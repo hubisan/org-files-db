@@ -65,7 +65,15 @@ For example, deleting a target file can change links stored in several unchanged
 
 The changes reader collapses several generations to one final action for each path. Returned path lists use deterministic order.
 
-The current implementation does not automatically remove old journal history. The public contract still exposes ~oldest_available_generation~ for future retention policies.
+* Journal retention
+
+The journal keeps the newest ~index.journal_retention_generations~ generations (default ~1000~, minimum ~1~). The policy counts generations, not age, so it does not depend on the clock.
+
+The commit that advances the generation to ~G~ also deletes ~index_generation_files~ and ~index_generations~ rows with ~generation <= G - N~, in the same SQLite transaction. Both deletes are range deletes on the generation primary keys, so pruning needs no extra index and no schema change. A failed transaction prunes nothing.
+
+After pruning, the oldest kept generation is ~G - N + 1~ and ~oldest_available_generation~ is ~G - N~. ~orgfdb changes --since-generation S~ with ~S < oldest_available_generation~ returns ~cache_action = rebuild~, ~complete = false~, and reason ~history-unavailable~. ~S = oldest_available_generation~ still returns an exact patch.
+
+The current generation row is always kept, so ~orgfdb changes~ integrity checks hold for any retention of at least ~1~. A database that has fewer than ~N~ generations keeps all of them.
 
 * Full invalidation
 
