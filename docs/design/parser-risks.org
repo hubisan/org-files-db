@@ -125,6 +125,8 @@ The parser stores normalized semantic titles and raw source title text separatel
 
 TODO keywords, priority cookies, trailing tags, and Org inline markup can affect normalized heading titles.
 
+A trailing tag block is stripped from the title only when every tag is non-empty and consists of Unicode alphanumerics or ~_@#%~, matching Org's tag rule; otherwise the text stays in the title.
+
 Keep normalization tests tied to the same source ranges used for links and heading metadata. Parser changes must not shift unrelated byte coordinates.
 
 * Risk handling rules

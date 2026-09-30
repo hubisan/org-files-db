@@ -1861,9 +1861,12 @@ fn is_org_tag_block(value: &str) -> bool {
     value.starts_with(':')
         && value.ends_with(':')
         && value.len() > 2
-        && value[1..value.len() - 1]
-            .split(':')
-            .all(|segment| !segment.is_empty())
+        && value[1..value.len() - 1].split(':').all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '#' | '%'))
+        })
 }
 
 #[cfg(test)]

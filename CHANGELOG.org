@@ -4,6 +4,8 @@ This file records completed changes.
 
 * Unreleased
 
+- =FIXED= Headings with a trailing ~:foo/bar:~ block no longer lose that text from the title; only blocks whose tags consist of alphanumerics and ~_@#%~ are stripped as tags.
+
 - =FIXED= ~search --title~ and ~--body~ now reject expressions with unbalanced parentheses outside double quotes, so user text can no longer close the scope wrapper and match the other column.
 
 - =FIXED= ~file+sys:~ and ~file+emacs:~ links now resolve like ~file:~ links instead of always being ~unsupported~. Rebuild existing databases to refresh affected links.
