@@ -2194,52 +2194,167 @@ fn drawer_placement_properties(content: &str) -> (Vec<String>, Vec<String>) {
     (keys(0), heading)
 }
 
+/// Expected values come from Emacs 29.3 / Org 9.6.15 (`org-entry-get` at file start and on
+/// the first heading).
 #[test]
-fn property_drawer_after_body_text_is_not_a_heading_property() {
-    let (_, heading) =
-        drawer_placement_properties("* H\nSome text.\n:PROPERTIES:\n:ID: fake\n:END:\n");
-    assert!(heading.is_empty(), "{heading:?}");
+fn property_drawer_placement_matches_org() {
+    const D: &str = ":PROPERTIES:\n:ID: x\n:END:\n";
+    const SCHED: &str = "SCHEDULED: <2024-01-01 Mon>\n";
+    // (name, content, file property expected, heading property expected)
+    let cases: Vec<(&str, String, bool, bool)> = vec![
+        ("file top", format!("{D}#+TITLE: T\n* H\n"), true, false),
+        (
+            "file after comments",
+            format!("# c\n# d\n{D}* H\n"),
+            true,
+            false,
+        ),
+        (
+            "file after blank lines",
+            format!("\n\n{D}* H\n"),
+            false,
+            false,
+        ),
+        (
+            "file blank then comment",
+            format!("\n# c\n{D}* H\n"),
+            false,
+            false,
+        ),
+        (
+            "file comment then blank",
+            format!("# c\n\n{D}* H\n"),
+            false,
+            false,
+        ),
+        (
+            "file comment planning",
+            format!("# c\n{SCHED}{D}* H\n"),
+            false,
+            false,
+        ),
+        (
+            "file after text",
+            format!("Intro\n\n{D}* H\n"),
+            false,
+            false,
+        ),
+        ("heading direct", format!("* H\n{D}"), false, true),
+        (
+            "heading after comment",
+            format!("* H\n# c\n{D}"),
+            false,
+            false,
+        ),
+        ("heading after blank", format!("* H\n\n{D}"), false, false),
+        (
+            "heading after text",
+            format!("* H\ntext\n{D}"),
+            false,
+            false,
+        ),
+        (
+            "heading in block",
+            format!("* H\n#+begin_quote\n{D}#+end_quote\n"),
+            false,
+            false,
+        ),
+        (
+            "heading after SCHEDULED",
+            format!("* H\n{SCHED}{D}"),
+            false,
+            true,
+        ),
+        (
+            "heading after CLOSED",
+            format!("* H\nCLOSED: [2024-01-01 Mon 10:00]\n{D}"),
+            false,
+            true,
+        ),
+        (
+            "heading after DEADLINE",
+            format!("* H\nDEADLINE: <2024-01-01 Mon>\n{D}"),
+            false,
+            true,
+        ),
+        (
+            "heading after CLOSED and DEADLINE",
+            format!("* H\nCLOSED: [2024-01-01 Mon 10:00] DEADLINE: <2024-01-01 Mon>\n{D}"),
+            false,
+            true,
+        ),
+        (
+            "heading planning blank",
+            format!("* H\n{SCHED}\n{D}"),
+            false,
+            false,
+        ),
+        (
+            "heading planning comment",
+            format!("* H\n{SCHED}# c\n{D}"),
+            false,
+            false,
+        ),
+        (
+            "heading comment planning",
+            format!("* H\n# c\n{SCHED}{D}"),
+            false,
+            false,
+        ),
+        (
+            "heading two planning lines",
+            format!("* H\n{SCHED}DEADLINE: <2024-01-01 Mon>\n{D}"),
+            false,
+            false,
+        ),
+    ];
+    for (name, content, file, heading) in cases {
+        let (file_props, heading_props) = drawer_placement_properties(&content);
+        assert_eq!(!file_props.is_empty(), file, "{name}: file {file_props:?}");
+        assert_eq!(
+            !heading_props.is_empty(),
+            heading,
+            "{name}: heading {heading_props:?}"
+        );
+    }
 }
 
+/// Expected names, kinds and heading states come from Emacs 29.3 / Org 9.6.15
+/// (`org-todo-keywords-1`, `org-done-keywords`, `org-get-todo-state`).
 #[test]
-fn property_drawer_inside_block_is_not_a_heading_property() {
-    let (_, heading) = drawer_placement_properties(
-        "* H\n#+begin_quote\n:PROPERTIES:\n:ID: fake\n:END:\n#+end_quote\n",
-    );
-    assert!(heading.is_empty(), "{heading:?}");
-}
-
-#[test]
-fn property_drawer_after_intro_text_is_not_a_file_property() {
-    let (file, _) = drawer_placement_properties("Intro text\n\n:PROPERTIES:\n:ID: fileid\n:END:\n");
-    assert!(file.is_empty(), "{file:?}");
-}
-
-#[test]
-fn property_drawer_directly_after_heading_is_a_property() {
-    let (_, heading) = drawer_placement_properties("* H\n:PROPERTIES:\n:ID: real\n:END:\n");
-    assert_eq!(heading, vec!["ID=real"]);
-}
-
-#[test]
-fn property_drawer_after_planning_line_is_a_property() {
-    let (_, heading) = drawer_placement_properties(
-        "* H\nSCHEDULED: <2026-06-23 Tue>\n:PROPERTIES:\n:ID: real\n:END:\n",
-    );
-    assert_eq!(heading, vec!["ID=real"]);
-}
-
-#[test]
-fn property_drawer_at_file_top_is_a_file_property() {
-    let (file, _) = drawer_placement_properties(":PROPERTIES:\n:ID: fileid\n:END:\n#+TITLE: T\n");
-    assert_eq!(file, vec!["ID=fileid"]);
-}
-
-#[test]
-fn property_drawer_after_comment_is_a_file_property() {
-    let (file, _) =
-        drawer_placement_properties("# comment\n:PROPERTIES:\n:ID: fileid\n:END:\n#+TITLE: T\n");
-    assert_eq!(file, vec!["ID=fileid"]);
+fn in_buffer_todo_keyword_specs_match_org() {
+    // (spec, keyword name Org uses, heading text that carries it)
+    let specs = [
+        ("ZZZ", "ZZZ"),
+        ("ZZZ(x)", "ZZZ"),
+        ("ZZZ(x!)", "ZZZ"),
+        ("ZZZ(x@)", "ZZZ"),
+        ("ZZZ(x/!)", "ZZZ"),
+        ("ZZZ(x@/!)", "ZZZ"),
+        ("ZZZ(x!/@)", "ZZZ"),
+        ("ZZZ(@/!)", "ZZZ"),
+        ("ZZZ(!)", "ZZZ"),
+        ("ZZZ(@)", "ZZZ"),
+        ("ZZZ(/!)", "ZZZ"),
+        ("ZZZ(ww)", "ZZZ"),
+        ("ZZZ()", "ZZZ"),
+        ("ZZZ(w", "ZZZ(w"),
+    ];
+    for (spec, name) in specs {
+        for (line, kind) in [
+            (format!("#+TODO: {spec} | FIN\n"), TodoType::Open),
+            (format!("#+TODO: AAA | {spec}\n"), TodoType::Closed),
+        ] {
+            let content = format!("{line}* {name} task\n");
+            let document = OrgizeAdapter::new()
+                .parse_document(Path::new("k.org"), &content, &ParseOptions::default())
+                .expect("keyword fixture should parse");
+            let heading = &document.headings[1];
+            assert_eq!(heading.todo_keyword.as_deref(), Some(name), "{content:?}");
+            assert_eq!(heading.todo_type, Some(kind), "{content:?}");
+            assert_eq!(heading.title, "task", "{content:?}");
+        }
+    }
 }
 
 fn nested_headings(levels: usize) -> String {

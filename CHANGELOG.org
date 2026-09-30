@@ -4,6 +4,9 @@ This file records completed changes.
 
 * Unreleased
 
+- =FIXED= TODO keyword specs now follow Org for every form: ~NAME(x/!)~, ~NAME(x@/!)~, ~NAME(x!/@)~, ~NAME(@/!)~, ~NAME(!)~, ~NAME(@)~ and ~NAME(/!)~ give the keyword ~NAME~ (with fast key ~x~ where present) in ~#+TODO~ lines instead of a literal name with parentheses, and ~todo.default_open_keywords~ and ~todo.default_closed_keywords~ accept them (for example ~WAIT(w@/!)~). The parser contract version is now ~3~, so existing databases reparse automatically on the next incremental or watch run.
+
+- =FIXED= A ~:PROPERTIES:~ drawer after a blank line, or after a comment on a heading, no longer counts as a property drawer; at file level only comment lines (no blank lines) may precede it, and on a heading only a single planning line may, as in Org. The parser contract version is now ~3~, so existing databases reparse automatically.
 - =FIXED= Files with headings nested deeper than 100 levels no longer abort the process with a stack overflow; they now fail to parse with an error naming the level and line, and ~collect_headlines~ no longer recurses per heading level.
 - =FIXED= The watcher's presentation-view control socket now applies 5 s read/write timeouts and a 64 KiB request limit, so a silent client can no longer block other view commands or watcher shutdown; ~view read~ now fails after 60 s instead of waiting forever on a rebuild that stays pending.
 
