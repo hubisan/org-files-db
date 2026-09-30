@@ -210,7 +210,7 @@ fn assert_heading_expectation(
         "level" => assert_eq!(
             heading.level,
             value
-                .parse::<u8>()
+                .parse::<u32>()
                 .expect("heading level should be numeric"),
             "unexpected heading level for {}",
             path.display()

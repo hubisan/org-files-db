@@ -322,9 +322,9 @@ fn adversarial() -> Vec<(String, String)> {
         ),
         ("level skip", "* A\n*** C\n** B\n**** D\n* E\n".into()),
         ("deep", deep),
-        ("too deep", format!("{} x\n", "*".repeat(101))),
+        ("over 100 levels", format!("{} x\n", "*".repeat(101))),
         (
-            "too deep in src",
+            "over 100 levels in src",
             format!("#+begin_src\n{} x\n#+end_src\n", "*".repeat(101)),
         ),
         (
@@ -422,9 +422,7 @@ fn parsed_documents_keep_their_ranges_on_the_source() {
 #[test]
 fn blanked_body_holds_no_structure() {
     for (name, content) in corpus() {
-        let Ok(structure) = scan_structure(&content) else {
-            continue;
-        };
+        let structure = scan_structure(&content);
         let blanked = blanked_body_text(&content, &structure);
         assert_eq!(blanked.len(), content.len(), "[{name}]");
         assert_eq!(lines(&blanked).count(), lines(&content).count(), "[{name}]");

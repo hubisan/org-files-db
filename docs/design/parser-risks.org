@@ -349,8 +349,8 @@ Each entry records one known deviation of the former Orgize backend or a project
 
 - Repro: a file with many thousands of nested headings, ~*~ repeated to a very high level.
 - Orgize (history): parsing built the headline tree recursively and overflowed the stack (an abort) at roughly 400 to 500 levels on a 2 MiB debug-build thread.
-- Resolved (#103, #105): the scanner is iterative and the inline scanner nests at most 48 levels, so no depth needs a limit for stack safety. ~MAX_HEADING_LEVEL~ (100) stays a product rule (#44), which now only protects against pathological files, and counts ~^\*+ ~ lines only; Org reads a ~*~ line inside a block as a headline, so such a line counts, while ~**<TAB>x~ is text and never does.
-- Test: ~orgize_adapter_parses_max_heading_depth_on_small_stack~, ~orgize_adapter_rejects_headings_deeper_than_limit_without_overflow~ and ~heading_depth_limit_counts_headline_lines_only~ in ~tests/orgize_adapter.rs~.
+- Resolved (#103, #105): the scanner is iterative and the inline scanner nests at most 48 levels, so no depth needs a limit for stack safety. The former product limit of 100 levels (~MAX_HEADING_LEVEL~, #44) is removed: like Org, any depth parses. Per heading the ~outline_path~ row stores the path and breadcrumbs of all ancestors, so a pathologically deep file costs storage that grows with depth times heading count.
+- Test: ~deep_headings_parse_on_small_stack~ in ~tests/orgize_adapter.rs~.
 - Tracked in #41 and #44.
 
 ** R20 Priority cookie after COMMENT

@@ -27,8 +27,6 @@ use super::title::{
     todo_type_for_keyword,
 };
 
-pub use super::structure_scanner::MAX_HEADING_LEVEL;
-
 #[derive(Debug, Default, Clone, Copy)]
 pub struct OrgizeAdapter;
 
@@ -57,14 +55,7 @@ impl OrgParserCore for OrgizeAdapter {
         content: &str,
         options: &ParseOptions,
     ) -> Result<ParsedOrgDocument, ParseDiagnostic> {
-        let structure = scan_structure(content).map_err(|depth| {
-            ParseDiagnostic::error(format!(
-                "heading nesting level {} exceeds the supported maximum of {MAX_HEADING_LEVEL}",
-                depth.level
-            ))
-            .with_file_path(path)
-            .with_line_number(depth.line_number)
-        })?;
+        let structure = scan_structure(content);
         let lines = LineIndex::new(content);
         let mut parsed = ParsedOrgDocument::new(path);
 
@@ -319,7 +310,7 @@ fn parse_heading(node: &HeadingNode, sources: &HeadingSources) -> ParsedHeading 
     let parts = split_headline_title(&title_raw, todo_keywords);
     let title = normalize_title_text(&title_raw[parts.text_start..], protocols);
 
-    let mut parsed = ParsedHeading::new(path, node.level as u8, title, start, node.subtree.end);
+    let mut parsed = ParsedHeading::new(path, node.level as u32, title, start, node.subtree.end);
     parsed.title_raw = Some(title_raw);
     parsed.todo_type = parts
         .todo_keyword

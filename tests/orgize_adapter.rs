@@ -2623,33 +2623,26 @@ fn parse_on_small_stack(content: String) -> Result<usize, String> {
         .expect("parsing must not panic or overflow the stack")
 }
 
+/// Org has no depth limit; the scanner is iterative, so any depth parses on a small stack.
+/// A headline is `^\*+ `, also inside a block, and `**\tx` is text.
 #[test]
-fn orgize_adapter_parses_max_heading_depth_on_small_stack() {
-    // Level 0 file heading plus 100 nested headlines.
-    assert_eq!(parse_on_small_stack(nested_headings(100)), Ok(101));
-}
-
-/// A headline is `^\*+ `; the depth limit counts those lines and nothing else (Org reads a
-/// `*` line inside a block as a headline, and `**\tx` as text).
-#[test]
-fn heading_depth_limit_counts_headline_lines_only() {
-    let too_deep = |content: String| {
-        parse_on_small_stack(content)
-            .expect_err("too deep")
-            .contains("exceeds the supported maximum of 100")
-    };
-    assert!(too_deep(format!(
-        "#+begin_src\n{} x\n#+end_src\n",
-        "*".repeat(101)
-    )));
-    assert!(too_deep(format!(
-        "#+begin_quote\n{} x\n#+end_quote\n",
-        "*".repeat(101)
-    )));
-    // Text for Org, so no limit, however many there are.
+fn deep_headings_parse_on_small_stack() {
+    assert_eq!(parse_on_small_stack(nested_headings(5_000)), Ok(5_001));
+    // Levels above 255 keep their value.
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("deep.org"),
+            &nested_headings(300),
+            &ParseOptions::default(),
+        )
+        .expect("deep file parses");
     assert_eq!(
-        parse_on_small_stack(format!("{}\tx\n", "*".repeat(101))),
-        Ok(1)
+        document.headings.last().map(|heading| heading.level),
+        Some(300)
+    );
+    assert_eq!(
+        parse_on_small_stack(format!("#+begin_src\n{} x\n#+end_src\n", "*".repeat(101))),
+        Ok(2)
     );
     let many = (0..5_000)
         .map(|_| format!("{}\tx\n", "*".repeat(150)))
@@ -2720,16 +2713,5 @@ fn document_keywords_follow_org_elements() {
             .map(|keyword| keyword.key.as_str())
             .collect();
         assert_eq!(keys.join(","), *expected, "{content:?}");
-    }
-}
-
-#[test]
-fn orgize_adapter_rejects_headings_deeper_than_limit_without_overflow() {
-    for levels in [101, 5_000] {
-        let message = parse_on_small_stack(nested_headings(levels)).expect_err("too deep");
-        assert!(
-            message.contains("exceeds the supported maximum of 100"),
-            "{message}"
-        );
     }
 }
