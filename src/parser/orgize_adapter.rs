@@ -1478,12 +1478,17 @@ fn properties_drawer_node_in_headline(headline: &Headline) -> Option<SyntaxNode>
         })
 }
 
+/// Org only treats a drawer as the property drawer when it is the first element of the
+/// section, optionally after a planning line (zeroth section: after comments only).
 fn properties_drawer_node_in_section(section: &Section) -> Option<SyntaxNode> {
-    section.syntax().descendants().find(|node| {
-        node.kind() == SyntaxKind::PROPERTY_DRAWER
-            || Drawer::cast(node.clone())
-                .is_some_and(|drawer| drawer.name().eq_ignore_ascii_case("PROPERTIES"))
-    })
+    let first = section
+        .syntax()
+        .children()
+        .find(|node| !matches!(node.kind(), SyntaxKind::PLANNING | SyntaxKind::COMMENT))?;
+    (first.kind() == SyntaxKind::PROPERTY_DRAWER
+        || Drawer::cast(first.clone())
+            .is_some_and(|drawer| drawer.name().eq_ignore_ascii_case("PROPERTIES")))
+    .then_some(first)
 }
 
 fn parsed_properties_from_drawer(
