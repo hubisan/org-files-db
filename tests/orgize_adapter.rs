@@ -2356,3 +2356,40 @@ fn in_buffer_todo_keyword_specs_match_org() {
         }
     }
 }
+
+fn nested_headings(levels: usize) -> String {
+    (1..=levels)
+        .map(|level| format!("{} h{level}\n", "*".repeat(level)))
+        .collect()
+}
+
+fn parse_on_small_stack(content: String) -> Result<usize, String> {
+    std::thread::Builder::new()
+        .stack_size(2 << 20)
+        .spawn(move || {
+            OrgizeAdapter::new()
+                .parse_document(Path::new("deep.org"), &content, &ParseOptions::default())
+                .map(|document| document.headings.len())
+                .map_err(|diagnostic| diagnostic.message)
+        })
+        .expect("spawn parse thread")
+        .join()
+        .expect("parsing must not panic or overflow the stack")
+}
+
+#[test]
+fn orgize_adapter_parses_max_heading_depth_on_small_stack() {
+    // Level 0 file heading plus 100 nested headlines.
+    assert_eq!(parse_on_small_stack(nested_headings(100)), Ok(101));
+}
+
+#[test]
+fn orgize_adapter_rejects_headings_deeper_than_limit_without_overflow() {
+    for levels in [101, 5_000] {
+        let message = parse_on_small_stack(nested_headings(levels)).expect_err("too deep");
+        assert!(
+            message.contains("exceeds the supported maximum of 100"),
+            "{message}"
+        );
+    }
+}
