@@ -52,6 +52,14 @@ impl OrgParserCore for OrgizeAdapter {
         content: &str,
         options: &ParseOptions,
     ) -> Result<ParsedOrgDocument, ParseDiagnostic> {
+        if let Some((level, line_number)) = first_heading_over_depth_limit(content) {
+            return Err(ParseDiagnostic::error(format!(
+                "heading nesting level {level} exceeds the supported maximum of \
+                 {MAX_HEADING_LEVEL}"
+            ))
+            .with_file_path(path)
+            .with_line_number(line_number));
+        }
         let org = parse_org_document(content, &options.todo_keywords);
         let document = org.document();
         let mut parsed = ParsedOrgDocument::new(path);
@@ -100,6 +108,23 @@ impl OrgParserCore for OrgizeAdapter {
 
         Ok(parsed)
     }
+}
+
+/// Deepest heading level accepted. Orgize builds its headline tree recursively, so
+/// unbounded depth overflows the stack (an abort, not a catchable error). 100 is
+/// far beyond real documents and stays safe on a 2 MiB debug-build thread stack,
+/// where Orgize overflows between levels 400 and 500.
+pub const MAX_HEADING_LEVEL: usize = 100;
+
+/// Cheap pre-scan for the first line starting with more than `MAX_HEADING_LEVEL`
+/// asterisks followed by a space or tab. Returns `(level, 1-based line number)`.
+/// Lines inside blocks are counted too; that only makes the check stricter.
+fn first_heading_over_depth_limit(content: &str) -> Option<(usize, u32)> {
+    content.lines().enumerate().find_map(|(index, line)| {
+        let level = line.bytes().take_while(|byte| *byte == b'*').count();
+        (level > MAX_HEADING_LEVEL && matches!(line.as_bytes().get(level), Some(b' ' | b'\t')))
+            .then(|| (level, index as u32 + 1))
+    })
 }
 
 fn parse_org_document(content: &str, todo_keywords: &TodoKeywordConfig) -> Org {
@@ -360,6 +385,8 @@ fn combined_document_title(document: &OrgDocument) -> Option<String> {
         })
 }
 
+/// Collects headlines depth-first in document order using an explicit stack, so
+/// heading depth does not grow the call stack.
 #[allow(clippy::too_many_arguments)]
 fn collect_headlines(
     headlines: impl Iterator<Item = Headline>,
@@ -371,122 +398,138 @@ fn collect_headlines(
     output: &mut Vec<ParsedHeading>,
     parent_index: Option<usize>,
 ) {
-    for headline in headlines {
-        let start = usize::from(headline.start());
-        let end = usize::from(headline.end());
-
-        let original_title_raw = headline.title_raw().trim_end().to_string();
-        let source_title = source_title_from_content_line(content, start);
-        let source_title_raw = source_title.raw;
-        let (title_for_normalization, title_placeholders) =
-            placeholder_bracket_links_in_title(&source_title_raw, &source_title.range, links);
-        let headline_priority = headline.priority().map(|token| token.to_string());
-        let parsed_priority = headline_priority
-            .clone()
-            .or_else(|| priority_from_source_title(&source_title_raw));
-        let normalized_title = if !title_placeholders.is_empty()
-            || (headline_priority.is_none() && parsed_priority.is_some())
-        {
-            normalize_title_from_raw(&title_for_normalization, parsed_priority.as_deref())
-        } else {
-            normalize_title_elements(headline.title())
+    let mut stack = vec![(headlines.collect::<Vec<_>>().into_iter(), parent_index)];
+    while let Some((iter, parent_index)) = stack.last_mut() {
+        let parent_index = *parent_index;
+        let Some(headline) = iter.next() else {
+            stack.pop();
+            continue;
         };
-        let mut parsed =
-            ParsedHeading::new(path, headline.level() as u8, normalized_title, start, end);
+        let parsed = parse_headline(
+            &headline,
+            path,
+            content,
+            lines,
+            todo_keywords,
+            links,
+            parent_index,
+        );
+        output.push(parsed);
+        let current_index = output.len() - 1;
+        stack.push((
+            headline.headlines().collect::<Vec<_>>().into_iter(),
+            Some(current_index),
+        ));
+    }
+}
+
+fn parse_headline(
+    headline: &Headline,
+    path: &Path,
+    content: &str,
+    lines: &LineIndex,
+    todo_keywords: &TodoKeywordConfig,
+    links: &[ParsedLink],
+    parent_index: Option<usize>,
+) -> ParsedHeading {
+    let start = usize::from(headline.start());
+    let end = usize::from(headline.end());
+
+    let original_title_raw = headline.title_raw().trim_end().to_string();
+    let source_title = source_title_from_content_line(content, start);
+    let source_title_raw = source_title.raw;
+    let (title_for_normalization, title_placeholders) =
+        placeholder_bracket_links_in_title(&source_title_raw, &source_title.range, links);
+    let headline_priority = headline.priority().map(|token| token.to_string());
+    let parsed_priority = headline_priority
+        .clone()
+        .or_else(|| priority_from_source_title(&source_title_raw));
+    let normalized_title = if !title_placeholders.is_empty()
+        || (headline_priority.is_none() && parsed_priority.is_some())
+    {
+        normalize_title_from_raw(&title_for_normalization, parsed_priority.as_deref())
+    } else {
+        normalize_title_elements(headline.title())
+    };
+    let mut parsed = ParsedHeading::new(path, headline.level() as u8, normalized_title, start, end);
+    parsed.title_raw = Some(source_title_raw.clone());
+    parsed.priority = parsed_priority;
+    parsed.todo_keyword = headline.todo_keyword().map(|token| token.to_string());
+    if parsed
+        .todo_keyword
+        .as_deref()
+        .filter(|keyword| !todo_keyword_is_active(keyword, todo_keywords))
+        .is_some()
+    {
+        parsed.todo_keyword = None;
         parsed.title_raw = Some(source_title_raw.clone());
-        parsed.priority = parsed_priority;
-        parsed.todo_keyword = headline.todo_keyword().map(|token| token.to_string());
-        if parsed
-            .todo_keyword
-            .as_deref()
-            .filter(|keyword| !todo_keyword_is_active(keyword, todo_keywords))
-            .is_some()
-        {
-            parsed.todo_keyword = None;
+        parsed.title = normalize_title_preserving_leading_keyword(
+            &title_for_normalization,
+            parsed.priority.as_deref(),
+        );
+    }
+    if !title_placeholders.is_empty() {
+        if let Some(keyword) = parsed.todo_keyword.as_deref() {
+            let stripped_source = source_title_raw
+                .strip_prefix(keyword)
+                .filter(|remainder| remainder.starts_with(char::is_whitespace))
+                .map(str::trim_start);
+            if let Some(stripped_source) = stripped_source {
+                let stripped = placeholder_title_after_todo_prefix(
+                    &source_title_raw,
+                    &title_for_normalization,
+                    stripped_source,
+                )
+                .unwrap_or(stripped_source);
+                parsed.title = normalize_title_from_raw(stripped, parsed.priority.as_deref());
+            }
+        }
+    }
+    if parsed.todo_keyword.is_none() {
+        if source_title_raw != original_title_raw.trim() {
             parsed.title_raw = Some(source_title_raw.clone());
             parsed.title = normalize_title_preserving_leading_keyword(
                 &title_for_normalization,
                 parsed.priority.as_deref(),
             );
         }
-        if !title_placeholders.is_empty() {
-            if let Some(keyword) = parsed.todo_keyword.as_deref() {
-                let stripped_source = source_title_raw
-                    .strip_prefix(keyword)
-                    .filter(|remainder| remainder.starts_with(char::is_whitespace))
-                    .map(str::trim_start);
-                if let Some(stripped_source) = stripped_source {
-                    let stripped = placeholder_title_after_todo_prefix(
-                        &source_title_raw,
-                        &title_for_normalization,
-                        stripped_source,
-                    )
-                    .unwrap_or(stripped_source);
-                    parsed.title = normalize_title_from_raw(stripped, parsed.priority.as_deref());
-                }
-            }
+        if let Some((keyword, stripped_title_raw)) =
+            infer_todo_keyword(&source_title_raw, todo_keywords)
+        {
+            parsed.todo_keyword = Some(keyword);
+            let stripped_placeholder_title = placeholder_title_after_todo_prefix(
+                &source_title_raw,
+                &title_for_normalization,
+                &stripped_title_raw,
+            )
+            .unwrap_or(&stripped_title_raw);
+            parsed.title =
+                normalize_title_from_raw(stripped_placeholder_title, parsed.priority.as_deref());
         }
-        if parsed.todo_keyword.is_none() {
-            if source_title_raw != original_title_raw.trim() {
-                parsed.title_raw = Some(source_title_raw.clone());
-                parsed.title = normalize_title_preserving_leading_keyword(
-                    &title_for_normalization,
-                    parsed.priority.as_deref(),
-                );
-            }
-            if let Some((keyword, stripped_title_raw)) =
-                infer_todo_keyword(&source_title_raw, todo_keywords)
-            {
-                parsed.todo_keyword = Some(keyword);
-                let stripped_placeholder_title = placeholder_title_after_todo_prefix(
-                    &source_title_raw,
-                    &title_for_normalization,
-                    &stripped_title_raw,
-                )
-                .unwrap_or(&stripped_title_raw);
-                parsed.title = normalize_title_from_raw(
-                    stripped_placeholder_title,
-                    parsed.priority.as_deref(),
-                );
-            }
-        }
-        parsed.todo_type = parsed
-            .todo_keyword
-            .as_deref()
-            .and_then(|keyword| todo_type_for_keyword(keyword, todo_keywords));
-        parsed.tags = headline.tags().map(|tag| tag.to_string()).collect();
-        parsed.line_number = Some(lines.line_for(start));
-        parsed.parent_index = parent_index;
-        parsed.is_archived = headline.is_archived();
-        parsed.is_root = parent_index.is_none();
+    }
+    parsed.todo_type = parsed
+        .todo_keyword
+        .as_deref()
+        .and_then(|keyword| todo_type_for_keyword(keyword, todo_keywords));
+    parsed.tags = headline.tags().map(|tag| tag.to_string()).collect();
+    parsed.line_number = Some(lines.line_for(start));
+    parsed.parent_index = parent_index;
+    parsed.is_archived = headline.is_archived();
+    parsed.is_root = parent_index.is_none();
 
-        parsed.title = restore_title_link_placeholders(parsed.title, &title_placeholders);
-        populate_heading_timestamps(&headline, content, lines, links, &mut parsed);
-        populate_heading_body(headline.section(), content, &mut parsed);
+    parsed.title = restore_title_link_placeholders(parsed.title, &title_placeholders);
+    populate_heading_timestamps(headline, content, lines, links, &mut parsed);
+    populate_heading_body(headline.section(), content, &mut parsed);
 
-        if let Some(properties) = properties_drawer_node_in_headline(&headline) {
-            parsed.properties = parsed_properties_from_drawer(
-                &properties,
-                content,
-                lines,
-                ParsedPropertySource::PropertyDrawer,
-            );
-        }
-
-        output.push(parsed);
-        let current_index = output.len() - 1;
-
-        collect_headlines(
-            headline.headlines(),
-            path,
+    if let Some(properties) = properties_drawer_node_in_headline(headline) {
+        parsed.properties = parsed_properties_from_drawer(
+            &properties,
             content,
             lines,
-            todo_keywords,
-            links,
-            output,
-            Some(current_index),
+            ParsedPropertySource::PropertyDrawer,
         );
     }
+    parsed
 }
 
 fn level_zero_heading(path: &Path, content: &str, document_title: Option<&str>) -> ParsedHeading {
