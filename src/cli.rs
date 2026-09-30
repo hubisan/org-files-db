@@ -353,7 +353,15 @@ where
     T: Into<std::ffi::OsString> + Clone,
     W: Write,
 {
-    let cli = Cli::try_parse_from(args).map_err(CliError::Parse)?;
+    let cli = match Cli::try_parse_from(args) {
+        Ok(cli) => cli,
+        // Help and version requests are successful output, not usage errors.
+        Err(error) if !error.use_stderr() => {
+            write!(writer, "{}", error.render()).map_err(CliError::Io)?;
+            return Ok(());
+        }
+        Err(error) => return Err(CliError::Parse(error)),
+    };
     match cli.command {
         Command::Rebuild {
             config,
@@ -2604,6 +2612,30 @@ fts5_enabled = false
                 .expect_err("presentation-json should be rejected outside query");
             assert_eq!(error.kind(), clap::error::ErrorKind::InvalidValue);
         }
+    }
+
+    #[test]
+    fn help_and_version_write_to_stdout_and_succeed() {
+        for args in [
+            vec!["orgfdb", "--help"],
+            vec!["orgfdb", "-h"],
+            vec!["orgfdb", "query", "--help"],
+            vec!["orgfdb", "--version"],
+        ] {
+            let mut output = Vec::new();
+            run_with_args_and_writer(args.clone(), &mut output)
+                .unwrap_or_else(|error| panic!("{args:?} should succeed: {error}"));
+            let output = String::from_utf8(output).expect("output should be UTF-8");
+            assert!(!output.trim().is_empty(), "{args:?} should print to stdout");
+        }
+    }
+
+    #[test]
+    fn usage_errors_still_fail_with_exit_code_two() {
+        let error = run_with_args_and_writer(["orgfdb", "--no-such-flag"], &mut Vec::new())
+            .expect_err("unknown flag should fail");
+        assert!(matches!(error, CliError::Parse(_)));
+        assert_eq!(error.exit_code(), 2);
     }
 
     #[test]
