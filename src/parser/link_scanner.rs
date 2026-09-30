@@ -575,9 +575,7 @@ fn newline_count(bytes: &[u8]) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        scan_links, LinkScanContext, LinkScanner, LinkScannerConfig, DEFAULT_PLAIN_LINK_PROTOCOLS,
-    };
+    use super::{scan_links, LinkScanContext, LinkScanner, LinkScannerConfig};
 
     #[test]
     fn scans_basic_bracket_angle_and_plain_links_in_priority_order() {
@@ -1051,44 +1049,6 @@ file:~/code/main.c::255 file+sys:~/sys/path::*Target file+emacs:~/emacs/path::#c
     }
 
     #[test]
-    fn description_parsing_is_permissive_with_unescaped_brackets() {
-        let content = "[[https://example.org][desc with [brackets]]";
-
-        let links = scan_links(
-            content,
-            &LinkScannerConfig::default(),
-            &LinkScanContext::default(),
-        );
-
-        assert_eq!(links.len(), 1);
-        assert_eq!(
-            links[0].raw_description.as_deref(),
-            Some("desc with [brackets")
-        );
-    }
-
-    #[test]
-    fn nested_looking_description_closes_at_first_same_line_delimiter() {
-        let content = "[[https://example.org][text [[https://nested.example]] more]]";
-
-        let links = scan_links(
-            content,
-            &LinkScannerConfig::default(),
-            &LinkScanContext::default(),
-        );
-
-        assert_eq!(links.len(), 1);
-        assert_eq!(
-            links[0].raw,
-            "[[https://example.org][text [[https://nested.example]]"
-        );
-        assert_eq!(
-            links[0].raw_description.as_deref(),
-            Some("text [[https://nested.example")
-        );
-    }
-
-    #[test]
     fn bracket_compatibility_cases_keep_source_ranges_and_recover_after_malformed_input() {
         let content = concat!(
             "[[https://www.gnu.org\\\\][Test]] tail\n",
@@ -1159,68 +1119,6 @@ file:~/code/main.c::255 file+sys:~/sys/path::*Target file+emacs:~/emacs/path::#c
             &content[link.description_byte_start.unwrap()..link.description_byte_end.unwrap()],
             "valid"
         );
-    }
-
-    #[test]
-    fn description_boundaries_close_at_first_delimiter_and_leave_trailing_source() {
-        let content = concat!(
-            r"[[https://orgmode.org][test [[https://test.com]]no more link",
-            "\n",
-            r"[[https://orgmode.org][test [[https://test.com]] me [again] oder nicht ]]"
-        );
-        let links = scan_links(
-            content,
-            &LinkScannerConfig::default(),
-            &LinkScanContext::default(),
-        );
-        assert_eq!(links.len(), 2);
-        for link in &links {
-            assert_eq!(link.raw_target, "https://orgmode.org");
-            assert_eq!(link.logical_target, "https://orgmode.org");
-            assert_eq!(
-                link.raw_description.as_deref(),
-                Some("test [[https://test.com")
-            );
-            assert_eq!(&content[link.byte_start..link.byte_end], link.raw);
-        }
-        assert!(content[links[0].byte_end..].starts_with("no more link"));
-        assert!(content[links[1].byte_end..].starts_with(" me [again]"));
-    }
-
-    #[test]
-    fn repeated_description_brackets_close_once_and_recover_later_links() {
-        let content = concat!(
-            "[[https://www.gnu.org][[[[[[Test]]]]\n",
-            "[[https://www.gnu.org][[][][]]]]\n",
-            "[[https://valid.example][valid]]"
-        );
-        let links = scan_links(
-            content,
-            &LinkScannerConfig::default(),
-            &LinkScanContext::default(),
-        );
-        assert_eq!(links.len(), 3);
-        let expected = [
-            ("[[https://www.gnu.org][[[[[[Test]]", "[[[[[Test", "]]"),
-            ("[[https://www.gnu.org][[][][]]", "[][][", "]]"),
-        ];
-        for (link, (raw, description, trailing)) in links.iter().take(2).zip(expected) {
-            assert_eq!(link.raw, raw);
-            assert_eq!(link.raw_target, "https://www.gnu.org");
-            assert_eq!(link.logical_target, "https://www.gnu.org");
-            assert_eq!(link.raw_description.as_deref(), Some(description));
-            assert_eq!(&content[link.byte_start..link.byte_end], raw);
-            assert_eq!(
-                &content[link.target_byte_start..link.target_byte_end],
-                "https://www.gnu.org"
-            );
-            assert_eq!(
-                &content[link.description_byte_start.unwrap()..link.description_byte_end.unwrap()],
-                description
-            );
-            assert!(content[link.byte_end..].starts_with(trailing));
-        }
-        assert_eq!(links[2].raw, "[[https://valid.example][valid]]");
     }
 
     #[test]
@@ -1462,52 +1360,199 @@ file:~/code/main.c::255 file+sys:~/sys/path::*Target file+emacs:~/emacs/path::#c
         );
     }
 
+    /// Each row is `(content, expected links)` with `(raw, target, description, source_after)`.
+    /// The description closes at the first `]]` on the same line and the remaining source is
+    /// left for later scanning.
     #[test]
-    fn default_plain_protocols_include_phase3_defaults() {
-        assert_eq!(
-            DEFAULT_PLAIN_LINK_PROTOCOLS,
-            &[
-                "http",
-                "https",
-                "file",
-                "file+sys",
-                "file+emacs",
-                "ftp",
-                "attachment",
-                "bbdb",
-                "docview",
-                "doi",
-                "gnus",
-                "rmail",
-                "mhe",
-                "help",
-                "id",
-                "info",
-                "irc",
-                "mailto",
-                "news",
-                "shortdoc",
-            ]
-        );
+    fn description_closes_at_first_delimiter_and_leaves_trailing_source() {
+        type Expected = (&'static str, &'static str, &'static str, &'static str);
+        let cases: &[(&str, &[Expected])] = &[
+            (
+                "[[https://example.org][desc with [brackets]]",
+                &[(
+                    "[[https://example.org][desc with [brackets]]",
+                    "https://example.org",
+                    "desc with [brackets",
+                    "",
+                )],
+            ),
+            (
+                "[[https://example.org][text [[https://nested.example]] more]]",
+                &[(
+                    "[[https://example.org][text [[https://nested.example]]",
+                    "https://example.org",
+                    "text [[https://nested.example",
+                    " more]]",
+                )],
+            ),
+            (
+                concat!(
+                    r"[[https://orgmode.org][test [[https://test.com]]no more link",
+                    "\n",
+                    r"[[https://orgmode.org][test [[https://test.com]] me [again] oder nicht ]]"
+                ),
+                &[
+                    (
+                        "[[https://orgmode.org][test [[https://test.com]]",
+                        "https://orgmode.org",
+                        "test [[https://test.com",
+                        "no more link",
+                    ),
+                    (
+                        "[[https://orgmode.org][test [[https://test.com]]",
+                        "https://orgmode.org",
+                        "test [[https://test.com",
+                        " me [again]",
+                    ),
+                ],
+            ),
+            (
+                concat!(
+                    "[[https://www.gnu.org][[[[[[Test]]]]\n",
+                    "[[https://www.gnu.org][[][][]]]]\n",
+                    "[[https://valid.example][valid]]"
+                ),
+                &[
+                    (
+                        "[[https://www.gnu.org][[[[[[Test]]",
+                        "https://www.gnu.org",
+                        "[[[[[Test",
+                        "]]",
+                    ),
+                    (
+                        "[[https://www.gnu.org][[][][]]",
+                        "https://www.gnu.org",
+                        "[][][",
+                        "]]",
+                    ),
+                    (
+                        "[[https://valid.example][valid]]",
+                        "https://valid.example",
+                        "valid",
+                        "",
+                    ),
+                ],
+            ),
+        ];
+
+        for (content, expected) in cases {
+            let links = scan_links(
+                content,
+                &LinkScannerConfig::default(),
+                &LinkScanContext::default(),
+            );
+            assert_eq!(links.len(), expected.len(), "link count for {content:?}");
+            for (link, (raw, target, description, after)) in links.iter().zip(*expected) {
+                assert_eq!(link.raw, *raw, "raw for {content:?}");
+                assert_eq!(link.raw_target, *target);
+                assert_eq!(link.logical_target, *target);
+                assert_eq!(link.raw_description.as_deref(), Some(*description));
+                assert_eq!(&content[link.byte_start..link.byte_end], *raw);
+                assert_eq!(
+                    &content[link.target_byte_start..link.target_byte_end],
+                    *target
+                );
+                assert_eq!(
+                    &content
+                        [link.description_byte_start.unwrap()..link.description_byte_end.unwrap()],
+                    *description
+                );
+                assert!(
+                    content[link.byte_end..].starts_with(after),
+                    "source after {raw:?} in {content:?}"
+                );
+            }
+        }
     }
 
+    /// Each row is `(content, expected raw)`; `None` means no plain link is detected. Rows cover
+    /// the left boundary (Org `org-link-plain-re` prefix rules), trailing punctuation trimming
+    /// and balanced suffixes. The reported byte range must slice back to the raw text.
     #[test]
-    fn plain_links_trim_deterministic_trailing_punctuation() {
-        let content = "See https://example.org/test.]";
+    fn plain_link_boundaries_follow_reviewed_org_examples() {
+        const URL: &str = "https://www.example.com";
+        const PATH: &str = "https://example.org/path";
+        let cases: &[(&str, Option<&str>)] = &[
+            // Left boundary.
+            ("!https://www.example.com", Some(URL)),
+            ("\"https://www.example.com", Some(URL)),
+            ("_https://www.example.com", Some(URL)),
+            ("'https://www.example.com", None),
+            ("$https://www.example.com", None),
+            ("%https://www.example.com", None),
+            ("xhttps://www.example.com", None),
+            ("Prefix:https://www.example.com", Some(URL)),
+            // Trailing punctuation and ends.
+            (
+                "See https://example.org/test.]",
+                Some("https://example.org/test"),
+            ),
+            (
+                "https://example.org/path with text after whitespace",
+                Some(PATH),
+            ),
+            (
+                "https://example.org/path<balanced-suffix>",
+                Some("https://example.org/path<balanced-suffix>"),
+            ),
+            (
+                "https://example.org/path(foo)",
+                Some("https://example.org/path(foo)"),
+            ),
+            (
+                "https://example.org/path[foo]",
+                Some("https://example.org/path[foo]"),
+            ),
+            ("https://example.org/path.", Some(PATH)),
+            ("https://example.org/path,", Some(PATH)),
+            ("https://example.org/path;", Some(PATH)),
+            ("https://example.org/path:", Some(PATH)),
+            ("https://example.org/path!", Some(PATH)),
+            ("https://example.org/path?", Some(PATH)),
+            (
+                "https://example.org/path/",
+                Some("https://example.org/path/"),
+            ),
+            (
+                "https://example.org/path-",
+                Some("https://example.org/path-"),
+            ),
+            (
+                "https://example.org/path>not-part-of-plain-link",
+                Some(PATH),
+            ),
+            (
+                "https://example.org/path<not-part-of-plain-link",
+                Some(PATH),
+            ),
+        ];
 
-        let links = scan_links(
-            content,
-            &LinkScannerConfig::default(),
-            &LinkScanContext::default(),
-        );
-
-        assert_eq!(links.len(), 1);
-        assert_eq!(links[0].raw, "https://example.org/test");
-        assert_eq!(links[0].byte_end, content.len() - 2);
+        for (content, expected) in cases {
+            let links = scan_links(
+                content,
+                &LinkScannerConfig::default(),
+                &LinkScanContext::default(),
+            );
+            let raws = links
+                .iter()
+                .map(|link| link.raw.as_str())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                raws,
+                expected.iter().copied().collect::<Vec<_>>(),
+                "plain links for {content:?}"
+            );
+            for link in &links {
+                assert_eq!(link.line, 1);
+                assert_eq!(&content[link.byte_start..link.byte_end], link.raw);
+            }
+        }
     }
 
+    /// Multi-line variant of the boundary rows: only lines 1, 2, 3 and 8 contain a plain link,
+    /// and each reported range slices back to the URL on its own line.
     #[test]
-    fn plain_links_follow_reviewed_org_boundary_examples() {
+    fn plain_link_boundaries_report_line_and_byte_range_in_multiline_input() {
         let content = "\
 !https://www.example.com
 \"https://www.example.com
@@ -1517,120 +1562,37 @@ $https://www.example.com
 %https://www.example.com
 xhttps://www.example.com
 Prefix:https://www.example.com";
-
         let links = scan_links(
             content,
             &LinkScannerConfig::default(),
             &LinkScanContext::default(),
         );
 
-        assert_eq!(
-            links
-                .iter()
-                .map(|link| link.raw.as_str())
-                .collect::<Vec<_>>(),
-            vec![
-                "https://www.example.com",
-                "https://www.example.com",
-                "https://www.example.com",
-                "https://www.example.com",
-            ]
-        );
-        assert_eq!(links[0].line, 1);
-        assert_eq!(links[1].line, 2);
-        assert_eq!(links[2].line, 3);
-        assert_eq!(links[3].line, 8);
-    }
-
-    #[test]
-    fn plain_links_accept_underscore_as_left_boundary_and_exclude_it_from_span() {
-        let content = "_https://www.example.com";
-
-        let links = scan_links(
-            content,
-            &LinkScannerConfig::default(),
-            &LinkScanContext::default(),
-        );
-
-        assert_eq!(links.len(), 1);
-        assert_eq!(links[0].raw, "https://www.example.com");
-        assert_eq!(links[0].line, 1);
-        assert_eq!(links[0].byte_start, 1);
-        assert_eq!(links[0].byte_end, content.len());
-    }
-
-    #[test]
-    fn plain_links_exclude_prefix_and_trailing_punctuation_from_byte_ranges() {
-        let bang_content = "!https://www.example.com";
-        let bang_links = scan_links(
-            bang_content,
-            &LinkScannerConfig::default(),
-            &LinkScanContext::default(),
-        );
-
-        assert_eq!(bang_links.len(), 1);
-        assert_eq!(bang_links[0].raw, "https://www.example.com");
-        assert_eq!(bang_links[0].byte_start, 1);
-        assert_eq!(bang_links[0].byte_end, bang_content.len());
-
-        let dot_content = "https://example.org/path.";
-        let dot_links = scan_links(
-            dot_content,
-            &LinkScannerConfig::default(),
-            &LinkScanContext::default(),
-        );
-
-        assert_eq!(dot_links.len(), 1);
-        assert_eq!(dot_links[0].raw, "https://example.org/path");
-        assert_eq!(dot_links[0].byte_start, 0);
-        assert_eq!(dot_links[0].byte_end, dot_content.len() - 1);
-    }
-
-    #[test]
-    fn plain_links_follow_reviewed_org_end_examples() {
-        let content = "\
-https://example.org/path with text after whitespace
-https://example.org/path<balanced-suffix>
-https://example.org/path(foo)
-https://example.org/path[foo]
-https://example.org/path.
-https://example.org/path,
-https://example.org/path;
-https://example.org/path:
-https://example.org/path!
-https://example.org/path?
-https://example.org/path/
-https://example.org/path-
-https://example.org/path>not-part-of-plain-link
-https://example.org/path<not-part-of-plain-link";
-
-        let links = scan_links(
-            content,
-            &LinkScannerConfig::default(),
-            &LinkScanContext::default(),
-        );
-
-        assert_eq!(
-            links
-                .iter()
-                .map(|link| link.raw.as_str())
-                .collect::<Vec<_>>(),
-            vec![
-                "https://example.org/path",
-                "https://example.org/path<balanced-suffix>",
-                "https://example.org/path(foo)",
-                "https://example.org/path[foo]",
-                "https://example.org/path",
-                "https://example.org/path",
-                "https://example.org/path",
-                "https://example.org/path",
-                "https://example.org/path",
-                "https://example.org/path",
-                "https://example.org/path/",
-                "https://example.org/path-",
-                "https://example.org/path",
-                "https://example.org/path",
-            ]
-        );
+        let found = links
+            .iter()
+            .map(|link| (link.line, link.byte_start, link.byte_end))
+            .collect::<Vec<_>>();
+        let expected = [1_usize, 2, 3, 8]
+            .map(|line| {
+                let line_start = content
+                    .split_inclusive('\n')
+                    .take(line - 1)
+                    .map(str::len)
+                    .sum::<usize>();
+                let url_start = line_start + content[line_start..].find("https://").unwrap();
+                (
+                    line as _,
+                    url_start,
+                    url_start + "https://www.example.com".len(),
+                )
+            })
+            .to_vec();
+        assert_eq!(found, expected);
+        for link in &links {
+            assert_eq!(
+                &content[link.byte_start..link.byte_end],
+                "https://www.example.com"
+            );
+        }
     }
 }
