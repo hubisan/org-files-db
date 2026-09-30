@@ -1,22 +1,10 @@
 [
  {
-  "fixture": "properties-root-blank",
-  "fact": "properties",
-  "category": "a",
-  "note": "Root property drawer after a blank line is accepted by orgfdb, not by Emacs (tracked in #75)"
- },
- {
-  "fixture": "emacs-oracle/properties\\.org",
-  "fact": "properties",
-  "category": "a",
-  "note": "Drawer after a comment under a heading is accepted by orgfdb, not by Emacs (tracked in #75)",
-  "scope": "^L29 "
- },
- {
   "fixture": "todo-custom",
-  "fact": "todo_keywords|title|todo|todo_type",
-  "category": "a",
-  "note": "Fast key with logging cookies WAIT(w@/!) is not parsed (tracked in #75)"
+  "fact": "title|todo|todo_type",
+  "category": "c",
+  "note": "Bare '* WAIT' heading: same as bare '* TODO' (org-element needs trailing text; org-entry-get and agenda treat it as a TODO state)",
+  "scope": "^L11 "
  },
  {
   "fixture": "properties-indented",

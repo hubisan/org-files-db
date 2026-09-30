@@ -166,8 +166,6 @@ Remaining differences (last run: 34 differences):
 
 | Difference | Emacs | orgfdb | Cat | DB relevance |
 |-
-| Fast key with logging cookies ~WAIT(w@/!)~ | keyword WAIT | keyword not parsed, headings lose state | a, #75 | High: wrong ~todo_keyword~ |
-| Property drawer after a blank line (file level) or after a comment (heading) | no properties | properties stored | a, #75 | Medium |
 | Indented ~:PROPERTIES:~ drawer | properties | none | a | Medium: properties lost |
 | Duplicate drawer key | first value wins | last value wins | a | Medium: wrong ~effective_properties~ |
 | Property value whitespace | trimmed | kept | a | Medium: exact-match queries fail |
