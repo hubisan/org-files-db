@@ -25,8 +25,8 @@ use crate::{
     file_identity::{display_path, FileIdentity},
     hex_encoding::encode_lower,
     indexing_context::{IndexInvalidationSet, IndexingContext, IndexingContextComparison},
-    link_resolver::IndexedUniverse,
     link_resolver::LinkResolver,
+    link_resolver::{IndexedUniverse, ResolutionScope},
     parser::{
         DiagnosticSeverity, OrgParserCore, ParseDiagnostic, ParseOptions, ParsedHeading,
         ParsedLink, ParsedOrgDocument, ParsedTimestamp, ParsedTimestampModifierKind,
@@ -628,19 +628,26 @@ where
                 ));
             }
         }
+        let mut affected_file_ids = BTreeSet::new();
         for file in &plan.metadata_only {
             update_existing_file_metadata(&tx, file)?;
+            affected_file_ids.insert(file.existing_file_id);
         }
         for file in &plan.modified {
-            replace_prepared_file(
+            affected_file_ids.insert(replace_prepared_file(
                 &tx,
                 file.existing_file_id,
                 &file.prepared,
                 config.search.index_body_text,
-            )?;
+            )?);
         }
         for file in &plan.created {
-            replace_prepared_file(&tx, None, &file.prepared, config.search.index_body_text)?;
+            affected_file_ids.insert(replace_prepared_file(
+                &tx,
+                None,
+                &file.prepared,
+                config.search.index_body_text,
+            )?);
         }
         for file in &plan.deleted {
             DbWriter::delete_file(&tx, file.file_id).map_err(IndexerError::Write)?;
@@ -653,8 +660,17 @@ where
         } else {
             persist_search_trust_metadata(&tx, false, false).map_err(IndexerError::Write)?;
         }
-        let resolution_report = LinkResolver::resolve_all(&tx, &rediscovery.indexed_universe)
-            .map_err(IndexerError::Write)?;
+        // Index invalidations can change how every link resolves, so they take the full pass.
+        let resolution_report = if plan.invalidations.is_empty() {
+            LinkResolver::resolve_scoped(
+                &tx,
+                &rediscovery.indexed_universe,
+                &ResolutionScope { affected_file_ids },
+            )
+        } else {
+            LinkResolver::resolve_all(&tx, &rediscovery.indexed_universe)
+        }
+        .map_err(IndexerError::Write)?;
         IndexingContext::from_config(config, fts_available)
             .persist(&tx)
             .map_err(IndexerError::Write)?;
@@ -2211,7 +2227,7 @@ fn replace_prepared_file(
     expected_file_id: Option<i64>,
     prepared: &PreparedFile,
     index_body_text: bool,
-) -> Result<(), IndexerError> {
+) -> Result<i64, IndexerError> {
     let record = file_record_for_write(&prepared.file_record, &prepared.path)?;
     let file_id = DbWriter::upsert_file(connection, &record).map_err(IndexerError::Write)?;
     if expected_file_id.is_some_and(|expected| expected != file_id) {
@@ -2228,7 +2244,7 @@ fn replace_prepared_file(
         index_body_text,
     )
     .map_err(IndexerError::Write)?;
-    Ok(())
+    Ok(file_id)
 }
 
 fn normalize_document(
@@ -3042,6 +3058,138 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.path);
         }
+    }
+
+    #[test]
+    fn scoped_link_resolution_matches_full_resolution_after_incremental_edits() {
+        let test_dir = TestDir::new("scoped-link-resolution");
+        let root = test_dir.path().join("notes");
+        fs::create_dir_all(&root).unwrap();
+        let config = Config {
+            db_path: test_dir.path().join("db.sqlite"),
+            files: Vec::new(),
+            dirs: vec![crate::config::ConfiguredDir {
+                path: root.clone(),
+                recursive: true,
+                exclude: Vec::new(),
+            }],
+            discovery: Default::default(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+        };
+        let a = root.join("a.org");
+        let b = root.join("b.org");
+        let c = root.join("c.org");
+        let d = root.join("d.org");
+        write_file(
+            &a,
+            "* Source\n[[id:target-1][one]] [[id:target-2][two]] [[id:missing][gone]]\n\
+             [[file:b.org::*Target One][t]] [[file:b.org::#cid-1][c]] [[file:b.org][root]]\n\
+             [[file:d.org][later]] [[file:d.org::*Late][late]] [[*Source][self]]\n\
+             [[https://example.com][web]]\n",
+        );
+        write_file(
+            &b,
+            "* Target One\n:PROPERTIES:\n:ID: target-1\n:CUSTOM_ID: cid-1\n:END:\n\
+             * Target Two\n:PROPERTIES:\n:ID: target-2\n:END:\n[[id:target-1][back]]\n",
+        );
+        write_file(&c, "* Other\n[[file:b.org::*Target Two][x]]\n");
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+
+        let assert_matches_full = |connection: &mut Connection, step: &str| {
+            let dump = |connection: &Connection| {
+                let mut statement = connection
+                    .prepare(
+                        "SELECT id, file_id, path_absolute, target_file_id, target_heading_id,
+                                target_custom_id, target_id, resolution_status,
+                                resolution_diagnostic
+                         FROM links ORDER BY id",
+                    )
+                    .unwrap();
+                let rows = statement
+                    .query_map([], |row| {
+                        (0..9)
+                            .map(|index| {
+                                row.get::<_, rusqlite::types::Value>(index)
+                                    .map(|value| format!("{value:?}"))
+                            })
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .unwrap();
+                rows.collect::<Result<Vec<_>, _>>().unwrap()
+            };
+            let scoped = dump(connection);
+            let universe = discover_org_files(&config).unwrap().indexed_universe;
+            let tx = connection.transaction().unwrap();
+            crate::link_resolver::LinkResolver::resolve_all(&tx, &universe).unwrap();
+            let full = dump(&tx);
+            drop(tx);
+            assert!(!scoped.is_empty());
+            assert_eq!(scoped, full, "scoped resolution differs after {step}");
+        };
+        let apply = |connection: &mut Connection, path: &Path| {
+            let candidate = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+            indexer
+                .reconcile_candidate_paths(connection, &config, [candidate])
+                .expect("reconciliation should succeed");
+        };
+
+        assert_matches_full(&mut connection, "rebuild");
+
+        write_file(
+            &b,
+            "* Renamed One\n:PROPERTIES:\n:ID: target-1\n:CUSTOM_ID: cid-1\n:END:\n\
+             * Target Two\n:PROPERTIES:\n:ID: target-2\n:END:\n[[id:target-1][back]]\n",
+        );
+        apply(&mut connection, &b);
+        assert_matches_full(&mut connection, "target title change");
+
+        write_file(
+            &c,
+            "* Other\n:PROPERTIES:\n:ID: target-2\n:END:\n[[file:b.org::*Target Two][x]]\n",
+        );
+        apply(&mut connection, &c);
+        assert_matches_full(&mut connection, "duplicate id added");
+
+        write_file(
+            &c,
+            "* Other\n[[file:b.org::*Target Two][x]] [[id:target-2][y]]\n",
+        );
+        apply(&mut connection, &c);
+        assert_matches_full(&mut connection, "duplicate id removed");
+
+        write_file(
+            &b,
+            "* Renamed One\n:PROPERTIES:\n:CUSTOM_ID: cid-2\n:END:\n\
+             * Target Two\n:PROPERTIES:\n:ID: target-2\n:END:\n[[id:target-1][back]]\n",
+        );
+        apply(&mut connection, &b);
+        assert_matches_full(&mut connection, "id removed and custom id changed");
+
+        write_file(&d, "* Late\n:PROPERTIES:\n:ID: missing\n:END:\n");
+        apply(&mut connection, &d);
+        assert_matches_full(&mut connection, "file created");
+
+        fs::remove_file(&b).unwrap();
+        apply(&mut connection, &b);
+        assert_matches_full(&mut connection, "file deleted");
+
+        fs::remove_file(&d).unwrap();
+        apply(&mut connection, &d);
+        assert_matches_full(&mut connection, "second file deleted");
     }
 
     fn write_file(path: &Path, content: &str) {
