@@ -33,8 +33,8 @@ use super::timestamp_raw::{
 use super::title::{
     cookie_follows_comment, infer_todo_keyword, link_contains_range, links_in_range,
     placeholder_title_after_todo_prefix, priority_from_source_title,
-    restore_title_link_placeholders, source_title_from_content_line, strip_leading_priority_cookie,
-    todo_keyword_is_active, todo_type_for_keyword,
+    restore_title_link_placeholders, source_title_from_content_line, source_title_tags,
+    strip_leading_priority_cookie, todo_keyword_is_active, todo_type_for_keyword,
 };
 use crate::todo_keywords::collect_document_keywords;
 
@@ -526,7 +526,7 @@ fn parse_headline(
         .todo_keyword
         .as_deref()
         .and_then(|keyword| todo_type_for_keyword(keyword, todo_keywords));
-    parsed.tags = headline.tags().map(|tag| tag.to_string()).collect();
+    parsed.tags = source_title_tags(content, start);
     parsed.line_number = Some(lines.line_for(start));
     parsed.parent_index = parent_index;
     parsed.is_archived = headline.is_archived();
@@ -678,27 +678,32 @@ fn body_metadata_kind(kind: SyntaxKind) -> bool {
     )
 }
 
+const TAIL: &str = " ORG_FILES_DB_TAIL";
+
 fn normalize_title_from_raw(title_raw: &str, priority: Option<&str>) -> String {
     let stripped = strip_leading_priority_cookie(title_raw, priority);
-    let parsed = Org::parse(format!("* {stripped}\n"));
+    // The suffix keeps Orgize from stripping a tag-like word that Org leaves in the title.
+    let parsed = Org::parse(format!("* {stripped}{TAIL}\n"));
     parsed
         .document()
         .headlines()
         .next()
         .map(|headline| normalize_title_elements(headline.title()))
+        .and_then(|title| title.strip_suffix(TAIL).map(str::to_string))
         .unwrap_or_else(|| stripped.trim().to_string())
 }
 
 fn normalize_title_preserving_leading_keyword(title_raw: &str, priority: Option<&str>) -> String {
     const SENTINEL: &str = "ORG_FILES_DB_SENTINEL ";
     let stripped = strip_leading_priority_cookie(title_raw, priority);
-    let parsed = Org::parse(format!("* {SENTINEL}{stripped}\n"));
+    let parsed = Org::parse(format!("* {SENTINEL}{stripped}{TAIL}\n"));
     parsed
         .document()
         .headlines()
         .next()
         .map(|headline| normalize_title_elements(headline.title()))
         .and_then(|title| title.strip_prefix(SENTINEL).map(str::to_string))
+        .and_then(|title| title.strip_suffix(TAIL).map(str::to_string))
         .unwrap_or_else(|| stripped.trim().to_string())
 }
 

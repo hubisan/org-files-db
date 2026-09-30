@@ -25,7 +25,7 @@ use crate::{
 pub(crate) const INDEXING_SEMANTICS_CONTRACT_VERSION: &str = "1";
 pub(crate) const INDEXING_DISCOVERY_CONTRACT_VERSION: &str = "1";
 pub(crate) const INDEXING_DERIVED_SEARCH_CONTRACT_VERSION: &str = "1";
-pub(crate) const PARSER_INDEXER_CONTRACT_VERSION: &str = "6";
+pub(crate) const PARSER_INDEXER_CONTRACT_VERSION: &str = "7";
 
 /// The work a later incremental caller must perform before trusting unchanged
 /// source snapshots.

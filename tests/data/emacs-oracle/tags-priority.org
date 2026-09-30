@@ -6,6 +6,7 @@
 * Invalid tags :a b:
 * Empty tag pieces ::a::
 * Trailing space tag :a: 
+* Two tag blocks :a: :b:
 * [#A] Priority A
 * [#c] Lowercase priority
 * [#10] Numeric priority

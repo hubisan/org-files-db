@@ -129,9 +129,33 @@ The parser stores normalized semantic titles and raw source title text separatel
 
 TODO keywords, priority cookies, trailing tags, and Org inline markup can affect normalized heading titles.
 
-A trailing tag block is stripped from the title only when every tag is non-empty and consists of Unicode alphanumerics or ~_@#%~, matching Org's tag rule; otherwise the text stays in the title.
+A trailing tag block is stripped from the title when it matches Org's tag rule: a colon, one or more Unicode alphanumerics or ~_@#%:~, and a closing colon, after a space or tab. Empty segments count, so ~* T ::a::~ and ~* T :a::b:~ have title ~T~ like in Org, while ~::~ and ~: :~ stay title text. Org reports the empty segments as empty tags; orgfdb stores only the non-empty ones.
 
 Keep normalization tests tied to the same source ranges used for links and heading metadata. Parser changes must not shift unrelated byte coordinates.
+
+* Intentional differences
+
+These differences from Emacs are deliberate (#80). Each is classified c in ~scripts/emacs-oracle-known.json~.
+
+| Difference | Emacs | orgfdb | Cat | DB relevance |
+|-
+| Lowercase or mixed-case planning keywords (~scheduled:~, ~Deadline:~) | planning line, but the timestamp is filed under ~:closed~ | planning line, each timestamp filed under its own keyword | c | Low: Org quirk |
+| ~file+sys:~, ~file+emacs:~ | type ~file~ | type kept whole, resolved like ~file:~ | c | Medium: filter by ~link_type~ |
+| Unregistered scheme in a bracket link | fuzzy | typed | c | Low |
+| Links in property drawer values | none | ~source_context = property_drawer~ | c | Low |
+| Numeric priority ~[#10]~ | no priority | priority ~10~ | c | Low |
+| Bare ~* TODO~ | plain title in org-element, TODO in ~org-entry-get~ | TODO | c | Low |
+
+Tag blocks with empty segments (~::a::~) follow Org for the title and differ only in that empty tags are dropped; the oracle harness ignores empty tags.
+
+Reasons:
+
+- *Planning keyword case*: Org 9.6 matches the planning line case-insensitively, but ~org-element--get-time-properties~ then compares the keyword with case-sensitive ~equal~, so every keyword other than ~SCHEDULED:~ and ~DEADLINE:~ in upper case, including lowercase ~scheduled:~ and ~deadline:~, lands in ~:closed~. The ~planning~ element itself is empty. orgfdb follows the line detection and maps each keyword by name instead of copying the misfiling. Emacs keeps only the last entry on the line; orgfdb keeps one per keyword.
+- *Unknown link types*: ~[[unknown:thing]]~ is typed ~unknown~ because users filter by scheme and Org treats unregistered schemes as fuzzy only because it does not know the protocol (~links.custom_protocols~ in ~docs/config.org~).
+- *Numeric priorities*: ~[#10]~ is stored as priority ~10~ because priorities are plain strings in the schema and multi-digit cookies are used in practice.
+- *~file+sys:~, ~file+emacs:~*: the full scheme stays the link type so the application stays visible; the resolver treats them like ~file:~.
+- *Links in property values*: they are indexed with ~source_context = property_drawer~ so backlink queries see them and can tell them apart from body links.
+- *Bare ~* TODO~*: the heading is a TODO state because Org's outline and agenda regexps treat it so; only ~org-element~ needs trailing text.
 
 * Emacs reference comparison
 
@@ -162,17 +186,7 @@ Harness normalizations, which are not differences:
 
 Unclassified differences make the script exit with status 1. Classified ones live in ~scripts/emacs-oracle-known.json~. Categories: a is an orgfdb bug, b is an Orgize deviation that the adapter does not correct, c is an intentional model difference. No a or b rows remain.
 
-Remaining differences (last run: 16 differences, all intentional model differences):
-
-| Difference | Emacs | orgfdb | Cat | DB relevance |
-|-
-| Lowercase ~scheduled:~ | planning line, filed as closed | plain timestamp | c | Low: Org quirk |
-| ~file+sys:~, ~file+emacs:~ | type ~file~ | type kept whole | c | Medium: filter by ~link_type~ |
-| Unregistered scheme in a bracket link | fuzzy | typed | c | Low |
-| Links in property drawer values | none | ~source_context = property_drawer~ | c | Low |
-| Tag block with empty pieces ~::a::~ | tags ~""~, ~""~, ~a~ | title text, one tag ~a~ | c | Low |
-| Numeric priority ~[#10]~ | no priority | priority ~10~ | c | Low |
-| Bare ~* TODO~ | plain title in org-element, TODO in ~org-entry-get~ | TODO | c | Low |
+Remaining differences (last run: 16 differences, all intentional model differences, see the next section):
 
 Everything else in the fixtures matched, including planning lines with repeaters, warnings and ranges, ~id:~, ~file:~, custom-id and plain links, default TODO behavior, archived and COMMENT headings, and FILETAGS.
 
@@ -475,4 +489,16 @@ Add or update fixtures in the same task as a parser-contract change.
 - Org: the keyword needs a space (or the end of the line) after it; blanks after that space may be spaces or tabs. With a tab the headline has no TODO state, no priority and ~:raw-value~ ~TODO	[#A] x~. Verified against Emacs 29.3 / Org 9.6.15. Separators between keyword, priority cookie and ~COMMENT~ are only space and tab: a non-breaking space is title text (~* COMMENT<NBSP>z~ is not commented, ~* TODO<NBSP>[#A] y~ has no TODO). Orgize agrees on that. Priority cookies are ~[#.]~ (any one character, no blank needed after it), and Orgize agrees (lowercase, digits, symbols, ~[#A]x~).
 - Workaround: ~keyword_bad_separator~ in ~parse_headline~ (~src/parser/orgize_adapter.rs~) drops Orgize's keyword and priority when the text after the keyword does not start with a space; ~infer_todo_keyword~, ~cookie_follows_comment~ and the title helpers in ~src/parser/title.rs~ use only space and tab as blanks. A multi-digit ~[#10]~ stays a priority (project extension, #80).
 - Test: the unit tables in ~src/parser/title.rs~ and ~tests/data/emacs-oracle/tags-priority.org~.
+- Tracked in #41.
+
+** R22 Several tag blocks on one headline
+
+- Repro:
+  #+begin_src org
+  ,* T :a: :b:
+  #+end_src
+- Orgize: reports both ~a~ and ~b~ as tags, and its title re-parse strips a remaining tag-like word such as ~:a:~.
+- Org: only the last tag block at the end of the line counts. The headline has tag ~b~ and ~:raw-value~ ~T :a:~; ~* T :a:b:~ has tags ~a~ and ~b~. Verified against Emacs 29.3 / Org 9.6.15.
+- Workaround: ~source_title_tags~ in ~src/parser/title.rs~ reads the tags from the last block of the source line (non-empty ones only), and the title re-parse in ~src/parser/orgize_adapter.rs~ appends a fixed tail so Orgize cannot strip a tag-like word from the title.
+- Test: ~empty_tag_segments_are_stripped_from_title_like_org~ in ~tests/orgize_adapter.rs~ and ~tests/data/emacs-oracle/tags-priority.org~.
 - Tracked in #41.
