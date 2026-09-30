@@ -10,6 +10,11 @@ mod file_identity;
 mod hex_encoding;
 pub mod indexer;
 mod indexing_context;
+
+/// Exposed only so the parser contract guard test can compare versions.
+#[doc(hidden)]
+pub const PARSER_INDEXER_CONTRACT_VERSION: &str = indexing_context::PARSER_INDEXER_CONTRACT_VERSION;
+
 mod link_resolver;
 pub(crate) mod notify_source;
 pub mod parser;

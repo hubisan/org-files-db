@@ -4,6 +4,8 @@ This file records completed changes.
 
 * Unreleased
 
+- =CHANGED= The parser contract version (~PARSER_INDEXER_CONTRACT_VERSION~) was bumped to ~2~, so existing databases reparse all files on the next incremental or watch run; a guard test (~tests/parser_contract_guard.rs~) now enforces bumps when parsed fixture output changes.
+
 - =FIXED= ~:PROPERTIES:~ drawers that are not placed directly after the heading (or planning line), or after leading comments at file level, no longer create properties. Rebuild existing databases to refresh affected properties.
 
 - =CHANGED= Library API: ~ValidatedQuery~, ~ValidatedPredicate~ and ~ValidatedOption~ fields are now crate-private with read-only accessors, so only the validator can build these types and the SQL compiler's invariants hold.
