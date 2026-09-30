@@ -49,6 +49,13 @@
   "scope": "^L11 "
  },
  {
+  "fixture": "tags-priority",
+  "fact": "title",
+  "category": "c",
+  "note": "org-element drops the literal word COMMENT from :raw-value even when no space or tab follows (COMMENT + NBSP is not a comment, commentedp is nil); orgfdb keeps it as title text",
+  "scope": "^L33 "
+ },
+ {
   "fixture": "todo-default",
   "fact": "title|todo|todo_type",
   "category": "c",

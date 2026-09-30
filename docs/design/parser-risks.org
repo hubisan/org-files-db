@@ -462,3 +462,17 @@ Add or update fixtures in the same task as a parser-contract change.
 - Workaround: ~cookie_follows_comment~ in ~src/parser/orgize_adapter.rs~ clears the priority in ~parse_headline~ for ~[KEYWORD] COMMENT [#X]~. ~title~ and ~title_raw~ already keep the cookie and ~COMMENT~.
 - Test: ~comment_and_priority_cookie_order_matches_org~.
 - Tracked in #41.
+
+** R21 Tab after a TODO keyword
+
+- Repro:
+  #+begin_src org
+  ,* TODO	[#A] x
+  ,* TODO	y
+  #+end_src
+  (a tab after ~TODO~)
+- Orgize: reads ~TODO~ as the keyword (and ~[#A]~ as the priority) when a tab follows it.
+- Org: the keyword needs a space (or the end of the line) after it; blanks after that space may be spaces or tabs. With a tab the headline has no TODO state, no priority and ~:raw-value~ ~TODO	[#A] x~. Verified against Emacs 29.3 / Org 9.6.15. Separators between keyword, priority cookie and ~COMMENT~ are only space and tab: a non-breaking space is title text (~* COMMENT<NBSP>z~ is not commented, ~* TODO<NBSP>[#A] y~ has no TODO). Orgize agrees on that. Priority cookies are ~[#.]~ (any one character, no blank needed after it), and Orgize agrees (lowercase, digits, symbols, ~[#A]x~).
+- Workaround: ~keyword_bad_separator~ in ~parse_headline~ (~src/parser/orgize_adapter.rs~) drops Orgize's keyword and priority when the text after the keyword does not start with a space; ~infer_todo_keyword~, ~cookie_follows_comment~ and the title helpers in ~src/parser/title.rs~ use only space and tab as blanks. A multi-digit ~[#10]~ stays a priority (project extension, #80).
+- Test: the unit tables in ~src/parser/title.rs~ and ~tests/data/emacs-oracle/tags-priority.org~.
+- Tracked in #41.
