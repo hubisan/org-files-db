@@ -1,0 +1,103 @@
+{
+  "file_path": "properties/drawer-after-planning/fixture.org",
+  "metadata": {
+    "title": "Property Drawer After Planning",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Property Drawer After Planning",
+        "line_number": 1
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "properties/drawer-after-planning/fixture.org",
+      "level": 0,
+      "title": "Property Drawer After Planning",
+      "title_raw": "Property Drawer After Planning",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 116,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "properties/drawer-after-planning/fixture.org",
+      "level": 1,
+      "title": "Task",
+      "title_raw": "Task",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [
+        {
+          "key": "AFTER-DEADLINE",
+          "value": "valid",
+          "source": "property_drawer",
+          "append": false,
+          "line_number": 5
+        }
+      ],
+      "planning": {
+        "scheduled": null,
+        "deadline": {
+          "role": "Deadline",
+          "raw_value": "<2025-11-19 Wed>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1763510400,
+          "end_ts": null,
+          "byte_start": 57,
+          "byte_end": 73,
+          "line_number": 3,
+          "modifiers": []
+        },
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Deadline",
+          "raw_value": "<2025-11-19 Wed>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1763510400,
+          "end_ts": null,
+          "byte_start": 57,
+          "byte_end": 73,
+          "line_number": 3,
+          "modifiers": []
+        }
+      ],
+      "line_number": 2,
+      "byte_start": 40,
+      "byte_end": 116,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}

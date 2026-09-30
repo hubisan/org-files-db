@@ -1,0 +1,158 @@
+{
+  "file_path": "links/plain-and-bracket-links/fixture.org",
+  "metadata": {
+    "title": "Link Edge Cases",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Link Edge Cases",
+        "line_number": 1
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "links/plain-and-bracket-links/fixture.org",
+      "level": 0,
+      "title": "Link Edge Cases",
+      "title_raw": "Link Edge Cases",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 234,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "links/plain-and-bracket-links/fixture.org",
+      "level": 1,
+      "title": "Links",
+      "title_raw": "Links",
+      "body_text": "Plain link with punctuation: https://orgmode.org.\nBracket link: [[https://orgmode.org][Org mode]]\nInternal custom-id link: [[#local-target]]",
+      "body_byte_start": 33,
+      "body_byte_end": 173,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 2,
+      "byte_start": 25,
+      "byte_end": 234,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "links/plain-and-bracket-links/fixture.org",
+      "level": 2,
+      "title": "Local Target",
+      "title_raw": "Local Target",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [
+        {
+          "key": "CUSTOM_ID",
+          "value": "local-target",
+          "source": "property_drawer",
+          "append": false,
+          "line_number": 8
+        }
+      ],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 6,
+      "byte_start": 174,
+      "byte_end": 234,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [
+    {
+      "source_context": "normal",
+      "format": "plain",
+      "raw": "https://orgmode.org",
+      "raw_target": "https://orgmode.org",
+      "logical_target": "https://orgmode.org",
+      "raw_description": null,
+      "link_type": "https",
+      "path": "//orgmode.org",
+      "search_option": null,
+      "byte_start": 62,
+      "byte_end": 81,
+      "target_byte_start": 62,
+      "target_byte_end": 81,
+      "description_byte_start": null,
+      "description_byte_end": null,
+      "line": 3
+    },
+    {
+      "source_context": "normal",
+      "format": "bracket",
+      "raw": "[[https://orgmode.org][Org mode]]",
+      "raw_target": "https://orgmode.org",
+      "logical_target": "https://orgmode.org",
+      "raw_description": "Org mode",
+      "link_type": "https",
+      "path": "//orgmode.org",
+      "search_option": null,
+      "byte_start": 97,
+      "byte_end": 130,
+      "target_byte_start": 99,
+      "target_byte_end": 118,
+      "description_byte_start": 120,
+      "description_byte_end": 128,
+      "line": 4
+    },
+    {
+      "source_context": "normal",
+      "format": "bracket",
+      "raw": "[[#local-target]]",
+      "raw_target": "#local-target",
+      "logical_target": "#local-target",
+      "raw_description": null,
+      "link_type": "custom-id",
+      "path": "local-target",
+      "search_option": null,
+      "byte_start": 156,
+      "byte_end": 173,
+      "target_byte_start": 158,
+      "target_byte_end": 171,
+      "description_byte_start": null,
+      "description_byte_end": null,
+      "line": 5
+    }
+  ],
+  "diagnostics": []
+}

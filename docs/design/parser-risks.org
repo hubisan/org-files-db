@@ -285,7 +285,7 @@ Each entry records one known deviation of the former Orgize backend or a project
 - Orgize: repeater and warning nodes are incomplete for some combinations and units.
 - Org: repeaters ~+~, ~++~, ~.+~ and warnings ~-~, ~--~ are all valid, in any order.
 - Resolved (#105): ~parse_timestamp_modifiers_from_raw~ in ~src/parser/timestamp_raw.rs~ reads the modifiers of planning and body timestamps alike (~body_timestamp~); the fallback to Orgize nodes is gone.
-- Test: ~orgize_adapter_collects_ranges_repeaters_and_body_timestamps~; the modifier expectations in ~tests/parser_fixtures.rs~ (also ~timestamps/inline-objects~).
+- Test: ~orgize_adapter_collects_ranges_repeaters_and_body_timestamps~; the ~timestamps/*~ snapshots in ~tests/parser_snapshots.rs~ (modifiers, also ~timestamps/inline-objects~).
 - Tracked in #41.
 
 ** R12 Explicit time and range type from raw text

@@ -1,0 +1,2 @@
+# classification: positive inline object coverage
+# note: Body and title timestamps follow org-element: ranges, single-digit hours, repeaters with a deadline part, and the objects that hide or show a timestamp. Expectations verified with Emacs 29.3 (Org 9.6.15).

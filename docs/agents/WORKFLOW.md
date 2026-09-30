@@ -87,6 +87,13 @@ that needs a code change is.
 - Indexer and CLI tests keep one or two end-to-end smoke tests per feature plus contract
   and exit-code checks. Do not repeat a lower-layer test at a higher layer.
 - Prefer table-driven tests over several near-identical test functions.
+- Parser output is checked by snapshots: each `tests/data/parser/**/fixture.org` has a
+  `snapshot.json` (serialized `ParsedOrgDocument`, byte offsets included) compared by
+  `tests/parser_snapshots.rs`. Add a fixture instead of field-by-field assertions. After an
+  intended parser change run `UPDATE_SNAPSHOTS=1 cargo test --test parser_snapshots`, review
+  the snapshot diff, bump `PARSER_INDEXER_CONTRACT_VERSION` and update
+  `tests/data/parser/CONTRACT` (the guard hashes the snapshots). Keep targeted tests only
+  for specific Emacs behavior a snapshot does not document.
 - Unit tests use the shared helpers in `crate::test_support` (`TestDir`, `write_file`).
   Extend that module instead of defining a local copy. Integration tests in `tests/`
   cannot reach it and keep their own helpers.

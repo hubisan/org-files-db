@@ -1,0 +1,218 @@
+{
+  "file_path": "headings/multibyte-before-headings/fixture.org",
+  "metadata": {
+    "title": "Übersicht 🚀 Größe",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Übersicht 🚀 Größe",
+        "line_number": 1
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "headings/multibyte-before-headings/fixture.org",
+      "level": 0,
+      "title": "Übersicht 🚀 Größe",
+      "title_raw": "Übersicht 🚀 Größe",
+      "body_text": "Präambel mit Umlauten: äöü und Emoji 🚀.",
+      "body_byte_start": 34,
+      "body_byte_end": 80,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 383,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "headings/multibyte-before-headings/fixture.org",
+      "level": 1,
+      "title": "Überschrift ÄÖÜ Link ß",
+      "title_raw": "Überschrift ÄÖÜ [[https://example.org/ä][Link ß]]",
+      "body_text": "Text nach „Anführungszeichen“ und 日本語 mit [[file:sub/äöü.org][Verweis]].",
+      "body_byte_start": 147,
+      "body_byte_end": 233,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [
+        "tag"
+      ],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 5,
+      "byte_start": 82,
+      "byte_end": 332,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "headings/multibyte-before-headings/fixture.org",
+      "level": 2,
+      "title": "Zweite Ebene 🚀 Emoji",
+      "title_raw": "Zweite Ebene 🚀 Emoji",
+      "body_text": "[2026-03-20 Fr] Körper mit Zeitstempel und https://example.org/ü.",
+      "body_byte_start": 263,
+      "body_byte_end": 330,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Body",
+          "raw_value": "[2026-03-20 Fr]",
+          "timestamp_type": "Inactive",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1773964800,
+          "end_ts": null,
+          "byte_start": 263,
+          "byte_end": 278,
+          "line_number": 11,
+          "modifiers": []
+        }
+      ],
+      "line_number": 9,
+      "byte_start": 235,
+      "byte_end": 332,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "headings/multibyte-before-headings/fixture.org",
+      "level": 1,
+      "title": "日本語の見出し",
+      "title_raw": "日本語の見出し",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": {
+          "role": "Scheduled",
+          "raw_value": "<2026-03-21 Sa>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1774051200,
+          "end_ts": null,
+          "byte_start": 367,
+          "byte_end": 382,
+          "line_number": 14,
+          "modifiers": []
+        },
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Scheduled",
+          "raw_value": "<2026-03-21 Sa>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1774051200,
+          "end_ts": null,
+          "byte_start": 367,
+          "byte_end": 382,
+          "line_number": 14,
+          "modifiers": []
+        }
+      ],
+      "line_number": 13,
+      "byte_start": 332,
+      "byte_end": 383,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [
+    {
+      "source_context": "heading",
+      "format": "bracket",
+      "raw": "[[https://example.org/ä][Link ß]]",
+      "raw_target": "https://example.org/ä",
+      "logical_target": "https://example.org/ä",
+      "raw_description": "Link ß",
+      "link_type": "https",
+      "path": "//example.org/ä",
+      "search_option": null,
+      "byte_start": 104,
+      "byte_end": 139,
+      "target_byte_start": 106,
+      "target_byte_end": 128,
+      "description_byte_start": 130,
+      "description_byte_end": 137,
+      "line": 5
+    },
+    {
+      "source_context": "normal",
+      "format": "bracket",
+      "raw": "[[file:sub/äöü.org][Verweis]]",
+      "raw_target": "file:sub/äöü.org",
+      "logical_target": "file:sub/äöü.org",
+      "raw_description": "Verweis",
+      "link_type": "file",
+      "path": "sub/äöü.org",
+      "search_option": null,
+      "byte_start": 200,
+      "byte_end": 232,
+      "target_byte_start": 202,
+      "target_byte_end": 221,
+      "description_byte_start": 223,
+      "description_byte_end": 230,
+      "line": 7
+    },
+    {
+      "source_context": "normal",
+      "format": "plain",
+      "raw": "https://example.org/ü",
+      "raw_target": "https://example.org/ü",
+      "logical_target": "https://example.org/ü",
+      "raw_description": null,
+      "link_type": "https",
+      "path": "//example.org/ü",
+      "search_option": null,
+      "byte_start": 307,
+      "byte_end": 329,
+      "target_byte_start": 307,
+      "target_byte_end": 329,
+      "description_byte_start": null,
+      "description_byte_end": null,
+      "line": 11
+    }
+  ],
+  "diagnostics": []
+}

@@ -1,0 +1,2 @@
+# classification: org-special-case
+# note: Heading, body and link byte offsets after multibyte UTF-8 text (umlauts, emoji, CJK) in the preamble, titles and bodies.

@@ -1,0 +1,100 @@
+{
+  "file_path": "todo-keywords/custom-sequence/fixture.org",
+  "metadata": {
+    "title": "Custom TODO Fixture",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Custom TODO Fixture",
+        "line_number": 1
+      },
+      {
+        "key": "TODO",
+        "value": "PLAN(p) BUILD(b) REVIEW(r) | DONE(d) CANCEL(c)",
+        "line_number": 2
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "todo-keywords/custom-sequence/fixture.org",
+      "level": 0,
+      "title": "Custom TODO Fixture",
+      "title_raw": "Custom TODO Fixture",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 126,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "todo-keywords/custom-sequence/fixture.org",
+      "level": 1,
+      "title": "Parser fixture",
+      "title_raw": "PLAN Parser fixture",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": "PLAN",
+      "todo_type": "Open",
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 3,
+      "byte_start": 84,
+      "byte_end": 126,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "todo-keywords/custom-sequence/fixture.org",
+      "level": 2,
+      "title": "Implemented",
+      "title_raw": "DONE Implemented",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": "DONE",
+      "todo_type": "Closed",
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 4,
+      "byte_start": 106,
+      "byte_end": 126,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}

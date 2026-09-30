@@ -1,0 +1,2 @@
+# classification: positive rich timestamp and planning coverage fixture
+# note: Covers planning shortcut derivation, rich timestamp rows, ranges, modifiers, diary values, and body timestamps.
