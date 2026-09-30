@@ -633,6 +633,7 @@ Without ~--title~ or ~--body~, search uses both indexed FTS columns.
 The two scope options conflict.
 
 If one scope option is active, the expression cannot contain its own explicit FTS column filter.
+With a scope option, parentheses outside double-quoted strings must be balanced and a ~)~ may not close more than was opened, so the expression cannot escape the scope.
 
 ** Search requirements
 
