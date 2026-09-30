@@ -1,6 +1,15 @@
 # Issue tracker: GitHub
 
-Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
+Issues and specs for this repo live as GitHub issues in `hubisan/org-files-db`. A spec is an
+issue; its tickets are sub-issues (or a task list in the spec issue with `Part of #<spec>` in
+each ticket).
+
+Tooling:
+
+- Local: `gh` CLI, as below.
+- Cloud sessions (claude.ai/code): no `gh`; use the GitHub MCP tools (`issue_read`,
+  `issue_write`, `add_issue_comment`, `list_issues`, `search_issues`, `sub_issue_write`)
+  with the same semantics.
 
 ## Conventions
 
@@ -9,7 +18,9 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 - **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
 - **Comment on an issue**: `gh issue comment <number> --body "..."`
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
-- **Close**: `gh issue close <number> --comment "..."`
+- **Close**: via the PR body (`Closes #<n>`) when merged, or `gh issue close <number> --comment "..."`
+- Acceptance criteria are a Markdown task list in the issue body; tick them when done.
+- Triage state is a label (see `triage-labels.md`), not a `Status:` line.
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
 
