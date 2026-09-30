@@ -4,6 +4,8 @@ This file records completed changes.
 
 * Unreleased
 
+- =CHANGED= Library API: ~ValidatedQuery~, ~ValidatedPredicate~ and ~ValidatedOption~ fields are now crate-private with read-only accessors, so only the validator can build these types and the SQL compiler's invariants hold.
+
 - =FIXED= Headings with a trailing ~:foo/bar:~ block no longer lose that text from the title; only blocks whose tags consist of alphanumerics and ~_@#%~ are stripped as tags.
 
 - =FIXED= ~search --title~ and ~--body~ now reject expressions with unbalanced parentheses outside double quotes, so user text can no longer close the scope wrapper and match the other column.
