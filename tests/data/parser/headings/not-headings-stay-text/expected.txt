@@ -1,0 +1,10 @@
+# classification: org-special-case
+# note: Star without space, indented star and non-keyword or lowercase todo words stay normal text or plain titles.
+document.title=Text Edge Cases
+heading_count=3
+diagnostic_count=0
+heading.1.level=1
+heading.1.title=TODOX not a keyword
+heading.2.level=2
+heading.2.title=todo lowercase is title
+heading.2.parent_index=1
