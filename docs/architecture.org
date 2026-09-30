@@ -59,15 +59,45 @@ Emacs Org mode acts as a reference oracle for difficult parser semantics. The im
 
 Read [[./design/parser-risks.org][Parser Risks]] for known parser differences.
 
+** Why Orgize is behind an adapter
+
+Orgize is the first parser backend, but the project does not treat it as a permanently safe or single source of parsing truth. It is a ~0.10.0-alpha~ release and has had no upstream release since June 2024. ~src/parser/orgize_adapter.rs~ contains many local workarounds for its gaps.
+
+Only ~src/parser/orgize_adapter.rs~ and ~src/todo_keywords.rs~ import Orgize. Orgize and rowan types must not appear in the database, query, indexer, or CLI layers, so the backend can be patched or replaced without touching them. The parser-facing model in ~src/parser/~ is the stable boundary. GitHub issue #41 tracks the long-term Orgize strategy.
+
+** Parser facts and derived semantics
+
+The parser records only what a file literally says. Query-time and derived data is computed from those facts by the indexer or query layer.
+
+- *Parser facts:* direct properties, direct tags, raw link facts, heading titles, planning data, and body text. Tables ~properties~, ~tags~, and ~links~ (authored columns) store them.
+- *Derived semantics:* effective inherited properties (~effective_properties~) and tags (~effective_tags~), resolved link targets and statuses (~links~ resolution columns), outline paths (~outline_path~), and optional FTS data.
+
+Inheritance never crosses file boundaries. Read [[../sql/schema.sql][sql/schema.sql]] for the table contracts.
+
+** Synthetic file root (level 0)
+
+The indexer creates one synthetic level-0 heading for each file. It is the single structural home for file-scope data such as preamble text, file tags, file properties, document keywords, and preamble links. Real Org headings use level 1 or more, and top-level headings use the root as parent. Public results serialize a root as ~kind = "root"~ with ~level = 0~. Read [[./design/parser-risks.org][Parser Risks]] for the model details.
+
 * Indexer
 
 ~src/indexer.rs~ coordinates discovery, stable file capture, parsing, change planning, and transactional application.
+
+The pipeline stages are:
+
+- *Discovery:* build the configured source universe and canonical file identities.
+- *Classification:* classify each candidate against the persisted file snapshot.
+- *Change planning:* ~plan_changes~ builds a read-only ~ChangePlan~ without mutating the database.
+- *Preparation:* ~capture_stable_source~ captures a stable file snapshot and content hash, then the parser and normalization produce a prepared file.
+- *Application:* ~apply_change_plan~ rechecks the plan baseline and applies changes in one ordered SQLite transaction.
+- *Recovery:* when planning cannot trust the stored state, such as an incompatible indexing context, the indexer falls back to a full rebuild of the configured source universe.
+
+Read [[./design/incremental-indexing.org][Incremental Indexing]] for the indexing-context fingerprints.
 
 The indexer separates read-only change planning from database mutation. It rechecks relevant file state before it applies a planned change.
 
 A full rebuild reconciles the complete configured source universe. Incremental reconciliation limits work to affected candidates when the context permits it.
 
-The indexer also maintains synthetic level-0 file roots. Real Org headings use level 1 or more.
+The indexer also creates the synthetic level-0 file roots described in [[*Synthetic file root (level 0)]].
 
 * SQLite layer
 
