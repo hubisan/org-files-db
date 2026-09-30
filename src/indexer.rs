@@ -2599,11 +2599,14 @@ fn link_record(
 }
 
 fn owning_heading_index(headings: &[ParsedHeading], byte_start: usize) -> Option<usize> {
-    headings
+    // Headings are in document order (non-decreasing byte_start), so every candidate
+    // lies before the partition point; walk back to the last one whose range contains it.
+    let upper = headings.partition_point(|heading| heading.byte_start <= byte_start);
+    headings[..upper]
         .iter()
         .enumerate()
         .rev()
-        .find(|(_, heading)| heading.byte_start <= byte_start && byte_start < heading.byte_end)
+        .find(|(_, heading)| byte_start < heading.byte_end)
         .map(|(index, _)| index)
 }
 
