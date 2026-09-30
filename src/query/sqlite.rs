@@ -6616,6 +6616,117 @@ mod tests {
     }
 
     #[test]
+    fn every_validator_predicate_has_an_executed_query() {
+        let connection = seeded_connection();
+        connection
+            .execute_batch(
+                "UPDATE headings SET todo_keyword = 'DONE', todo_type = 'closed' WHERE id = 12;
+                 UPDATE headings SET deadline_raw = '<2026-01-05 Mon>', deadline_ts = 1767571200 WHERE id = 11;",
+            )
+            .expect("fixture update should apply");
+        let cases: &[(&str, &str)] = &[
+            ("todo", r#"(headings (todo))"#),
+            ("done", r#"(headings (done))"#),
+            ("title", r#"(headings (title "Query Engine"))"#),
+            ("has-text", r#"(headings (has-text "query"))"#),
+            ("level", r#"(headings (level 1))"#),
+            ("priority", r#"(headings (priority "A"))"#),
+            ("tags", r#"(headings (tags "query"))"#),
+            ("property", r#"(headings (property "ID"))"#),
+            ("keyword", r#"(headings (keyword "AUTHOR" "Alice"))"#),
+            ("file-name", r#"(files (file-name "query-alpha.org"))"#),
+            ("file-path", r#"(files (file-path "/tmp/query-alpha.org"))"#),
+            ("file-dir", r#"(files (file-dir "/tmp"))"#),
+            ("file-title", r#"(files (file-title "Alpha"))"#),
+            (
+                "file-modified",
+                r#"(files (file-modified :from "2000-01-01"))"#,
+            ),
+            (
+                "outline-contains",
+                r#"(headings (outline-contains "Query"))"#,
+            ),
+            (
+                "outline-sequence",
+                r#"(headings (outline-sequence "Query"))"#,
+            ),
+            ("ts", r#"(headings (ts :on "2026-01-03"))"#),
+            ("ts-active", r#"(headings (ts-active :on "2026-01-03"))"#),
+            ("ts-inactive", r#"(headings (ts-inactive))"#),
+            ("deadline", r#"(headings (deadline :on "2026-01-05"))"#),
+            ("scheduled", r#"(headings (scheduled :on "2026-01-03"))"#),
+            ("closed", r#"(headings (closed))"#),
+            ("planning", r#"(headings (planning))"#),
+            ("parent", r#"(headings (parent (headings (level 0))))"#),
+            (
+                "ancestors",
+                r#"(headings (ancestors (headings (level 0))))"#,
+            ),
+            ("children", r#"(headings (children (headings (level 1))))"#),
+            (
+                "descendants",
+                r#"(headings (descendants (headings (level 1))))"#,
+            ),
+            (
+                "has-link",
+                r#"(headings (has-link (links (status "resolved"))))"#,
+            ),
+            ("links-to", r#"(headings (links-to (headings (level 1))))"#),
+            ("linked-from", r#"(headings (linked-from :any))"#),
+            ("link-type", r#"(links (link-type "file"))"#),
+            (
+                "link-target",
+                r#"(links (link-target "file:beta.org" :exact t))"#,
+            ),
+            (
+                "link-description",
+                r#"(links (link-description "Beta heading" :exact t))"#,
+            ),
+            ("has-description", r#"(links (has-description))"#),
+            ("status", r#"(links (status "resolved"))"#),
+            ("source", r#"(links (source :any))"#),
+            ("target", r#"(links (target :any))"#),
+        ];
+
+        // The validator's predicate list is the source of truth.
+        let source = include_str!("validate.rs");
+        let start = source
+            .find("fn predicate_is_known_globally")
+            .expect("validator predicate list should exist");
+        let body = &source[start..];
+        let body = &body[..body.find("\n}\n").expect("function should end")];
+        let mut names: Vec<&str> = body.split('"').skip(1).step_by(2).collect();
+        names.sort_unstable();
+        let mut covered: Vec<&str> = cases.iter().map(|(name, _)| *name).collect();
+        covered.sort_unstable();
+        assert_eq!(
+            covered, names,
+            "every validator predicate needs an executed query"
+        );
+
+        for (name, query) in cases {
+            execute_sqlite_query(&connection, &validated(query))
+                .unwrap_or_else(|error| panic!("{name} query {query} should execute: {error}"));
+        }
+
+        let ids = |query: &str| {
+            heading_ids(execute_sqlite_query(&connection, &validated(query)).expect("query runs"))
+        };
+        assert_eq!(ids("(headings (done))"), vec![12]);
+        assert_eq!(ids("(headings (and (not (done)) (todo)))"), vec![11, 14]);
+        assert_eq!(ids(r#"(headings (deadline :on "2026-01-05"))"#), vec![11]);
+        assert!(ids(r#"(headings (deadline :on "2026-01-06"))"#).is_empty());
+        let links = |query: &str| {
+            link_ids(execute_sqlite_query(&connection, &validated(query)).expect("query runs"))
+        };
+        assert_eq!(
+            links(r#"(links (link-description "Beta heading" :exact t))"#),
+            vec![101]
+        );
+        assert!(links(r#"(links (link-description "No such text" :exact t))"#).is_empty());
+    }
+
+    #[test]
     fn execution_matches_persisted_scheduled_and_ts_active_predicates() {
         let connection = seeded_connection();
 
