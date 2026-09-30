@@ -2083,6 +2083,53 @@ fn orgize_adapter_falls_back_to_file_stem_for_synthetic_level_zero_heading() {
     assert!(json["title_raw"].is_null());
 }
 
+fn parse_planning_fixture(content: &str) -> org_files_db::parser::model::ParsedOrgDocument {
+    OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/planning-fallback.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("planning fallback fixture should parse")
+}
+
+#[test]
+fn planning_fallback_ignores_link_as_timestamp_candidate() {
+    let document = parse_planning_fixture("* H\nSCHEDULED: see [[file:a/b.org]]\n");
+    let planning = &document.headings[1].planning;
+    assert!(planning.scheduled_raw().is_none());
+    assert!(planning.scheduled_ts().is_none());
+}
+
+#[test]
+fn planning_fallback_keeps_time_range_with_repeater_deadline() {
+    let document = parse_planning_fixture("* H\nSCHEDULED: <2024-01-01 Mon 10:00-11:00 +1w/2d>\n");
+    let scheduled = document.headings[1]
+        .planning
+        .scheduled
+        .as_ref()
+        .expect("scheduled should be recorded");
+    assert_eq!(scheduled.start_ts, Some(1_704_103_200));
+    assert_eq!(scheduled.end_ts, Some(1_704_106_800));
+    assert_eq!(scheduled.range_type, ParsedTimestampRangeType::TimeRange);
+    assert_eq!(scheduled.has_time, Some(true));
+    assert_eq!(scheduled.modifiers[0].value, 1);
+    assert_eq!(scheduled.modifiers[0].repeater_deadline_value, Some(2));
+}
+
+#[test]
+fn planning_fallback_keeps_single_time_with_repeater_deadline() {
+    let document = parse_planning_fixture("* H\nSCHEDULED: <2024-01-01 Mon 10:00 +1w/2d>\n");
+    let scheduled = document.headings[1]
+        .planning
+        .scheduled
+        .as_ref()
+        .expect("scheduled should be recorded");
+    assert_eq!(scheduled.start_ts, Some(1_704_103_200));
+    assert!(scheduled.end_ts.is_none());
+    assert_eq!(scheduled.modifiers[0].repeater_deadline_value, Some(2));
+}
+
 fn parse_single_heading_for_tags(line: &str) -> (String, Vec<String>) {
     let content = format!("{line}\nBody.\n");
     let document = OrgizeAdapter::new()
