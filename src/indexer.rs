@@ -524,8 +524,18 @@ where
                 .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
         }
         // Revalidate every current source before a write transaction. This also
-        // rejects plans whose prepared evidence is no longer current.
-        for file in plan.unchanged.iter().chain(plan.metadata_only.iter()) {
+        // rejects plans whose prepared evidence is no longer current. Unchanged
+        // files were accepted by the planner on modification time and size, so
+        // they are revalidated on the same metadata without reading content.
+        // Files whose content evidence drives a mutation keep the full hash check.
+        for file in &plan.unchanged {
+            if !metadata_matches_record(&file.path, &file.file_record)? {
+                return Ok(ChangeApplicationResult::Rejected(
+                    ChangeApplicationRejection::Stale,
+                ));
+            }
+        }
+        for file in &plan.metadata_only {
             if !snapshot_matches_record(&file.path, &file.file_record)? {
                 return Ok(ChangeApplicationResult::Rejected(
                     ChangeApplicationRejection::Stale,
@@ -10853,6 +10863,49 @@ index_body_text = false
         };
         assert_eq!(report.unchanged, 1);
         assert_eq!(indexed_titles(&connection), vec!["Stable"]);
+    }
+
+    #[test]
+    fn scoped_apply_revalidates_unchanged_files_by_metadata_without_reading_content() {
+        let test_dir = TestDir::new("apply-unchanged-metadata-only");
+        let root = test_dir.path().join("notes");
+        let stable = root.join("stable.org");
+        let edited = root.join("edited.org");
+        write_file(&stable, "* Alpha\n");
+        write_file(&edited, "* Before\n");
+        let config = recursive_root_config(&test_dir, vec![root]);
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+
+        // Same size and modification time, different bytes: only a content read
+        // could notice this change.
+        let mtime = fs::metadata(&stable).unwrap().modified().unwrap();
+        fs::write(&stable, "* Omega\n").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&stable)
+            .unwrap()
+            .set_modified(mtime)
+            .unwrap();
+        write_file(&edited, "* After edit\n");
+
+        let candidate = fs::canonicalize(&edited).unwrap();
+        let result = indexer
+            .reconcile_candidate_paths(&mut connection, &config, [candidate])
+            .expect("scoped reconciliation should run");
+        let ChangeApplicationResult::Applied(report) = result else {
+            panic!("scoped reconciliation should apply without reading unchanged files");
+        };
+        assert_eq!(report.unchanged, 1);
+        assert_eq!(report.modified, 1);
+        assert_eq!(indexed_titles(&connection), vec!["After edit", "Alpha"]);
     }
 
     #[test]
