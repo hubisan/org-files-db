@@ -4,6 +4,7 @@ This file records completed changes.
 
 * Unreleased
 
+- =FIXED= Planning fallback parsing no longer treats links like ~[[file:a/b.org]]~ as timestamps and keeps time ranges such as ~10:00-11:00~ when a repeater deadline like ~+1w/2d~ is present. Rebuild existing databases to refresh affected planning data.
 - =FIXED= ~file+sys:~ and ~file+emacs:~ links now resolve like ~file:~ links instead of always being ~unsupported~. Rebuild existing databases to refresh affected links.
 
 - =FIXED= Config loading now rejects invalid ~todo.default_open_keywords~ and ~todo.default_closed_keywords~ entries (empty, whitespace, malformed shortcuts, duplicates across both lists) instead of storing them or silently dropping closed keywords.

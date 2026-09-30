@@ -852,10 +852,27 @@ fn extract_first_raw_timestamp(text: &str) -> Option<(usize, String)> {
             '[' => ']',
             _ => continue,
         };
-        let end = text[index..].find(closing)? + index + closing.len_utf8();
+        let rest = &text[index + 1..];
+        if !starts_with_iso_date(rest) {
+            continue;
+        }
+        let line_end = rest.find('\n').unwrap_or(rest.len());
+        let Some(close) = rest[..line_end].find(closing) else {
+            continue;
+        };
+        let end = index + 1 + close + closing.len_utf8();
         return Some((index, text[index..end].to_string()));
     }
     None
+}
+
+fn starts_with_iso_date(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.len() >= 10
+        && bytes[..10].iter().enumerate().all(|(i, b)| match i {
+            4 | 7 => *b == b'-',
+            _ => b.is_ascii_digit(),
+        })
 }
 
 fn timestamp_type_from_raw(raw_value: &str) -> Option<ParsedTimestampType> {
@@ -892,30 +909,31 @@ fn normalize_raw_timestamp_bounds(
         return (None, None, ParsedTimestampRangeType::Unknown);
     };
 
-    let mut start_hour = None;
-    let mut start_minute = None;
+    let mut start_time = None;
+    let mut end_time = None;
     if let Some(token) = tokens.next() {
-        if let Some((hour, minute)) = parse_time_token(token) {
-            start_hour = Some(hour);
-            start_minute = Some(minute);
+        if let Some(range) = parse_time_range_token(token) {
+            (start_time, end_time) = range;
         } else if let Some(time_token) = tokens.next() {
-            if let Some((hour, minute)) = parse_time_token(time_token) {
-                start_hour = Some(hour);
-                start_minute = Some(minute);
+            if let Some(range) = parse_time_range_token(time_token) {
+                (start_time, end_time) = range;
             }
         }
     }
 
+    let (start_hour, start_minute) = start_time.unwrap_or((0, 0));
+    let end_ts = end_time
+        .and_then(|(hour, minute)| unix_seconds_from_utc_date_time(year, month, day, hour, minute));
+    let range_type = if end_ts.is_some() {
+        ParsedTimestampRangeType::TimeRange
+    } else {
+        ParsedTimestampRangeType::None
+    };
+
     (
-        unix_seconds_from_utc_date_time(
-            year,
-            month,
-            day,
-            start_hour.unwrap_or(0),
-            start_minute.unwrap_or(0),
-        ),
-        None,
-        ParsedTimestampRangeType::None,
+        unix_seconds_from_utc_date_time(year, month, day, start_hour, start_minute),
+        end_ts,
+        range_type,
     )
 }
 
@@ -928,6 +946,15 @@ fn parse_date_token(token: &str) -> Option<(i32, u32, u32)> {
         return None;
     }
     Some((year, month, day))
+}
+
+type TimeOfDay = (u32, u32);
+
+fn parse_time_range_token(token: &str) -> Option<(Option<TimeOfDay>, Option<TimeOfDay>)> {
+    match token.split_once('-') {
+        Some((start, end)) => Some((Some(parse_time_token(start)?), Some(parse_time_token(end)?))),
+        None => Some((Some(parse_time_token(token)?), None)),
+    }
 }
 
 fn parse_time_token(token: &str) -> Option<(u32, u32)> {
@@ -973,7 +1000,7 @@ fn raw_timestamp_has_explicit_time(raw_value: &str) -> Option<bool> {
     Some(
         inner
             .split_whitespace()
-            .any(|token| parse_time_token(token).is_some()),
+            .any(|token| parse_time_range_token(token).is_some()),
     )
 }
 

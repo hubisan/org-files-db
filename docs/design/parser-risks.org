@@ -81,6 +81,8 @@ The adapter reads Orgize timestamp nodes for normal planning and body timestamps
 
 It also contains local planning fallbacks for source forms that need project-specific recovery. Repeater and warning modifiers have dedicated raw-text handling.
 
+The planning fallback only accepts a candidate that starts with ~<~ or ~[~ immediately followed by an ISO date and has a closing bracket on the same line, so links such as ~[[file:a/b.org]]~ are never read as timestamps. The fallback also parses ~HH:MM-HH:MM~ time ranges and stores the range end.
+
 Do not remove these fallbacks only because common timestamp fixtures pass. Keep the targeted regression cases first.
 
 * Timezone limitation
