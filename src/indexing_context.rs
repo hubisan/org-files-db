@@ -4,10 +4,6 @@
 //! facts, the source universe, or derived search state. Query presentation
 //! settings, such as the query timezone, are intentionally absent.
 
-// The comparison API is intentionally prepared before the next change-planning
-// task consumes it. Full rebuild does not use it as a recovery prerequisite.
-#![allow(dead_code)]
-
 use std::{os::unix::ffi::OsStrExt, path::Path};
 
 use rusqlite::{types::ValueRef, Connection, OptionalExtension};
