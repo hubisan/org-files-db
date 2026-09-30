@@ -1,7 +1,7 @@
 #+TITLE: Project Context
 #+STARTUP: showall
 
-This file contains stable project context, goals, architecture decisions, and non-goals. Active tasks live in [[./todo.org]]. Later phases and backlog live in [[./roadmap.org]].
+This file contains stable project context, goals, architecture decisions, and non-goals. Active work lives in GitHub issues. Later phases and backlog are GitHub issues too. The Emacs integration lives in the separate repository [[https://github.com/hubisan/org-files-db.el][org-files-db.el]]; this project provides the CLI, JSON API, indexing and database behavior it needs.
 
 * Project goal
 
