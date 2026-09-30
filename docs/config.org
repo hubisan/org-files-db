@@ -167,7 +167,7 @@ Directory discovery includes regular files whose extension is ASCII case-insensi
 
 Hidden files and directories use the same discovery rules as other entries. A recursive root can descend into hidden directories.
 
-File symlinks and directory symlinks are followed. Cycle detection prevents recursive loops inside each configured root.
+File symlinks and directory symlinks are followed. Cycle detection prevents recursive loops inside each configured root. Dangling symlinks, such as Emacs lock files like ~.#notes.org~, are skipped.
 
 Configured aliases and overlapping roots can find the same physical file. Canonical file identity deduplicates these matches before indexing.
 

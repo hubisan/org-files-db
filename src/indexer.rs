@@ -1688,12 +1688,17 @@ impl DirectoryCollector<'_> {
             })?;
 
             let followed_metadata = if file_type.is_symlink() {
-                Some(
-                    fs::metadata(&path).map_err(|source| IndexerError::Discover {
-                        path: path.clone(),
-                        source,
-                    })?,
-                )
+                match fs::metadata(&path) {
+                    Ok(metadata) => Some(metadata),
+                    // Dangling symlinks (e.g. Emacs lock files) are treated as absent.
+                    Err(source) if source.kind() == io::ErrorKind::NotFound => continue,
+                    Err(source) => {
+                        return Err(IndexerError::Discover {
+                            path: path.clone(),
+                            source,
+                        });
+                    }
+                }
             } else {
                 None
             };
@@ -5276,6 +5281,58 @@ recursive = true
             expected
         );
         assert_ne!(discovery.files[0].identity, discovery.files[1].identity);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discovery_skips_dangling_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let test_dir = TestDir::new("dangling-symlinks");
+        let root = test_dir.path().join("root");
+        let real = root.join("a.org");
+        write_file(&real, "* A\n");
+        symlink("user@host.1234:1", root.join(".#a.org")).expect("lock link should be created");
+        symlink("missing", root.join("dead.txt")).expect("dead link should be created");
+        symlink("missing.org", root.join("dead.org")).expect("dead org link should be created");
+        let config_path = test_dir.path().join("config.toml");
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+[[dirs]]
+path = "root"
+recursive = true
+"#,
+        );
+        let config = Config::load_from_file(&config_path).expect("config should load");
+
+        let discovery = discover_org_files(&config).expect("dangling links should be skipped");
+        assert_eq!(discovery.files.len(), 1);
+        assert_eq!(discovery.files[0].path, fs::canonicalize(&real).unwrap());
+
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &config)
+            .expect("rebuild should succeed");
+        let count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+
+        symlink("user@host.1234:2", root.join(".#b.org")).expect("new lock link should be created");
+        let result = Indexer::new(OrgizeAdapter::new())
+            .plan_changes(&connection, &config)
+            .expect("planning should skip dangling links");
+        let ChangePlanningResult::Ready(plan) = result else {
+            panic!("plan should be actionable");
+        };
+        assert_eq!(plan.unchanged.len(), 1);
+        assert!(plan.created.is_empty());
     }
 
     #[cfg(unix)]
