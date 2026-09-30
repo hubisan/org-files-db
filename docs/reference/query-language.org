@@ -720,7 +720,7 @@ A null stored status means no resolver pass populated the row. ~status~ matches 
 
 ~ambiguous~ means several candidate targets prevent a unique result.
 
-~unsupported~ means the resolver does not support that link or target form.
+~unsupported~ means the resolver does not support that link or target form. The resolver handles ~file:~ links (including ~file+sys:~ and ~file+emacs:~, which only change how Org opens the target), ~id:~ links, and same-file ~#custom-id~ and fuzzy links; other link types are ~unsupported~.
 
 ** ~source~
 
