@@ -386,7 +386,8 @@ impl LinkResolver {
         known_files: &KnownFiles,
         index: &ResolutionIndex,
     ) -> Result<(), DbWriteError> {
-        if link.link_type == "file" {
+        // `file+sys` and `file+emacs` only change how Org opens the target.
+        if matches!(link.link_type.as_str(), "file" | "file+sys" | "file+emacs") {
             return Self::resolve_file_link(connection, link, indexed_universe, known_files, index);
         }
         if link.link_type == "custom-id" {
@@ -2098,6 +2099,44 @@ mod tests {
                 None,
             )
         );
+    }
+
+    #[test]
+    fn resolve_all_treats_file_sys_and_file_emacs_links_as_file_links() {
+        for link_type in ["file+sys", "file+emacs"] {
+            for (target, expected) in [
+                ("target.org", (Some(2_i64), Some("resolved".to_string()))),
+                ("missing.org", (None, Some("broken".to_string()))),
+            ] {
+                let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+                let connection =
+                    open_in_memory_database_with_schema(&schema).expect("database should open");
+                seed_file_link_fixture(
+                    &connection,
+                    "/tmp/source.org",
+                    &format!("[[{link_type}:{target}]]"),
+                    link_type,
+                    target,
+                    None,
+                );
+                seed_known_target_file(&connection, "/tmp/target.org", 2);
+
+                let mut universe = IndexedUniverse::default();
+                universe.add_recursive_root(PathBuf::from("/tmp"));
+
+                LinkResolver::resolve_all(&connection, &universe)
+                    .expect("resolution should succeed");
+
+                let row: (Option<i64>, Option<String>) = connection
+                    .query_row(
+                        "SELECT target_file_id, resolution_status FROM links WHERE id = 1",
+                        [],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .expect("link row should load");
+                assert_eq!(row, expected, "{link_type}:{target}");
+            }
+        }
     }
 
     #[test]
