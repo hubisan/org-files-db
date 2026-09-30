@@ -30,6 +30,7 @@ Current categories:
 - ~body/section-ownership~ - body text belongs to the owning heading and excludes child subtrees
 - ~body/structured-metadata-exclusion~ - body excludes planning, drawers and keywords but keeps prose, including before the first heading
 - ~file-scope/file-keywords-and-preamble~ - TITLE, FILETAGS, CATEGORY and preamble text on the synthetic level-0 node
+- ~file-scope/affiliated-and-dynamic-keywords~ - affiliated keywords, dynamic blocks, unclosed begin lines and block names in any case decide which lines are document keywords
 - ~file-scope/multiple-title-keywords~ - several TITLE keywords are combined in file order
 - ~file-scope/raw-generic-keywords~ - generic keywords, also late ones, land on the file node
 - ~headings/basic-heading~ - simplest headline extraction
@@ -39,10 +40,12 @@ Current categories:
 - ~links/orgize-compatibility~ - titles with bracket links and timestamps that Orgize fragments
 - ~links/plain-and-bracket-links~ - plain, bracket and custom-id links plus a ~CUSTOM_ID~ target
 - ~planning/one-line-planning~ - all three planning keywords on one line
+- ~planning/planning-entries-anywhere-in-the-line~ - keywords after other text, ~--~ ranges, and a timestamp that does not follow its keyword
 - ~priorities/todo-priority-tags~ - default TODO/DONE keywords, priority and tags with nesting
 - ~properties/buffer-level-drawer~ - property drawer before the first heading
 - ~properties/drawer-after-planning~ - property drawer directly after a planning line
 - ~properties/duplicate-and-append~ - duplicate keys and ~+~ append semantics
+- ~properties/planning-garbage-and-generic-drawers~ - a garbage planning line keeps the drawer, a drawer with a non-property row has no properties, a key is the token up to its last colon
 - ~properties/file-level-keywords~ - ~#+PROPERTY~ and ~#+CATEGORY~ keywords
 - ~properties/heading-drawer-multiple-properties~ - several properties in a heading drawer
 - ~properties/late-file-keywords~ - file-level keywords after headings normalize onto the file node

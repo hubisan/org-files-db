@@ -51,9 +51,11 @@ Read [[./config.org][Configuration Reference]] and [[./design/incremental-indexi
 
 * Parser layer
 
-~src/parser/~ defines the parser-facing data model and diagnostics. ~OrgizeAdapter~ is the current parser implementation.
+~src/parser/~ defines the parser-facing data model and diagnostics. ~OrgizeAdapter~ (kept under its name for the public API) is the parser implementation.
 
-~OrgizeAdapter~ rejects files with a heading deeper than 100 levels with a parse error (naming level and line) because Orgize's recursive tree building would otherwise overflow the stack.
+Since #103 the adapter builds every structural fact from the own line scanner: ~src/parser/line_lexer.rs~ classifies lines and ~src/parser/structure_scanner.rs~ builds the heading tree, section ranges, planning lines, property drawers, keywords, blocks, drawers and comment runs. Titles, tags, TODO keywords and priorities come from the raw headline line (~src/parser/title.rs~), planning entries from the raw planning line (~src/parser/timestamp_raw.rs~). The scanner is iterative, so nesting depth never grows the call stack. Read [[./design/line-scanner.org][Line Scanner]] for the rules and the stage plan.
+
+The adapter rejects files with a heading deeper than 100 levels (~MAX_HEADING_LEVEL~) with a parse error naming level and line. Only ~^\*+ ~ lines count as headlines; the limit is a product rule, not a stack guard.
 
 The parser produces source facts. The indexer converts those facts into the persistent database model.
 
@@ -63,9 +65,9 @@ Read [[./design/parser-risks.org][Parser Risks]] for known parser differences.
 
 ** Why Orgize is behind an adapter
 
-Orgize is the first parser backend, but the project does not treat it as a permanently safe or single source of parsing truth. It is a ~0.10.0-alpha~ release and has had no upstream release since June 2024. ~src/parser/orgize_adapter.rs~ contains many local workarounds for its gaps.
+Orgize was the first parser backend, but the project does not treat it as a permanently safe or single source of parsing truth. It is a ~0.10.0-alpha~ release and has had no upstream release since June 2024. It is being replaced in stages (#41). After stage 2 (#103) it only reads inline details: timestamp nodes and inline code ranges, title markup normalization and link description rendering. Orgize never sees document structure: it gets a copy of the source in which the scanner's structure is blanked out.
 
-Only ~src/parser/orgize_adapter.rs~ and ~src/todo_keywords.rs~ import Orgize. Orgize and rowan types must not appear in the database, query, indexer, or CLI layers, so the backend can be patched or replaced without touching them. The parser-facing model in ~src/parser/~ is the stable boundary. GitHub issue #41 tracks the long-term Orgize strategy.
+Only ~src/parser/orgize_inline.rs~ imports Orgize and rowan. Their types must not appear anywhere else, so stage 3 can replace these inline details and remove the dependency without touching other code. The parser-facing model in ~src/parser/~ is the stable boundary.
 
 ** Parser facts and derived semantics
 

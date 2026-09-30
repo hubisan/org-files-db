@@ -1,19 +1,23 @@
-//! Stage B of the Orgize replacement (#101): the structure automaton.
+//! Stage B of the Orgize replacement (#101, #103): the structure automaton.
 //!
 //! Turns the per-line classes of `line_lexer` into the heading tree, per-section
 //! planning and property drawers, block and drawer regions, keyword lines, and
-//! comment and fixed-width runs. It runs next to Orgize and is checked against the
-//! adapter by the differential test in `structure_differential_tests`.
+//! comment and fixed-width runs. The parse entry (`orgize_adapter`) builds every
+//! structural fact from this output; Orgize only reads inline details.
 //! States and transitions: `docs/design/line-scanner.org`.
 
 use std::{collections::HashSet, ops::Range};
 
 use super::line_lexer::{classify_line, lines, Line, LineClass};
-use super::model::{ParsedProperty, ParsedPropertySource};
-use super::orgize_adapter::MAX_HEADING_LEVEL;
+use super::model::{ParsedKeyword, ParsedProperty, ParsedPropertySource};
 use super::properties::parsed_property_from_raw_line;
 
-/// Heading deeper than `MAX_HEADING_LEVEL`, same rule as the adapter.
+/// Deepest heading level accepted. A product rule (#44) that started as a stack guard
+/// for Orgize's recursive tree; the scanner itself never recurses. It counts every
+/// `^\*+ ` line, because Org reads such a line as a headline wherever it stands.
+pub const MAX_HEADING_LEVEL: usize = 100;
+
+/// Heading deeper than `MAX_HEADING_LEVEL`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DepthError {
     pub level: usize,
@@ -26,8 +30,12 @@ pub struct Structure {
     pub headings: Vec<HeadingNode>,
     /// Property drawer of the file-level section.
     pub file_properties: Option<PropertyDrawerNode>,
-    /// Keyword lines outside raw blocks, in document order.
+    /// Keyword lines outside raw blocks, in document order. Affiliated keywords are not
+    /// keyword elements in Org and are listed in `affiliated` instead.
     pub keywords: Vec<KeywordLine>,
+    /// Affiliated keyword lines (`#+NAME:`, `#+CAPTION:`, ...) that belong to the next
+    /// element, in document order.
+    pub affiliated: Vec<KeywordLine>,
     /// Blocks, drawers, comment and fixed-width runs, ordered by start offset.
     pub regions: Vec<Region>,
 }
@@ -52,6 +60,8 @@ pub struct HeadingNode {
 pub struct PlanningLine {
     /// The planning line, without its line terminator.
     pub range: Range<usize>,
+    /// First byte after the line terminator.
+    pub next: usize,
     pub line_number: u32,
 }
 
@@ -68,6 +78,10 @@ pub struct KeywordLine {
     pub key: Range<usize>,
     pub value: Range<usize>,
     pub line: Range<usize>,
+    /// First byte after the line terminator.
+    pub next: usize,
+    /// Not inside a block or drawer.
+    pub top_level: bool,
     pub line_number: u32,
 }
 
@@ -77,6 +91,8 @@ pub enum RegionKind {
     Block,
     /// `:NAME:` to `:END:`, not the property drawer.
     Drawer,
+    /// `#+BEGIN: NAME` to `#+END:`; the content is parsed like a drawer's.
+    DynamicBlock,
     /// Consecutive `# ` comment lines.
     Comment,
     /// Consecutive `: ` fixed-width lines.
@@ -131,6 +147,8 @@ struct Scan<'a> {
     /// `(name, limit)` pairs already known to have no end before `limit`, so that a run of
     /// unclosed begins is not searched again for each one.
     unclosed: HashSet<(String, usize)>,
+    /// Affiliated keyword lines before this index end in no element.
+    dangling_until: usize,
 }
 
 pub fn scan_structure(content: &str) -> Result<Structure, DepthError> {
@@ -153,6 +171,7 @@ pub fn scan_structure(content: &str) -> Result<Structure, DepthError> {
         lines,
         next_headline,
         unclosed: HashSet::new(),
+        dangling_until: 0,
     };
     scan.run()
 }
@@ -172,6 +191,7 @@ impl Scan<'_> {
             headings: Vec::new(),
             file_properties: None,
             keywords: Vec::new(),
+            affiliated: Vec::new(),
             regions: Vec::new(),
         };
         // Open headings as indexes into `out.headings`, innermost last.
@@ -232,6 +252,7 @@ impl Scan<'_> {
                     if let Some(heading) = current {
                         out.headings[heading].planning = Some(PlanningLine {
                             range: line.start..line.end,
+                            next: line.next,
                             line_number,
                         });
                     }
@@ -247,29 +268,26 @@ impl Scan<'_> {
                 {
                     position = Position::Body;
                     match self.find_drawer_end(index, limit) {
-                        Some(end) => {
+                        Some(end) if (index + 1..end).all(|i| is_property_line(self.text(i))) => {
                             let node = self.property_drawer(index, end);
                             match current {
                                 Some(heading) => out.headings[heading].properties = Some(node),
                                 None => out.file_properties = Some(node),
                             }
-                            let only_properties =
-                                (index + 1..end).all(|i| is_property_line(self.text(i)));
-                            if only_properties {
-                                index = end + 1;
-                            } else {
-                                // Org's property-drawer regexp needs every row to be a
-                                // property, else org-element reads a generic drawer and
-                                // parses its content. The rows stay readable (org-entry-get).
-                                out.regions.push(Region {
-                                    kind: RegionKind::Drawer,
-                                    name: self.name(index, name).to_string(),
-                                    range: line.start..self.lines[end].0.next,
-                                    content: line.next..self.lines[end].0.start,
-                                });
-                                frames.push(Frame { end_line: end });
-                                index += 1;
-                            }
+                            index = end + 1;
+                        }
+                        Some(end) => {
+                            // Org's property-drawer regexp needs every row to be a property.
+                            // Otherwise org-element reads a generic drawer and parses its
+                            // content, and org-get-property-block finds no properties.
+                            out.regions.push(Region {
+                                kind: RegionKind::Drawer,
+                                name: self.name(index, name).to_string(),
+                                range: line.start..self.lines[end].0.next,
+                                content: line.next..self.lines[end].0.start,
+                            });
+                            frames.push(Frame { end_line: end });
+                            index += 1;
                         }
                         None => index += 1,
                     }
@@ -282,6 +300,19 @@ impl Scan<'_> {
                         out.regions.push(Region {
                             kind: RegionKind::Drawer,
                             name: name[1..name.len() - 1].to_string(),
+                            range: element_start..self.lines[end].0.next,
+                            content: line.next..self.lines[end].0.start,
+                        });
+                        frames.push(Frame { end_line: end });
+                    }
+                    index += 1;
+                }
+                LineClass::DynBlockBegin { ref name } => {
+                    position = Position::Body;
+                    if let Some(end) = self.find_dyn_block_end(index, limit) {
+                        out.regions.push(Region {
+                            kind: RegionKind::DynamicBlock,
+                            name: self.name(index, name).to_string(),
                             range: element_start..self.lines[end].0.next,
                             content: line.next..self.lines[end].0.start,
                         });
@@ -312,20 +343,25 @@ impl Scan<'_> {
                 }
                 LineClass::Keyword { key, value } => {
                     position = Position::Body;
-                    let followed_by_element =
-                        index + 1 < limit && self.lines[index + 1].1 != LineClass::Empty;
-                    if followed_by_element && is_affiliated_key(&self.text(index)[key.clone()]) {
-                        // Org attaches it to the next element, it is not a keyword element.
-                        affiliated_start = Some(element_start);
-                        index += 1;
-                        continue;
-                    }
-                    out.keywords.push(KeywordLine {
+                    // Attached only when the chain of affiliated keywords ends in an element
+                    // (Emacs: `#+CAPTION:` and `#+NAME:` right before a headline are keywords).
+                    let affiliated_keyword = is_affiliated_key(&self.text(index)[key.clone()])
+                        && (affiliated.is_some() || self.chain_has_element(index, limit));
+                    let keyword = KeywordLine {
                         key: line.start + key.start..line.start + key.end,
                         value: line.start + value.start..line.start + value.end,
                         line: line.start..line.end,
+                        next: line.next,
+                        top_level: frames.is_empty(),
                         line_number,
-                    });
+                    };
+                    if affiliated_keyword {
+                        // Org attaches it to the next element, it is not a keyword element.
+                        out.affiliated.push(keyword);
+                        affiliated_start = Some(element_start);
+                    } else {
+                        out.keywords.push(keyword);
+                    }
                     index += 1;
                 }
                 // Emacs reads `#+NAME: x` followed by `# c` as one paragraph.
@@ -387,6 +423,39 @@ impl Scan<'_> {
         found
     }
 
+    /// True when the affiliated keyword lines from `first` on are followed by a non-empty line
+    /// before `limit`. A dangling chain is remembered, so a run of them stays linear.
+    fn chain_has_element(&mut self, first: usize, limit: usize) -> bool {
+        if first < self.dangling_until {
+            return false;
+        }
+        let mut next = first + 1;
+        while next < limit
+            && matches!(&self.lines[next].1, LineClass::Keyword { key, .. }
+                if is_affiliated_key(&self.text(next)[key.clone()]))
+        {
+            next += 1;
+        }
+        let found = next < limit && self.lines[next].1 != LineClass::Empty;
+        if !found {
+            self.dangling_until = next;
+        }
+        found
+    }
+
+    /// First `#+END:` or `#+END` line after `begin` and before `limit`.
+    fn find_dyn_block_end(&mut self, begin: usize, limit: usize) -> Option<usize> {
+        let key = ("\0dynamic".to_string(), limit);
+        if self.unclosed.contains(&key) {
+            return None;
+        }
+        let found = (begin + 1..limit).find(|&i| is_dyn_block_end(self.text(i)));
+        if found.is_none() {
+            self.unclosed.insert(key);
+        }
+        found
+    }
+
     /// First `#+end_NAME` line (name compared case-insensitively) after `begin` and
     /// before `limit`.
     fn find_block_end(&mut self, begin: usize, limit: usize, name: &str) -> Option<usize> {
@@ -421,6 +490,23 @@ impl Scan<'_> {
     }
 }
 
+/// Document keywords (`#+KEY: value`) of `structure`, in source order. The value is trimmed;
+/// an empty value is `None`.
+pub fn parsed_keywords(content: &str, structure: &Structure) -> Vec<ParsedKeyword> {
+    structure
+        .keywords
+        .iter()
+        .map(|keyword| {
+            let value = content[keyword.value.clone()].trim();
+            ParsedKeyword {
+                key: content[keyword.key.clone()].to_string(),
+                value: Some(value.to_string()).filter(|value| !value.is_empty()),
+                line_number: Some(keyword.line_number),
+            }
+        })
+        .collect()
+}
+
 /// Ends the section of the heading that was most recently pushed, if still open.
 fn close_section(headings: &mut [HeadingNode], end: usize) {
     if let Some(last) = headings.last_mut() {
@@ -428,6 +514,14 @@ fn close_section(headings: &mut [HeadingNode], end: usize) {
             last.section.end = end;
         }
     }
+}
+
+/// Org's dynamic block end (`org-dblock-end-re`): `#+END:` or `#+END`, any case, blanks around.
+fn is_dyn_block_end(line: &str) -> bool {
+    let line = line.trim_matches([' ', '\t']);
+    line.get(.."#+end".len())
+        .is_some_and(|head| head.eq_ignore_ascii_case("#+end"))
+        && matches!(&line["#+end".len()..], "" | ":")
 }
 
 /// Org's node-property line: `:KEY:` alone or followed by a blank and a value
@@ -497,6 +591,7 @@ mod tests {
             tokens.push(match region.kind {
                 RegionKind::Block => format!("block:{}@{}", region.name, region.range.start),
                 RegionKind::Drawer => format!("drawer:{}@{}", region.name, region.range.start),
+                RegionKind::DynamicBlock => format!("dyn:{}@{}", region.name, region.range.start),
                 RegionKind::Comment => "comment".to_string(),
                 RegionKind::FixedWidth => "fixed".to_string(),
             });
@@ -554,11 +649,73 @@ mod tests {
             ),
             ("* H\n#+NAME: x\n\n#+K: v\n", "H1@1 K:NAME K:K"),
             ("# a\n# b\n: c\n: d\n", "comment fixed"),
-            // Property drawer with a non-property row is also a generic drawer.
+            // Property drawer with a non-property row is a generic drawer without properties.
             (
                 "* H\n:PROPERTIES:\n# c\n:ID: x\n:END:\n",
-                "H1@1D[ID] drawer:PROPERTIES@4 comment",
+                "H1@1 drawer:PROPERTIES@4 comment",
             ),
+            (
+                "* H\n:PROPERTIES:\n:a b: c\n:END:\n",
+                "H1@1 drawer:PROPERTIES@4",
+            ),
+            (
+                "* H\n:PROPERTIES:\n:ID:x\n:END:\n",
+                "H1@1 drawer:PROPERTIES@4",
+            ),
+            ("* H\n:PROPERTIES:\n::\n:END:\n", "H1@1 drawer:PROPERTIES@4"),
+            ("* H\n:PROPERTIES:\n:::  v\n:END:\n", "H1@1D[:]"),
+            // An empty or garbage planning line is an empty planning element (Emacs:
+            // planning L2-2, property-drawer L3-5), so the drawer after it still counts.
+            (
+                "* H\nSCHEDULED: garbage\n:PROPERTIES:\n:ID: x\n:END:\n",
+                "H1@1PD[ID]",
+            ),
+            ("* H\nCLOSED:\n:PROPERTIES:\n:ID: x\n:END:\n", "H1@1PD[ID]"),
+            // A block ends at the first matching end line, names compare without case
+            // (Emacs: src-block L2-5 with a non-matching `#+end_example` inside; src-block
+            // L2-3 for `#+begin_SRC` ... `#+End_src`).
+            (
+                "* H\n#+begin_src a\n#+K: hidden\n#+end_example\n#+END_SRC\n#+K2: v\n",
+                "H1@1 K:K2 block:src@4",
+            ),
+            (
+                "* H\n#+begin_SRC\n#+End_src\n#+BEGIN_Quote\nq\n#+end_QUOTE\n",
+                "H1@1 block:SRC@4 block:Quote@26",
+            ),
+            // Drawer names may hold hyphens and non-ASCII letters (Emacs: drawer
+            // name=my-drawer, name=äö).
+            (
+                "* H\n:my-drawer:\nx\n:END:\n:äö:\ny\n:END:\n",
+                "H1@1 drawer:my-drawer@4 drawer:äö@24",
+            ),
+            // A drawer after an affiliated keyword starts at the keyword (Emacs: drawer
+            // L2-5 for `#+NAME: d` + `:LOG:` ... `:END:`).
+            ("* H\n#+NAME: d\n:LOG:\nx\n:END:\n", "H1@1 drawer:LOG@4"),
+            // Affiliated keywords are no keyword elements; dangling ones are.
+            ("#+NAME: n\n#+TITLE: t\n", "K:TITLE"),
+            ("#+NAME: n\n#+END_SRC\n", ""),
+            ("#+NAME: n\n#+begin_src\nx\n", ""),
+            ("#+NAME: n\n# c\n# d\n", "comment"),
+            // A chain that ends in no element (headline, end of file, blank line) is keywords.
+            ("#+CAPTION: c\n#+NAME: n\n* H\n", "H1@3 K:CAPTION K:NAME"),
+            (
+                "#+CAPTION: c\n#+NAME: n\n\n#+K: v\n",
+                "K:CAPTION K:NAME K:K",
+            ),
+            ("#+CAPTION: c\n#+NAME: n\ntext\n", ""),
+            // Dynamic blocks (Emacs: dynamic-block, no BEGIN or END keyword).
+            (
+                "* H\n#+BEGIN: clocktable :scope file\n#+K: v\n#+END:\n",
+                "H1@1 K:K dyn:clocktable@4",
+            ),
+            ("#+begin:x\n#+K: v\n  #+end\n", "K:K dyn:x@0"),
+            ("#+BEGIN: x\n#+K: v\n", "K:K"),
+            ("#+BEGIN: x\n* H\n#+END:\n", "H1@2 K:END"),
+            ("#+END:\n", "K:END"),
+            ("#+BEGIN: x\n#+BEGIN: y\n#+END:\n#+END:\n", "K:END dyn:x@0"),
+            ("#+BEGIN:\n#+END:\n", "K:BEGIN K:END"),
+            // An empty quote block is a block (Emacs: quote-block L1-2).
+            ("#+begin_quote\n#+end_quote\n", "block:quote@0"),
         ];
         for (content, expected) in table {
             assert_eq!(summary(content), *expected, "input {content:?}");

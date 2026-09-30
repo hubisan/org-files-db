@@ -4,6 +4,7 @@ pub mod line_lexer;
 pub mod link_scanner;
 pub mod model;
 pub mod orgize_adapter;
+pub(crate) mod orgize_inline;
 pub(crate) mod properties;
 pub mod structure_scanner;
 pub(crate) mod timestamp_raw;
@@ -24,4 +25,4 @@ pub use model::{
 pub use orgize_adapter::OrgizeAdapter;
 
 #[cfg(test)]
-mod structure_differential_tests;
+mod corpus_tests;

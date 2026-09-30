@@ -68,6 +68,11 @@ pub enum LineClass {
     BlockEnd {
         name: Range<usize>,
     },
+    /// `#+BEGIN: name` with optional arguments, the start of a dynamic block. Without a name
+    /// it is a keyword line. The end is `#+END:` or `#+END`, checked by the scanner.
+    DynBlockBegin {
+        name: Range<usize>,
+    },
     /// `#+KEY:` with optional value. `BEGIN_x` and `END_x` lines are block lines first.
     Keyword {
         key: Range<usize>,
@@ -182,6 +187,23 @@ fn classify_hash_plus(rest: &str, indent: usize) -> LineClass {
         }
         return LineClass::Text;
     }
+    if body
+        .get(.."begin:".len())
+        .is_some_and(|head| head.eq_ignore_ascii_case("begin:"))
+    {
+        let after = &body["begin:".len()..];
+        let blanks = after.bytes().take_while(|byte| is_blank(*byte)).count();
+        let name_len = after[blanks..]
+            .bytes()
+            .take_while(|byte| !byte.is_ascii_whitespace())
+            .count();
+        if name_len > 0 {
+            let start = base + "begin:".len() + blanks;
+            return LineClass::DynBlockBegin {
+                name: start..start + name_len,
+            };
+        }
+    }
     // `#+KEY:` with a key of at least one non-blank character.
     let key_len = body
         .bytes()
@@ -214,6 +236,7 @@ mod tests {
             LineClass::Drawer { name } => format!("drawer {}", text(name)),
             LineClass::BlockBegin { name } => format!("begin {}", text(name)),
             LineClass::BlockEnd { name } => format!("end {}", text(name)),
+            LineClass::DynBlockBegin { name } => format!("dynamic {}", text(name)),
             LineClass::Keyword { key, value } => format!("keyword {}={}", text(key), text(value)),
             other => format!("{other:?}").to_lowercase(),
         }
@@ -265,7 +288,12 @@ mod tests {
             ("#+a b: c", "text"),
             ("#+: x", "text"),
             ("#+key", "text"),
-            ("#+BEGIN: clocktable", "keyword BEGIN=clocktable"),
+            ("#+BEGIN: clocktable", "dynamic clocktable"),
+            ("#+begin:x :a b", "dynamic x"),
+            ("  #+BEGIN:\t clocktable", "dynamic clocktable"),
+            ("#+BEGIN:", "keyword BEGIN="),
+            ("#+BEGIN:  ", "keyword BEGIN="),
+            ("#+END:", "keyword END="),
             ("text", "text"),
             ("ä: ü", "text"),
         ];

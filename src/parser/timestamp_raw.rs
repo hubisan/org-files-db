@@ -1,78 +1,41 @@
 //! Orgize-free parsing of raw timestamp and planning-line text.
 
-use std::{collections::HashSet, ops::Range};
-
 use super::line_index::LineIndex;
 use super::model::{
-    ParsedHeading, ParsedTimestamp, ParsedTimestampModifier, ParsedTimestampModifierKind,
+    ParsedTimestamp, ParsedTimestampModifier, ParsedTimestampModifierKind,
     ParsedTimestampModifierType, ParsedTimestampRangeType, ParsedTimestampRole,
     ParsedTimestampType, ParsedTimestampUnit,
 };
 
-/// Reads the planning line from the source text when Orgize did not build a planning node
-/// (repeater deadlines and diary sexps such as `SCHEDULED: <%%(diary-float t 42)>`). Returns
-/// the byte range of that line, newline included, when it holds at least one planning entry.
-pub(super) fn populate_text_planning_fallback(
-    content: &str,
+/// Planning entries of the planning line `line` (without its terminator), which starts at
+/// byte `line_offset` of the source, in line order.
+pub(super) fn planning_timestamps(
+    line: &str,
+    line_offset: usize,
     lines: &LineIndex,
-    parsed: &mut ParsedHeading,
-    seen_ranges: &mut HashSet<(usize, usize)>,
-) -> Option<Range<usize>> {
-    let heading_text = content.get(parsed.byte_start..parsed.byte_end)?;
-    let first_newline = heading_text.find('\n')?;
-    let after_heading = &heading_text[first_newline + 1..];
-    let planning_line = after_heading
-        .split_once('\n')
-        .map(|(line, _)| line)
-        .unwrap_or(after_heading);
-
-    if !planning_line.contains('/')
-        && !planning_line.contains("%%(")
-        && !starts_with_planning_keyword(planning_line)
-    {
-        return None;
-    }
-
-    let line_offset = parsed.byte_start + first_newline + 1;
-    let entries = parse_planning_fallback_entries(planning_line);
-    if entries.is_empty() {
-        return None;
-    }
-    let mut line_end = line_offset + planning_line.len();
-    if content.as_bytes().get(line_end) == Some(&b'\n') {
-        line_end += 1;
-    }
-    for (role, raw_value, relative_start) in entries {
-        let byte_start = line_offset + relative_start;
-        let byte_end = byte_start + raw_value.len();
-        let (start_ts, end_ts, range_type) = normalize_raw_timestamp_bounds(&raw_value);
-        let parsed_timestamp = ParsedTimestamp {
-            role: Some(role),
-            raw_value: raw_value.clone(),
-            timestamp_type: timestamp_type_from_raw(&raw_value)
-                .unwrap_or(ParsedTimestampType::Active),
-            range_type,
-            has_time: raw_timestamp_has_explicit_time(&raw_value),
-            start_ts,
-            end_ts,
-            byte_start,
-            byte_end,
-            line_number: Some(lines.line_for(byte_start)),
-            modifiers: parse_timestamp_modifiers_from_raw(&raw_value).unwrap_or_default(),
-        };
-
-        if seen_ranges.insert((byte_start, byte_end)) {
-            parsed.timestamps.push(parsed_timestamp.clone());
-        }
-
-        match role {
-            ParsedTimestampRole::Scheduled => parsed.planning.scheduled = Some(parsed_timestamp),
-            ParsedTimestampRole::Deadline => parsed.planning.deadline = Some(parsed_timestamp),
-            ParsedTimestampRole::Closed => parsed.planning.closed = Some(parsed_timestamp),
-            ParsedTimestampRole::Body => {}
-        }
-    }
-    Some(line_offset..line_end)
+) -> Vec<ParsedTimestamp> {
+    parse_planning_fallback_entries(line)
+        .into_iter()
+        .map(|(role, raw_value, relative_start)| {
+            let byte_start = line_offset + relative_start;
+            let byte_end = byte_start + raw_value.len();
+            let (start_ts, end_ts, range_type) = normalize_raw_timestamp_bounds(&raw_value);
+            ParsedTimestamp {
+                role: Some(role),
+                timestamp_type: timestamp_type_from_raw(&raw_value)
+                    .unwrap_or(ParsedTimestampType::Active),
+                range_type,
+                has_time: raw_timestamp_has_explicit_time(&raw_value),
+                start_ts,
+                end_ts,
+                byte_start,
+                byte_end,
+                line_number: Some(lines.line_for(byte_start)),
+                modifiers: parse_timestamp_modifiers_from_raw(&raw_value).unwrap_or_default(),
+                raw_value,
+            }
+        })
+        .collect()
 }
 
 /// Org matches the planning keywords case-insensitively (`scheduled:`, `Deadline:`).
@@ -82,72 +45,81 @@ fn strip_planning_keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
         .then(|| &text[keyword.len()..])
 }
 
-fn starts_with_planning_keyword(line: &str) -> bool {
-    let trimmed = line.trim_start();
-    ["SCHEDULED:", "DEADLINE:", "CLOSED:"]
-        .iter()
-        .any(|keyword| strip_planning_keyword(trimmed, keyword).is_some())
-}
-
+/// Planning entries of one planning line like `org-element-planning-parser`: every
+/// `SCHEDULED:`, `DEADLINE:` or `CLOSED:` anywhere in the line (Org searches for them) whose
+/// timestamp follows after spaces or tabs. Text between entries is ignored, and a keyword
+/// without a timestamp yields no entry. Returns role, raw value and offset in `line`.
 pub(super) fn parse_planning_fallback_entries(
     line: &str,
 ) -> Vec<(ParsedTimestampRole, String, usize)> {
     let mut entries = Vec::new();
     let mut offset = 0;
 
-    while offset < line.len() {
-        let remaining = &line[offset..];
-        let trimmed = remaining.trim_start();
-        let leading_ws = remaining.len() - trimmed.len();
-        let entry_offset = offset + leading_ws;
-
-        let (role, rest) = if let Some(rest) = strip_planning_keyword(trimmed, "SCHEDULED:") {
-            (ParsedTimestampRole::Scheduled, rest)
-        } else if let Some(rest) = strip_planning_keyword(trimmed, "DEADLINE:") {
-            (ParsedTimestampRole::Deadline, rest)
-        } else if let Some(rest) = strip_planning_keyword(trimmed, "CLOSED:") {
-            (ParsedTimestampRole::Closed, rest)
-        } else {
-            break;
-        };
-
-        let timestamp_text = rest.trim_start();
-        let Some((timestamp_start, raw_value)) = extract_first_raw_timestamp(timestamp_text) else {
-            break;
-        };
-        let absolute_start =
-            entry_offset + (trimmed.len() - timestamp_text.len()) + timestamp_start;
-        offset = absolute_start + raw_value.len();
-        entries.push((role, raw_value, absolute_start));
+    while let Some((role, keyword_end)) = next_planning_keyword(line, offset) {
+        let timestamp_start =
+            line.len() - line[keyword_end..].trim_start_matches([' ', '\t']).len();
+        match timestamp_length(&line[timestamp_start..]) {
+            Some(length) => {
+                let raw_value = line[timestamp_start..timestamp_start + length].to_string();
+                offset = timestamp_start + length;
+                entries.push((role, raw_value, timestamp_start));
+            }
+            None => offset = keyword_end,
+        }
     }
 
     entries
 }
 
-pub(super) fn extract_first_raw_timestamp(text: &str) -> Option<(usize, String)> {
-    for (index, character) in text.char_indices() {
-        if character == '<' {
-            if let Some(length) = diary_timestamp_length(&text[index..]) {
-                return Some((index, text[index..index + length].to_string()));
-            }
-        }
-        let closing = match character {
-            '<' => '>',
-            '[' => ']',
-            _ => continue,
-        };
-        let rest = &text[index + 1..];
-        if !starts_with_iso_date(rest) {
-            continue;
-        }
-        let line_end = rest.find('\n').unwrap_or(rest.len());
-        let Some(close) = rest[..line_end].find(closing) else {
-            continue;
-        };
-        let end = index + 1 + close + closing.len_utf8();
-        return Some((index, text[index..end].to_string()));
+/// First planning keyword at or after byte `from`: its role and the offset behind it.
+fn next_planning_keyword(line: &str, from: usize) -> Option<(ParsedTimestampRole, usize)> {
+    line[from..].char_indices().find_map(|(index, _)| {
+        let rest = &line[from + index..];
+        [
+            ("SCHEDULED:", ParsedTimestampRole::Scheduled),
+            ("DEADLINE:", ParsedTimestampRole::Deadline),
+            ("CLOSED:", ParsedTimestampRole::Closed),
+        ]
+        .into_iter()
+        .find_map(|(keyword, role)| {
+            strip_planning_keyword(rest, keyword).map(|_| (role, from + index + keyword.len()))
+        })
+    })
+}
+
+/// Length of the timestamp at the start of `text`, as `org-element-timestamp-parser` reads
+/// it: a diary sexp, or a bracket timestamp (`org-ts-regexp-both`) with an optional
+/// `--` and a second one for a range (`<a>--[b]`).
+fn timestamp_length(text: &str) -> Option<usize> {
+    if let Some(length) = diary_timestamp_length(text) {
+        return Some(length);
     }
-    None
+    let first = bracket_timestamp_length(text)?;
+    match text[first..]
+        .strip_prefix("--")
+        .map(bracket_timestamp_length)
+    {
+        Some(Some(second)) => Some(first + 2 + second),
+        _ => Some(first),
+    }
+}
+
+/// Length of `[<[]YYYY-MM-DD\(?: +[^]\r\n>]*?\)?[]>]` at the start of `text`.
+fn bracket_timestamp_length(text: &str) -> Option<usize> {
+    let rest = text.strip_prefix(['<', '['])?;
+    if !starts_with_iso_date(rest) {
+        return None;
+    }
+    let after_date = &rest[10..];
+    let close = after_date.find([']', '>', '\r', '\n'])?;
+    if !matches!(after_date.as_bytes()[close], b']' | b'>') {
+        return None;
+    }
+    // Between the date and the closing bracket: nothing, or blanks first.
+    if close > 0 && !after_date.starts_with(' ') {
+        return None;
+    }
+    Some(1 + 10 + close + 1)
 }
 
 /// Length of a diary sexp timestamp `<%%(SEXP)>` at the start of `text`. Org (`org-element`):
@@ -183,7 +155,34 @@ pub(super) fn timestamp_type_from_raw(raw_value: &str) -> Option<ParsedTimestamp
     }
 }
 
+/// Splits `<a>--<b>` (either bracket kind) into its two timestamps.
+fn split_timestamp_range(raw_value: &str) -> Option<(&str, &str)> {
+    let first = bracket_timestamp_length(raw_value)?;
+    let second = raw_value[first..].strip_prefix("--")?;
+    (bracket_timestamp_length(second)? == second.len()).then(|| (&raw_value[..first], second))
+}
+
+/// Start and end as unix seconds (UTC) and the range type. A `--` range runs from the
+/// start of the first to the start of the second timestamp.
 pub(super) fn normalize_raw_timestamp_bounds(
+    raw_value: &str,
+) -> (Option<i64>, Option<i64>, ParsedTimestampRangeType) {
+    let Some((first, second)) = split_timestamp_range(raw_value) else {
+        return single_timestamp_bounds(raw_value);
+    };
+    let timed = raw_timestamp_has_explicit_time(raw_value) == Some(true);
+    (
+        single_timestamp_bounds(first).0,
+        single_timestamp_bounds(second).0,
+        if timed {
+            ParsedTimestampRangeType::DateTimeRange
+        } else {
+            ParsedTimestampRangeType::DateRange
+        },
+    )
+}
+
+fn single_timestamp_bounds(
     raw_value: &str,
 ) -> (Option<i64>, Option<i64>, ParsedTimestampRangeType) {
     if matches!(
@@ -259,6 +258,12 @@ fn parse_time_token(token: &str) -> Option<(u32, u32)> {
 }
 
 pub(super) fn raw_timestamp_has_explicit_time(raw_value: &str) -> Option<bool> {
+    if let Some((first, second)) = split_timestamp_range(raw_value) {
+        return Some(
+            raw_timestamp_has_explicit_time(first) == Some(true)
+                || raw_timestamp_has_explicit_time(second) == Some(true),
+        );
+    }
     if matches!(
         timestamp_type_from_raw(raw_value),
         Some(ParsedTimestampType::Diary)
@@ -283,6 +288,16 @@ pub(super) fn parse_timestamp_modifiers_from_raw(
 ) -> Option<Vec<ParsedTimestampModifier>> {
     if raw_value.starts_with("<%%(") || raw_value.starts_with("[%%(") {
         return Some(Vec::new());
+    }
+    if let Some((first, second)) = split_timestamp_range(raw_value) {
+        // Org reads the first repeater and the first warning of the whole raw value.
+        let mut modifiers = parse_timestamp_modifiers_from_raw(first)?;
+        for modifier in parse_timestamp_modifiers_from_raw(second)? {
+            if modifiers.iter().all(|known| known.kind != modifier.kind) {
+                modifiers.push(modifier);
+            }
+        }
+        return Some(modifiers);
     }
 
     let mut modifiers = Vec::new();
@@ -479,7 +494,7 @@ mod tests {
     #[test]
     fn planning_fallback_entries_report_role_raw_and_offset() {
         let sched = "<%%(diary-float t 42)>";
-        let rows: [(&str, Vec<Entry>); 13] = [
+        let rows: Vec<(&str, Vec<Entry>)> = vec![
             ("", vec![]),
             ("   ", vec![]),
             ("nothing", vec![]),
@@ -503,8 +518,44 @@ mod tests {
                 vec![(Role::Scheduled, sched, 11)],
             ),
             ("SCHEDULED: garbage", vec![]),
+            // Org searches the whole line for keywords, so text in between is ignored.
             (
                 "SCHEDULED: <2024-01-01> junk DEADLINE: <2024-01-02>",
+                vec![
+                    (Role::Scheduled, "<2024-01-01>", 11),
+                    (Role::Deadline, "<2024-01-02>", 39),
+                ],
+            ),
+            // The timestamp has to follow the keyword directly, after blanks.
+            ("SCHEDULED: foo <2024-01-01>", vec![]),
+            (
+                "SCHEDULED: foo DEADLINE: <2024-01-01>",
+                vec![(Role::Deadline, "<2024-01-01>", 25)],
+            ),
+            ("SCHEDULED: <2024-01-01x>", vec![]),
+            ("SCHEDULED: <2024-01-01Mon>", vec![]),
+            // `--` joins two timestamps of either bracket kind; a single dash does not.
+            (
+                "SCHEDULED: <2024-01-01 Mon>--<2024-01-03 Wed> DEADLINE: <2024-02-02>",
+                vec![
+                    (Role::Scheduled, "<2024-01-01 Mon>--<2024-01-03 Wed>", 11),
+                    (Role::Deadline, "<2024-02-02>", 56),
+                ],
+            ),
+            (
+                "CLOSED: [2024-01-01 Mon 10:00]--<2024-01-01 Mon 11:00>",
+                vec![(
+                    Role::Closed,
+                    "[2024-01-01 Mon 10:00]--<2024-01-01 Mon 11:00>",
+                    8,
+                )],
+            ),
+            (
+                "SCHEDULED: <2024-01-01>-<2024-01-02>",
+                vec![(Role::Scheduled, "<2024-01-01>", 11)],
+            ),
+            (
+                "SCHEDULED: <2024-01-01>--garbage",
                 vec![(Role::Scheduled, "<2024-01-01>", 11)],
             ),
             ("SCHEDULED: <2024-01-01", vec![]),
@@ -569,6 +620,25 @@ mod tests {
             ("<2024-01-01-02>", None, None, R::Unknown),
             ("<é>", None, None, R::Unknown),
             ("<2024-01-01 Mon 10:xx>", Some(day), None, R::None),
+            // A `--` range runs from the start of the first to the start of the second.
+            (
+                "<2024-01-01 Mon>--<2024-01-03 Wed>",
+                Some(day),
+                Some(day + 2 * 86_400),
+                R::DateRange,
+            ),
+            (
+                "[2024-01-01 Mon 10:30]--<2024-01-03 Wed>",
+                Some(day + 37_800),
+                Some(day + 2 * 86_400),
+                R::DateTimeRange,
+            ),
+            (
+                "<2024-01-01 Mon>--[2024-01-03 Wed 08:00]",
+                Some(day),
+                Some(day + 2 * 86_400 + 28_800),
+                R::DateTimeRange,
+            ),
         ];
         for (raw, start, end, range) in rows {
             assert_eq!(
@@ -666,9 +736,8 @@ mod tests {
     #[test]
     fn helpers_never_panic_and_return_char_boundaries() {
         for s in ADVERSARIAL {
-            if let Some((i, raw)) = extract_first_raw_timestamp(s) {
-                assert!(s.is_char_boundary(i) && s.is_char_boundary(i + raw.len()));
-                assert_eq!(&s[i..i + raw.len()], raw);
+            if let Some(length) = timestamp_length(s) {
+                assert!(s.is_char_boundary(length));
             }
             for (role, raw, off) in parse_planning_fallback_entries(s) {
                 let _ = role;

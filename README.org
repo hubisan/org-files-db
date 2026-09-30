@@ -128,7 +128,7 @@ Read [[./docs/cli.org][docs/cli.org]] and [[./docs/config.org][docs/config.org]]
 
 - Windows is not supported. Linux and other Unix-like systems, including macOS, are supported.
 - ~attachment:~ links are indexed but not resolved. Their ~resolution_status~ is ~unsupported~.
-- The parser depends on Orgize ~0.10.0-alpha~, a pre-release that has had no upstream release since June 2024. Some Org syntax needs local scanners and workarounds. Read [[./docs/design/parser-risks.org][Parser Risks]].
+- The parser builds document structure with its own line scanner and only uses Orgize ~0.10.0-alpha~, a pre-release that has had no upstream release since June 2024, for inline details (timestamps in text, title markup). Stage 3 of #41 removes it. Read [[./docs/design/parser-risks.org][Parser Risks]].
 - Link resolution covers a limited set of link forms. Other file search forms are not resolved. Read [[./docs/cli.org][docs/cli.org]].
 - After an upgrade, the next indexing run reparses all files when the parser or indexer contract changed. No manual step is needed.
 - Read-only commands reject a database with an outdated schema version. Run an indexing command first.

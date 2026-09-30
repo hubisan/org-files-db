@@ -1,0 +1,24 @@
+#+TITLE: Planning Garbage and Generic Drawers
+* Garbage planning keeps the drawer
+SCHEDULED: garbage
+:PROPERTIES:
+:ID: garbage
+:END:
+Body one.
+* Bare keyword keeps the drawer
+CLOSED:
+:PROPERTIES:
+:ID: bare
+:END:
+* Drawer with a comment row has no properties
+:PROPERTIES:
+# note
+:ID: hidden
+:END:
+Body three.
+* Key with a colon
+:PROPERTIES:
+:a:b: c
+:END:
+# classification: org-special-case
+# note: An empty or garbage planning line is still a planning element, so the drawer after it counts. A drawer with a row that is no property is a generic drawer without properties. A key is the token up to its last colon.
