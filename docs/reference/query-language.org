@@ -312,7 +312,7 @@ Syntax:
 (title STRING... :regexp t|nil :exact t|nil)
 #+end_src
 
-The default uses case-insensitive substring matching on normalized semantic titles.
+The default uses case-insensitive substring matching on normalized semantic titles. Case-insensitive matching uses Unicode lowercase folding, so ~"über"~ matches ~Über~.
 
 A title query can also match the synthetic file-root title. Such a result has ~kind = "root"~.
 

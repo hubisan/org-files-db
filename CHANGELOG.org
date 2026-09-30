@@ -6,6 +6,8 @@ This file records completed changes.
 
 - =FIXED= ~:PROPERTIES:~ drawers that are not placed directly after the heading (or planning line), or after leading comments at file level, no longer create properties. Rebuild existing databases to refresh affected properties.
 
+- =FIXED= Case-insensitive query predicates (~title~, ~has-text~, ~outline-contains~, ~outline-sequence~, ~keyword~, file and link text predicates) now use Unicode lowercase folding instead of ASCII-only folding, so ~"über"~ matches ~Über~.
+
 - =FIXED= Planning fallback parsing no longer treats links like ~[[file:a/b.org]]~ as timestamps and keeps time ranges such as ~10:00-11:00~ when a repeater deadline like ~+1w/2d~ is present. Rebuild existing databases to refresh affected planning data.
 
 - =FIXED= Headings with a trailing ~:foo/bar:~ block no longer lose that text from the title; only blocks whose tags consist of alphanumerics and ~_@#%~ are stripped as tags.
