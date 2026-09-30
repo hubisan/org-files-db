@@ -1,6 +1,5 @@
 use std::{collections::HashSet, ops::Range, path::Path};
 
-use crate::property::normalize_property_key;
 use orgize::{
     ast::{
         CenterBlock, CommentBlock, DelayType, Document as OrgDocument, Drawer, ExampleBlock,
@@ -16,11 +15,26 @@ use super::diagnostics::ParseDiagnostic;
 use super::line_index::LineIndex;
 use super::link_scanner::{scan_links, LinkScanContext, LinkScannerConfig};
 use super::model::{
-    OrgParserCore, ParseOptions, ParsedHeading, ParsedKeyword, ParsedLink, ParsedLinkSourceContext,
+    OrgParserCore, ParseOptions, ParsedHeading, ParsedLink, ParsedLinkSourceContext,
     ParsedOrgDocument, ParsedProperty, ParsedPropertySource, ParsedTimestamp,
     ParsedTimestampModifier, ParsedTimestampModifierKind, ParsedTimestampModifierType,
     ParsedTimestampRangeType, ParsedTimestampRole, ParsedTimestampType, ParsedTimestampUnit,
-    TodoKeywordConfig, TodoType,
+    TodoKeywordConfig,
+};
+use super::properties::{
+    file_level_properties_from_keywords, file_level_tags_from_keywords, is_org_comment_line,
+    parsed_property_from_raw_line,
+};
+use super::timestamp_raw::{
+    extract_first_raw_timestamp, normalize_raw_timestamp_bounds,
+    parse_timestamp_modifiers_from_raw, populate_text_planning_fallback,
+    raw_timestamp_has_explicit_time, timestamp_type_from_raw, unix_seconds_from_utc_date_time,
+};
+use super::title::{
+    cookie_follows_comment, infer_todo_keyword, link_contains_range, links_in_range,
+    placeholder_title_after_todo_prefix, priority_from_source_title,
+    restore_title_link_placeholders, source_title_from_content_line, strip_leading_priority_cookie,
+    todo_keyword_is_active, todo_type_for_keyword,
 };
 use crate::todo_keywords::collect_document_keywords;
 
@@ -199,10 +213,7 @@ fn collect_link_structural_context(document: &OrgDocument) -> LinkStructuralCont
                     };
                     push_context_span(
                         &mut context_spans,
-                        range_from_bounds(
-                            drawer.content_start().into(),
-                            drawer.content_end().into(),
-                        ),
+                        drawer.content_start().into()..drawer.content_end().into(),
                         source_context,
                     );
                 }
@@ -211,7 +222,7 @@ fn collect_link_structural_context(document: &OrgDocument) -> LinkStructuralCont
                 if let Some(block) = VerseBlock::cast(node.clone()) {
                     push_context_span(
                         &mut context_spans,
-                        range_from_bounds(block.content_start().into(), block.content_end().into()),
+                        block.content_start().into()..block.content_end().into(),
                         ParsedLinkSourceContext::VerseBlock,
                     );
                 }
@@ -220,7 +231,7 @@ fn collect_link_structural_context(document: &OrgDocument) -> LinkStructuralCont
                 if let Some(block) = QuoteBlock::cast(node.clone()) {
                     push_context_span(
                         &mut context_spans,
-                        range_from_bounds(block.content_start().into(), block.content_end().into()),
+                        block.content_start().into()..block.content_end().into(),
                         ParsedLinkSourceContext::QuoteBlock,
                     );
                 }
@@ -229,7 +240,7 @@ fn collect_link_structural_context(document: &OrgDocument) -> LinkStructuralCont
                 if let Some(block) = CenterBlock::cast(node.clone()) {
                     push_context_span(
                         &mut context_spans,
-                        range_from_bounds(block.content_start().into(), block.content_end().into()),
+                        block.content_start().into()..block.content_end().into(),
                         ParsedLinkSourceContext::CenterBlock,
                     );
                 }
@@ -239,10 +250,7 @@ fn collect_link_structural_context(document: &OrgDocument) -> LinkStructuralCont
                     if special_block_is_justify(&block) {
                         push_context_span(
                             &mut context_spans,
-                            range_from_bounds(
-                                block.content_start().into(),
-                                block.content_end().into(),
-                            ),
+                            block.content_start().into()..block.content_end().into(),
                             ParsedLinkSourceContext::JustifyBlock,
                         );
                     }
@@ -305,19 +313,12 @@ fn merged_ranges_contain(ranges: &[Range<usize>], offset: usize) -> bool {
 }
 
 fn node_byte_range(node: &SyntaxNode) -> Range<usize> {
-    range_from_bounds(
-        usize::from(node.text_range().start()),
-        usize::from(node.text_range().end()),
-    )
+    usize::from(node.text_range().start())..usize::from(node.text_range().end())
 }
 
 fn block_byte_range<T: AstNode>(block: &T) -> Range<usize> {
     let range = block.syntax().text_range();
-    range_from_bounds(usize::from(range.start()), usize::from(range.end()))
-}
-
-fn range_from_bounds(start: usize, end: usize) -> Range<usize> {
-    start..end
+    usize::from(range.start())..usize::from(range.end())
 }
 
 fn push_range(ranges: &mut Vec<Range<usize>>, range: Range<usize>) {
@@ -842,236 +843,6 @@ fn parsed_timestamp_from_planning_fallback(
     })
 }
 
-/// Reads the planning line from the source text when Orgize did not build a planning node
-/// (repeater deadlines and diary sexps such as `SCHEDULED: <%%(diary-float t 42)>`). Returns
-/// the byte range of that line, newline included, when it holds at least one planning entry.
-fn populate_text_planning_fallback(
-    content: &str,
-    lines: &LineIndex,
-    parsed: &mut ParsedHeading,
-    seen_ranges: &mut HashSet<(usize, usize)>,
-) -> Option<Range<usize>> {
-    let heading_text = content.get(parsed.byte_start..parsed.byte_end)?;
-    let first_newline = heading_text.find('\n')?;
-    let after_heading = &heading_text[first_newline + 1..];
-    let planning_line = after_heading
-        .split_once('\n')
-        .map(|(line, _)| line)
-        .unwrap_or(after_heading);
-
-    if !planning_line.contains('/') && !planning_line.contains("%%(") {
-        return None;
-    }
-
-    let line_offset = parsed.byte_start + first_newline + 1;
-    let entries = parse_planning_fallback_entries(planning_line);
-    if entries.is_empty() {
-        return None;
-    }
-    let mut line_end = line_offset + planning_line.len();
-    if content.as_bytes().get(line_end) == Some(&b'\n') {
-        line_end += 1;
-    }
-    for (role, raw_value, relative_start) in entries {
-        let byte_start = line_offset + relative_start;
-        let byte_end = byte_start + raw_value.len();
-        let (start_ts, end_ts, range_type) = normalize_raw_timestamp_bounds(&raw_value);
-        let parsed_timestamp = ParsedTimestamp {
-            role: Some(role),
-            raw_value: raw_value.clone(),
-            timestamp_type: timestamp_type_from_raw(&raw_value)
-                .unwrap_or(ParsedTimestampType::Active),
-            range_type,
-            has_time: raw_timestamp_has_explicit_time(&raw_value),
-            start_ts,
-            end_ts,
-            byte_start,
-            byte_end,
-            line_number: Some(lines.line_for(byte_start)),
-            modifiers: parse_timestamp_modifiers_from_raw(&raw_value).unwrap_or_default(),
-        };
-
-        if seen_ranges.insert((byte_start, byte_end)) {
-            parsed.timestamps.push(parsed_timestamp.clone());
-        }
-
-        match role {
-            ParsedTimestampRole::Scheduled => parsed.planning.scheduled = Some(parsed_timestamp),
-            ParsedTimestampRole::Deadline => parsed.planning.deadline = Some(parsed_timestamp),
-            ParsedTimestampRole::Closed => parsed.planning.closed = Some(parsed_timestamp),
-            ParsedTimestampRole::Body => {}
-        }
-    }
-    Some(line_offset..line_end)
-}
-
-fn parse_planning_fallback_entries(line: &str) -> Vec<(ParsedTimestampRole, String, usize)> {
-    let mut entries = Vec::new();
-    let mut offset = 0;
-
-    while offset < line.len() {
-        let remaining = &line[offset..];
-        let trimmed = remaining.trim_start();
-        let leading_ws = remaining.len() - trimmed.len();
-        let entry_offset = offset + leading_ws;
-
-        let (role, rest) = if let Some(rest) = trimmed.strip_prefix("SCHEDULED:") {
-            (ParsedTimestampRole::Scheduled, rest)
-        } else if let Some(rest) = trimmed.strip_prefix("DEADLINE:") {
-            (ParsedTimestampRole::Deadline, rest)
-        } else if let Some(rest) = trimmed.strip_prefix("CLOSED:") {
-            (ParsedTimestampRole::Closed, rest)
-        } else {
-            break;
-        };
-
-        let timestamp_text = rest.trim_start();
-        let Some((timestamp_start, raw_value)) = extract_first_raw_timestamp(timestamp_text) else {
-            break;
-        };
-        let absolute_start =
-            entry_offset + (trimmed.len() - timestamp_text.len()) + timestamp_start;
-        offset = absolute_start + raw_value.len();
-        entries.push((role, raw_value, absolute_start));
-    }
-
-    entries
-}
-
-fn extract_first_raw_timestamp(text: &str) -> Option<(usize, String)> {
-    for (index, character) in text.char_indices() {
-        if character == '<' {
-            if let Some(length) = diary_timestamp_length(&text[index..]) {
-                return Some((index, text[index..index + length].to_string()));
-            }
-        }
-        let closing = match character {
-            '<' => '>',
-            '[' => ']',
-            _ => continue,
-        };
-        let rest = &text[index + 1..];
-        if !starts_with_iso_date(rest) {
-            continue;
-        }
-        let line_end = rest.find('\n').unwrap_or(rest.len());
-        let Some(close) = rest[..line_end].find(closing) else {
-            continue;
-        };
-        let end = index + 1 + close + closing.len_utf8();
-        return Some((index, text[index..end].to_string()));
-    }
-    None
-}
-
-/// Length of a diary sexp timestamp `<%%(SEXP)>` at the start of `text`. Org (`org-element`):
-/// the sexp is non-empty, holds no `>` or newline, and the first `>` closes it after `)`.
-fn diary_timestamp_length(text: &str) -> Option<usize> {
-    let rest = text.strip_prefix("<%%(")?;
-    let close = rest.find(['>', '\n'])?;
-    let sexp = rest[..close].strip_suffix(')')?;
-    if sexp.is_empty() || rest.as_bytes()[close] != b'>' {
-        return None;
-    }
-    Some("<%%(".len() + close + 1)
-}
-
-fn starts_with_iso_date(text: &str) -> bool {
-    let bytes = text.as_bytes();
-    bytes.len() >= 10
-        && bytes[..10].iter().enumerate().all(|(i, b)| match i {
-            4 | 7 => *b == b'-',
-            _ => b.is_ascii_digit(),
-        })
-}
-
-fn timestamp_type_from_raw(raw_value: &str) -> Option<ParsedTimestampType> {
-    if raw_value.starts_with("<%%(") || raw_value.starts_with("[%%(") {
-        Some(ParsedTimestampType::Diary)
-    } else if raw_value.starts_with('<') {
-        Some(ParsedTimestampType::Active)
-    } else if raw_value.starts_with('[') {
-        Some(ParsedTimestampType::Inactive)
-    } else {
-        None
-    }
-}
-
-fn normalize_raw_timestamp_bounds(
-    raw_value: &str,
-) -> (Option<i64>, Option<i64>, ParsedTimestampRangeType) {
-    if matches!(
-        timestamp_type_from_raw(raw_value),
-        Some(ParsedTimestampType::Diary)
-    ) {
-        return (None, None, ParsedTimestampRangeType::None);
-    }
-
-    let inner = raw_value
-        .strip_prefix(['<', '['])
-        .and_then(|value| value.strip_suffix(['>', ']']))
-        .unwrap_or(raw_value);
-    let mut tokens = inner.split_whitespace();
-    let Some(date_token) = tokens.next() else {
-        return (None, None, ParsedTimestampRangeType::Unknown);
-    };
-    let Some((year, month, day)) = parse_date_token(date_token) else {
-        return (None, None, ParsedTimestampRangeType::Unknown);
-    };
-
-    let mut start_time = None;
-    let mut end_time = None;
-    if let Some(token) = tokens.next() {
-        if let Some(range) = parse_time_range_token(token) {
-            (start_time, end_time) = range;
-        } else if let Some(time_token) = tokens.next() {
-            if let Some(range) = parse_time_range_token(time_token) {
-                (start_time, end_time) = range;
-            }
-        }
-    }
-
-    let (start_hour, start_minute) = start_time.unwrap_or((0, 0));
-    let end_ts = end_time
-        .and_then(|(hour, minute)| unix_seconds_from_utc_date_time(year, month, day, hour, minute));
-    let range_type = if end_ts.is_some() {
-        ParsedTimestampRangeType::TimeRange
-    } else {
-        ParsedTimestampRangeType::None
-    };
-
-    (
-        unix_seconds_from_utc_date_time(year, month, day, start_hour, start_minute),
-        end_ts,
-        range_type,
-    )
-}
-
-fn parse_date_token(token: &str) -> Option<(i32, u32, u32)> {
-    let mut parts = token.split('-');
-    let year = parts.next()?.parse().ok()?;
-    let month = parts.next()?.parse().ok()?;
-    let day = parts.next()?.parse().ok()?;
-    if parts.next().is_some() {
-        return None;
-    }
-    Some((year, month, day))
-}
-
-type TimeOfDay = (u32, u32);
-
-fn parse_time_range_token(token: &str) -> Option<(Option<TimeOfDay>, Option<TimeOfDay>)> {
-    match token.split_once('-') {
-        Some((start, end)) => Some((Some(parse_time_token(start)?), Some(parse_time_token(end)?))),
-        None => Some((Some(parse_time_token(token)?), None)),
-    }
-}
-
-fn parse_time_token(token: &str) -> Option<(u32, u32)> {
-    let (hour, minute) = token.split_once(':')?;
-    Some((hour.parse().ok()?, minute.parse().ok()?))
-}
-
 fn timestamp_type(timestamp: &Timestamp) -> ParsedTimestampType {
     if timestamp.is_diary() {
         ParsedTimestampType::Diary
@@ -1091,26 +862,6 @@ fn timestamp_has_explicit_time(timestamp: &Timestamp, raw_value: &str) -> Option
         (timestamp.hour_start().is_some() && timestamp.minute_start().is_some())
             || (timestamp.hour_end().is_some() && timestamp.minute_end().is_some())
             || raw_timestamp_has_explicit_time(raw_value).unwrap_or(false),
-    )
-}
-
-fn raw_timestamp_has_explicit_time(raw_value: &str) -> Option<bool> {
-    if matches!(
-        timestamp_type_from_raw(raw_value),
-        Some(ParsedTimestampType::Diary)
-    ) {
-        return None;
-    }
-
-    let inner = raw_value
-        .strip_prefix(['<', '['])
-        .and_then(|value| value.strip_suffix(['>', ']']))
-        .unwrap_or(raw_value);
-
-    Some(
-        inner
-            .split_whitespace()
-            .any(|token| parse_time_range_token(token).is_some()),
     )
 }
 
@@ -1250,122 +1001,6 @@ fn timestamp_modifiers_from_orgize(timestamp: &Timestamp) -> Vec<ParsedTimestamp
     modifiers
 }
 
-fn parse_timestamp_modifiers_from_raw(raw_value: &str) -> Option<Vec<ParsedTimestampModifier>> {
-    if raw_value.starts_with("<%%(") || raw_value.starts_with("[%%(") {
-        return Some(Vec::new());
-    }
-
-    let mut modifiers = Vec::new();
-
-    for token in raw_value.split_whitespace() {
-        let token = token.trim_matches(|character| matches!(character, '<' | '>' | '[' | ']'));
-        if token.is_empty() {
-            continue;
-        }
-
-        if let Some(modifier) = parse_repeater_modifier_token(token) {
-            modifiers.push(modifier);
-            continue;
-        }
-
-        if let Some(modifier) = parse_warning_modifier_token(token) {
-            modifiers.push(modifier);
-        }
-    }
-
-    Some(modifiers)
-}
-
-fn parse_repeater_modifier_token(token: &str) -> Option<ParsedTimestampModifier> {
-    let (modifier_type, remainder) = if let Some(remainder) = token.strip_prefix("++") {
-        (ParsedTimestampModifierType::CatchUp, remainder)
-    } else if let Some(remainder) = token.strip_prefix(".+") {
-        (ParsedTimestampModifierType::Restart, remainder)
-    } else {
-        let remainder = token.strip_prefix('+')?;
-        (ParsedTimestampModifierType::Cumulate, remainder)
-    };
-
-    let (value, unit, remainder) = parse_modifier_value_unit(remainder)?;
-    let (repeater_deadline_value, repeater_deadline_unit) =
-        if let Some(remainder) = remainder.strip_prefix('/') {
-            let (value, unit, remainder) = parse_modifier_value_unit(remainder)?;
-            if !remainder.is_empty() {
-                return None;
-            }
-            (Some(value), Some(unit))
-        } else {
-            if !remainder.is_empty() {
-                return None;
-            }
-            (None, None)
-        };
-
-    Some(ParsedTimestampModifier {
-        kind: ParsedTimestampModifierKind::Repeater,
-        modifier_type,
-        value,
-        unit,
-        repeater_deadline_value,
-        repeater_deadline_unit,
-    })
-}
-
-fn parse_warning_modifier_token(token: &str) -> Option<ParsedTimestampModifier> {
-    let (modifier_type, remainder) = if let Some(remainder) = token.strip_prefix("--") {
-        (ParsedTimestampModifierType::First, remainder)
-    } else {
-        let remainder = token.strip_prefix('-')?;
-        (ParsedTimestampModifierType::All, remainder)
-    };
-
-    let (value, unit, remainder) = parse_modifier_value_unit(remainder)?;
-    if !remainder.is_empty() {
-        return None;
-    }
-
-    Some(ParsedTimestampModifier {
-        kind: ParsedTimestampModifierKind::Warning,
-        modifier_type,
-        value,
-        unit,
-        repeater_deadline_value: None,
-        repeater_deadline_unit: None,
-    })
-}
-
-fn parse_modifier_value_unit(input: &str) -> Option<(i64, ParsedTimestampUnit, &str)> {
-    let digits_end = input
-        .find(|character: char| !character.is_ascii_digit())
-        .unwrap_or(input.len());
-    if digits_end == 0 {
-        return None;
-    }
-
-    let value = input[..digits_end].parse::<i64>().ok()?;
-    if value <= 0 {
-        return None;
-    }
-
-    let remainder = &input[digits_end..];
-    let unit = remainder
-        .chars()
-        .next()
-        .and_then(parsed_timestamp_unit_from_char)?;
-    Some((value, unit, &remainder[1..]))
-}
-
-fn parsed_timestamp_unit_from_char(character: char) -> Option<ParsedTimestampUnit> {
-    match character {
-        'h' => Some(ParsedTimestampUnit::Hour),
-        'd' => Some(ParsedTimestampUnit::Day),
-        'w' => Some(ParsedTimestampUnit::Week),
-        'm' => Some(ParsedTimestampUnit::Month),
-        'y' => Some(ParsedTimestampUnit::Year),
-        _ => None,
-    }
-}
-
 fn parsed_repeater_type(repeater_type: RepeaterType) -> ParsedTimestampModifierType {
     match repeater_type {
         RepeaterType::Cumulate => ParsedTimestampModifierType::Cumulate,
@@ -1389,34 +1024,6 @@ fn parsed_timestamp_unit(unit: TimeUnit) -> ParsedTimestampUnit {
         TimeUnit::Month => ParsedTimestampUnit::Month,
         TimeUnit::Year => ParsedTimestampUnit::Year,
     }
-}
-
-fn unix_seconds_from_utc_date_time(
-    year: i32,
-    month: u32,
-    day: u32,
-    hour: u32,
-    minute: u32,
-) -> Option<i64> {
-    // The project does not model time zones yet, so planning timestamps are
-    // normalized as timezone-naive Unix seconds.
-    let days = days_from_civil(year, month, day)?;
-    let seconds = i64::from(hour) * 3_600 + i64::from(minute) * 60;
-    days.checked_mul(86_400)?.checked_add(seconds)
-}
-
-fn days_from_civil(year: i32, month: u32, day: u32) -> Option<i64> {
-    let mut year = i64::from(year);
-    let month = i64::from(month);
-    let day = i64::from(day);
-
-    year -= if month <= 2 { 1 } else { 0 };
-    let era = if year >= 0 { year } else { year - 399 } / 400;
-    let year_of_era = year - era * 400;
-    let month_index = month + if month > 2 { -3 } else { 9 };
-    let day_of_year = (153 * month_index + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    Some(era * 146_097 + day_of_era - 719_468)
 }
 
 fn normalize_title_elements(elements: impl Iterator<Item = SyntaxElement>) -> String {
@@ -1482,90 +1089,6 @@ fn is_supported_title_markup(kind: SyntaxKind) -> bool {
     )
 }
 
-fn file_level_properties_from_keywords(keywords: &[ParsedKeyword]) -> Vec<ParsedProperty> {
-    keywords
-        .iter()
-        .filter_map(parsed_property_from_keyword)
-        .collect()
-}
-
-fn file_level_tags_from_keywords(keywords: &[ParsedKeyword]) -> Vec<String> {
-    let mut tags = Vec::new();
-
-    for keyword in keywords {
-        if !keyword.key.eq_ignore_ascii_case("FILETAGS") {
-            continue;
-        }
-
-        let Some(value) = keyword.value.as_deref() else {
-            continue;
-        };
-        for tag in parse_filetags_keyword_value(value) {
-            if !tags.iter().any(|existing| existing == &tag) {
-                tags.push(tag);
-            }
-        }
-    }
-
-    tags
-}
-
-fn parse_filetags_keyword_value(value: &str) -> Vec<String> {
-    value
-        .split_whitespace()
-        .flat_map(|part| {
-            part.trim_matches(':')
-                .split(':')
-                .filter(|tag| !tag.is_empty())
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-        })
-        .collect()
-}
-
-fn parsed_property_from_keyword(keyword: &ParsedKeyword) -> Option<ParsedProperty> {
-    if keyword.key.eq_ignore_ascii_case("PROPERTY") {
-        let (key, value, append) = parse_property_keyword_value(keyword.value.as_deref()?)?;
-        Some(ParsedProperty {
-            key,
-            value,
-            source: ParsedPropertySource::PropertyKeyword,
-            append,
-            line_number: keyword.line_number,
-        })
-    } else if keyword.key.eq_ignore_ascii_case("CATEGORY") {
-        Some(ParsedProperty {
-            key: "CATEGORY".to_string(),
-            value: keyword.value.clone(),
-            source: ParsedPropertySource::CategoryKeyword,
-            append: false,
-            line_number: keyword.line_number,
-        })
-    } else {
-        None
-    }
-}
-
-fn parse_property_keyword_value(value: &str) -> Option<(String, Option<String>, bool)> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    let mut parts = trimmed.splitn(2, char::is_whitespace);
-    let raw_key = parts.next()?.trim();
-    if raw_key.is_empty() {
-        return None;
-    }
-    let raw_value = parts
-        .next()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
-    let (key, append) = normalize_property_key(raw_key);
-    Some((key, raw_value, append))
-}
-
 fn properties_drawer_node_in_document(document: &OrgDocument, content: &str) -> Option<SyntaxNode> {
     let candidate = document
         .properties()
@@ -1615,13 +1138,6 @@ fn is_properties_drawer(node: &SyntaxNode) -> bool {
     node.kind() == SyntaxKind::PROPERTY_DRAWER
         || Drawer::cast(node.clone())
             .is_some_and(|drawer| drawer.name().eq_ignore_ascii_case("PROPERTIES"))
-}
-
-/// Org comment line: optional indentation, then `#` followed by a space or the line end.
-fn is_org_comment_line(line: &str) -> bool {
-    line.trim_start_matches([' ', '\t'])
-        .strip_prefix('#')
-        .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
 }
 
 fn parsed_properties_from_drawer(
@@ -1719,183 +1235,6 @@ fn property_drawer_content_bounds(drawer: &SyntaxNode) -> Option<(usize, usize)>
     })
 }
 
-fn parsed_property_from_raw_line(
-    raw_line: &str,
-    source: ParsedPropertySource,
-    line_number: u32,
-) -> Option<ParsedProperty> {
-    // Org: `^[ \t]*:KEY:[ \t]*VALUE[ \t]*$`, indentation and value padding are ignored.
-    let raw_line = raw_line.trim_start_matches([' ', '\t']).strip_prefix(':')?;
-    let separator_index = raw_line.find(':')?;
-    let raw_key = &raw_line[..separator_index];
-    if raw_key.is_empty() {
-        return None;
-    }
-    let raw_value = &raw_line[separator_index + 1..];
-    let value = Some(raw_value.trim_matches([' ', '\t']).to_string());
-    let (key, normalized_append) = normalize_property_key(raw_key);
-
-    Some(ParsedProperty {
-        key,
-        value,
-        source,
-        append: normalized_append,
-        line_number: Some(line_number),
-    })
-}
-
-fn infer_todo_keyword(
-    title_raw: &str,
-    todo_keywords: &TodoKeywordConfig,
-) -> Option<(String, String)> {
-    for keyword in todo_keywords.all_keywords() {
-        let Some(remainder) = title_raw.strip_prefix(&keyword.name) else {
-            continue;
-        };
-        if remainder.is_empty() {
-            continue;
-        }
-
-        let stripped = remainder.trim_start();
-        if stripped.len() == remainder.len() {
-            continue;
-        }
-
-        return Some((keyword.name.clone(), stripped.to_string()));
-    }
-
-    None
-}
-
-fn placeholder_title_after_todo_prefix<'a>(
-    source_title: &str,
-    placeholder_title: &'a str,
-    stripped_source_title: &str,
-) -> Option<&'a str> {
-    let prefix_len = source_title
-        .len()
-        .checked_sub(stripped_source_title.len())?;
-    let source_prefix = source_title.get(..prefix_len)?;
-    let placeholder_prefix = placeholder_title.get(..prefix_len)?;
-    if placeholder_prefix != source_prefix {
-        return None;
-    }
-    placeholder_title.get(prefix_len..)
-}
-
-fn strip_leading_priority_cookie<'a>(title_raw: &'a str, priority: Option<&str>) -> &'a str {
-    let Some(priority) = priority else {
-        return title_raw;
-    };
-
-    let trimmed = title_raw.trim_start();
-    let prefix = format!("[#{priority}]");
-    let Some(remainder) = trimmed.strip_prefix(&prefix) else {
-        return title_raw;
-    };
-    if remainder.is_empty() {
-        ""
-    } else if remainder.starts_with(char::is_whitespace) {
-        remainder.trim_start()
-    } else {
-        title_raw
-    }
-}
-
-/// True for `[TODO] COMMENT [#A] ...`, where Org does not read a priority.
-fn cookie_follows_comment(title_raw: &str, todo_keyword: Option<&str>) -> bool {
-    let mut rest = title_raw.trim_start();
-    if let Some(keyword) = todo_keyword {
-        let Some(after_keyword) = rest.strip_prefix(keyword) else {
-            return false;
-        };
-        rest = after_keyword.trim_start();
-    }
-    let Some(after_comment) = rest.strip_prefix("COMMENT") else {
-        return false;
-    };
-    (after_comment.is_empty() || after_comment.starts_with(char::is_whitespace))
-        && priority_cookie_value(after_comment.trim_start()).is_some()
-}
-
-fn priority_from_source_title(title_raw: &str) -> Option<String> {
-    let trimmed = title_raw.trim_start();
-    let candidate = priority_cookie_value(trimmed).or_else(|| {
-        trimmed
-            .split_once(char::is_whitespace)
-            .and_then(|(_, remainder)| priority_cookie_value(remainder.trim_start()))
-    })?;
-    if candidate.bytes().all(|byte| byte.is_ascii_uppercase())
-        || candidate.bytes().all(|byte| byte.is_ascii_digit())
-    {
-        Some(candidate.to_string())
-    } else {
-        None
-    }
-}
-
-fn priority_cookie_value(value: &str) -> Option<&str> {
-    let value = value.strip_prefix("[#")?;
-    let (candidate, remainder) = value.split_once(']')?;
-    if candidate.is_empty()
-        || (!remainder.is_empty() && !remainder.starts_with(char::is_whitespace))
-    {
-        return None;
-    }
-    Some(candidate)
-}
-
-fn todo_type_for_keyword(keyword: &str, todo_keywords: &TodoKeywordConfig) -> Option<TodoType> {
-    if todo_keywords
-        .open
-        .iter()
-        .any(|candidate| candidate.name == keyword)
-    {
-        Some(TodoType::Open)
-    } else if todo_keywords
-        .closed
-        .iter()
-        .any(|candidate| candidate.name == keyword)
-    {
-        Some(TodoType::Closed)
-    } else {
-        None
-    }
-}
-
-fn todo_keyword_is_active(keyword: &str, todo_keywords: &TodoKeywordConfig) -> bool {
-    todo_keywords
-        .all_keywords()
-        .any(|candidate| candidate.name == keyword)
-}
-
-struct SourceHeadlineTitle {
-    raw: String,
-    range: Range<usize>,
-}
-
-fn source_title_from_content_line(content: &str, start: usize) -> SourceHeadlineTitle {
-    let line_start = content[..start]
-        .rfind('\n')
-        .map(|offset| offset + 1)
-        .unwrap_or(0);
-    let line_end = content[start..]
-        .find('\n')
-        .map(|offset| start + offset)
-        .unwrap_or(content.len());
-    let line = &content[line_start..line_end];
-    let without_stars = line.trim_start_matches('*').trim_start();
-    let without_tags = strip_trailing_org_tags(without_stars);
-    let raw = without_tags.trim();
-    let raw_start = line_start
-        + (line.len() - without_stars.len())
-        + (without_tags.len() - without_tags.trim_start().len());
-    SourceHeadlineTitle {
-        raw: raw.to_string(),
-        range: raw_start..raw_start + raw.len(),
-    }
-}
-
 fn placeholder_bracket_links_in_title(
     title_raw: &str,
     title_range: &Range<usize>,
@@ -1947,22 +1286,6 @@ fn placeholder_bracket_links_in_title(
         placeholders.push((token, visible));
     }
     (title, placeholders)
-}
-
-fn links_in_range<'a>(links: &'a [ParsedLink], range: &Range<usize>) -> &'a [ParsedLink] {
-    let first = links.partition_point(|link| link.byte_end <= range.start);
-    let last = first + links[first..].partition_point(|link| link.byte_start < range.end);
-    &links[first..last]
-}
-
-fn link_contains_range(links: &[ParsedLink], range: &Range<usize>) -> bool {
-    let index = links.partition_point(|link| link.byte_start <= range.start);
-    index
-        .checked_sub(1)
-        .and_then(|index| links.get(index))
-        .is_some_and(|link| {
-            link.format == "bracket" && link.byte_start <= range.start && range.end <= link.byte_end
-        })
 }
 
 fn render_link_description_for_title(raw_description: &str) -> String {
@@ -2018,83 +1341,4 @@ fn render_link_description_for_title(raw_description: &str) -> String {
         visible = visible.replace(&token, &raw);
     }
     visible
-}
-
-fn restore_title_link_placeholders(mut title: String, placeholders: &[(String, String)]) -> String {
-    for (token, visible) in placeholders {
-        title = title.replace(token, visible);
-    }
-    title
-}
-
-fn strip_trailing_org_tags(value: &str) -> &str {
-    let trimmed = value.trim_end();
-    let mut parts = trimmed.rsplitn(2, char::is_whitespace);
-    let last = parts.next().unwrap_or(trimmed);
-
-    if is_org_tag_block(last) {
-        parts.next().unwrap_or("").trim_end()
-    } else {
-        trimmed
-    }
-}
-
-fn is_org_tag_block(value: &str) -> bool {
-    value.starts_with(':')
-        && value.ends_with(':')
-        && value.len() > 2
-        && value[1..value.len() - 1].split(':').all(|segment| {
-            !segment.is_empty()
-                && segment
-                    .chars()
-                    .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '#' | '%'))
-        })
-}
-
-#[cfg(test)]
-mod range_tests {
-    use super::{link_contains_range, links_in_range};
-    use crate::parser::{ParsedLink, ParsedLinkSourceContext};
-
-    fn link(start: usize, end: usize, format: &str) -> ParsedLink {
-        ParsedLink {
-            source_context: ParsedLinkSourceContext::Normal,
-            format: format.to_string(),
-            raw: String::new(),
-            raw_target: String::new(),
-            logical_target: String::new(),
-            raw_description: None,
-            link_type: String::new(),
-            path: String::new(),
-            search_option: None,
-            byte_start: start,
-            byte_end: end,
-            target_byte_start: start,
-            target_byte_end: end,
-            description_byte_start: None,
-            description_byte_end: None,
-            line: 1,
-        }
-    }
-
-    #[test]
-    fn source_ordered_range_helpers_respect_boundaries_and_link_formats() {
-        let links = vec![
-            link(10, 20, "bracket"),
-            link(20, 30, "angle"),
-            link(30, 40, "bracket"),
-        ];
-        assert!(links_in_range(&[], &(0..1)).is_empty());
-        assert!(links_in_range(&links, &(0..10)).is_empty());
-        assert!(links_in_range(&links, &(40..50)).is_empty());
-        assert_eq!(links_in_range(&links, &(10..20)).len(), 1);
-        assert_eq!(links_in_range(&links, &(20..30))[0].format, "angle");
-        assert_eq!(links_in_range(&links, &(19..31)).len(), 3);
-        assert!(link_contains_range(&links, &(10..20)));
-        assert!(link_contains_range(&links, &(11..19)));
-        assert!(!link_contains_range(&links, &(20..30)));
-        assert!(link_contains_range(&links, &(30..40)));
-        assert!(!link_contains_range(&links, &(9..10)));
-        assert!(!link_contains_range(&links, &(40..41)));
-    }
 }
