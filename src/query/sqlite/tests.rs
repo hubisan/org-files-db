@@ -1,10 +1,9 @@
 use super::{
-    compile_sqlite_query, compile_sqlite_query_with_metadata_strategy, execute_sqlite_query,
-    execute_sqlite_query_with_options, execute_sqlite_query_with_relation_and_metadata_strategy,
-    expand_leading_home_path_with_home, heading_matched_relation_cost, params_from_iter,
-    sqlite_query_validation_options, FileQueryRow, HeadingQueryMatch, HeadingQueryRow,
-    LinkQueryRow, MatchedRelationCost, MetadataPredicateSqlStrategy, QueryExecutionErrorKind,
-    QueryParam, QueryRows,
+    compile_sqlite_query, execute_sqlite_query, execute_sqlite_query_with_options,
+    execute_sqlite_query_with_relation_and_metadata_strategy, expand_leading_home_path_with_home,
+    heading_matched_relation_cost, params_from_iter, sqlite_query_validation_options, FileQueryRow,
+    HeadingQueryMatch, HeadingQueryRow, LinkQueryRow, MatchedRelationCost,
+    MetadataPredicateSqlStrategy, QueryExecutionErrorKind, QueryParam, QueryRows,
 };
 use crate::db::{
     open_database, open_in_memory_database_with_schema, DbWriter, EffectivePropertyRecord,
@@ -14,20 +13,13 @@ use crate::db::{
 use crate::property::{derive_effective_properties, PropertyRow};
 use crate::query::{
     parse_query, resolve_relative_dates, resolve_temporal_bounds, validate_query,
-    QueryDateResolutionOptions, QueryExecutionOptions, QueryTarget, QueryValidationOptions,
+    QueryDateResolutionOptions, QueryExecutionOptions, QueryValidationOptions,
 };
 use crate::tag::derive_effective_tags;
 use crate::test_support::TestDir;
 use chrono::NaiveDate;
 use rusqlite::{limits::Limit, Connection};
 use std::{fs, path::Path};
-
-struct PlanningFixture<'a> {
-    kind: &'a str,
-    timestamp: Option<i64>,
-    has_time: Option<bool>,
-    raw_value: &'a str,
-}
 
 fn validation_options() -> QueryValidationOptions {
     QueryValidationOptions {
@@ -1164,20 +1156,6 @@ fn nested_relation_heading_scopes_do_not_filter_out_synthetic_roots() {
 }
 
 #[test]
-fn compile_supports_documented_outline_and_hierarchy_heading_predicates() {
-    for query in [
-        r#"(headings (outline-contains "Query"))"#,
-        r#"(headings (outline-sequence "Query" "Nested"))"#,
-        r#"(headings (parent))"#,
-        r#"(headings (children))"#,
-        r#"(headings (ancestors))"#,
-        r#"(headings (descendants))"#,
-    ] {
-        compile_sqlite_query(&validated(query)).expect("query should compile");
-    }
-}
-
-#[test]
 fn execution_matches_outline_predicates() {
     let connection = seeded_connection();
 
@@ -1429,39 +1407,6 @@ fn production_metadata_strategy_compiles_indexable_equality_subqueries() {
     assert!(regexp
         .sql
         .contains("EXISTS (SELECT 1 FROM effective_properties"));
-}
-
-#[test]
-fn predicate_driven_metadata_strategy_compiles_indexable_subqueries() {
-    let tag = compile_sqlite_query_with_metadata_strategy(
-        &validated(r#"(headings (and (level 1) (tags "urgent" :inherit nil)))"#),
-        false,
-        MetadataPredicateSqlStrategy::PredicateDrivenIn,
-    )
-    .expect("predicate-driven tag query should compile");
-    assert!(tag
-        .sql
-        .contains("IN (SELECT tags.heading_id FROM tags WHERE tags.tag IN"));
-
-    let property = compile_sqlite_query_with_metadata_strategy(
-        &validated(r#"(headings (and (level 1) (property "OWNER" "Bob" :inherit nil)))"#),
-        false,
-        MetadataPredicateSqlStrategy::PredicateDrivenIn,
-    )
-    .expect("predicate-driven property query should compile");
-    assert!(property.sql.contains(
-        "IN (SELECT heading_id FROM effective_properties WHERE key = ? AND local_value IS NOT NULL AND local_value = ?"
-    ));
-
-    let keyword = compile_sqlite_query_with_metadata_strategy(
-        &validated(r#"(headings (and (level 1) (keyword "AUTHOR" "Alice" :inherit nil)))"#),
-        false,
-        MetadataPredicateSqlStrategy::PredicateDrivenIn,
-    )
-    .expect("predicate-driven keyword query should compile");
-    assert!(keyword.sql.contains(
-        "IN (SELECT keywords.heading_id FROM keywords WHERE orgfdb_lower(keywords.keyword) = orgfdb_lower(?) AND keywords.value = ?"
-    ));
 }
 
 #[test]
@@ -2652,30 +2597,6 @@ fn bare_headings_query_returns_file_roots_and_real_headings() {
 }
 
 #[test]
-fn compile_has_text_uses_correlated_exists_with_bound_params() {
-    let compiled = compile_sqlite_query(&validated(
-        r#"(headings (has-text "sqlite" "fts" "x' OR 1=1 --"))"#,
-    ))
-    .expect("query should compile");
-
-    assert_eq!(compiled.target, QueryTarget::Headings);
-    assert_eq!(compiled.params.len(), 3);
-    assert_eq!(
-        compiled.params,
-        vec![
-            super::QueryParam::Text("sqlite".to_string()),
-            super::QueryParam::Text("fts".to_string()),
-            super::QueryParam::Text("x' OR 1=1 --".to_string()),
-        ]
-    );
-    assert!(compiled.sql.contains("FROM heading_bodies"));
-    assert!(compiled.sql.contains("heading_bodies.heading_id = h0.id"));
-    assert!(compiled.sql.matches("EXISTS (").count() >= 3);
-    assert!(!compiled.sql.contains("x' OR 1=1 --"));
-    assert!(!compiled.sql.contains("1=1 --"));
-}
-
-#[test]
 fn execution_matches_has_text_against_persisted_heading_bodies() {
     let connection = seeded_connection();
 
@@ -3667,213 +3588,286 @@ fn seeded_connection() -> Connection {
     connection
 }
 
+const DRAWER: &str = "property_drawer";
+const KEYWORD: &str = "property_keyword";
+
+fn file_input(path: &Path, mtime_ns: i64, size: i64, indexed_at: i64) -> FileRecordInput {
+    FileRecordInput {
+        path: path.to_path_buf(),
+        identity: None,
+        mtime_ns,
+        size,
+        content_hash: None,
+        indexed_at: Some(indexed_at),
+    }
+}
+
+fn base_heading(
+    file_id: i64,
+    parent_id: Option<i64>,
+    id: i64,
+    line_number: i64,
+    title: &str,
+) -> HeadingRecord {
+    HeadingRecord {
+        id: Some(id),
+        file_id,
+        parent_id,
+        level: if parent_id.is_some() { 1 } else { 0 },
+        line_number: (line_number > 0).then_some(line_number),
+        byte_start: if line_number > 0 {
+            line_number * 10
+        } else {
+            -1
+        },
+        byte_end: if line_number > 0 {
+            line_number * 10 + 5
+        } else {
+            100
+        },
+        title: title.to_string(),
+        title_raw: Some(title.to_string()),
+        todo_keyword: None,
+        todo_type: None,
+        priority: None,
+        scheduled_raw: None,
+        scheduled_ts: None,
+        scheduled_has_time: None,
+        deadline_raw: None,
+        deadline_ts: None,
+        deadline_has_time: None,
+        closed_raw: None,
+        closed_ts: None,
+        closed_has_time: None,
+        archivedp: false,
+        footnote_section_p: false,
+    }
+}
+
+/// Builder-style tweaks on top of `base_heading`.
+trait HeadingFixture: Sized {
+    fn bytes(self, start: i64, end: i64) -> Self;
+    fn level(self, level: i64) -> Self;
+    fn raw_title(self, raw: &str) -> Self;
+    fn todo(self, keyword: &str, priority: &str) -> Self;
+    fn scheduled(self, raw: &str, ts: i64) -> Self;
+}
+
+impl HeadingFixture for HeadingRecord {
+    fn bytes(mut self, start: i64, end: i64) -> Self {
+        self.byte_start = start;
+        self.byte_end = end;
+        self
+    }
+    fn level(mut self, level: i64) -> Self {
+        self.level = level;
+        self
+    }
+    fn raw_title(mut self, raw: &str) -> Self {
+        self.title_raw = Some(raw.to_string());
+        self
+    }
+    fn todo(mut self, keyword: &str, priority: &str) -> Self {
+        self.todo_keyword = Some(keyword.to_string());
+        self.todo_type = Some("open".to_string());
+        self.priority = Some(priority.to_string());
+        self
+    }
+    fn scheduled(mut self, raw: &str, ts: i64) -> Self {
+        self.scheduled_raw = Some(raw.to_string());
+        self.scheduled_ts = Some(ts);
+        self
+    }
+}
+
+/// Derives outline rows (materialized path and breadcrumbs) for a heading tree
+/// listed parents-first, numbering siblings in list order.
+fn outline_rows(file_id: i64, headings: &[HeadingRecord]) -> Vec<OutlinePathRecord> {
+    let mut rows: Vec<OutlinePathRecord> = Vec::new();
+    let mut crumbs: std::collections::HashMap<i64, Vec<String>> = Default::default();
+    let mut children: std::collections::HashMap<i64, usize> = Default::default();
+    for heading in headings {
+        let id = heading.id.expect("fixture headings carry ids");
+        let (path, depth, mut trail) = match heading.parent_id {
+            None => ("0000".to_string(), 0, Vec::new()),
+            Some(parent) => {
+                let count = children.entry(parent).or_default();
+                *count += 1;
+                let parent_row = rows.iter().find(|row| row.heading_id == parent).unwrap();
+                (
+                    format!("{}.{:04}", parent_row.materialized_path, count),
+                    parent_row.depth + 1,
+                    crumbs[&parent].clone(),
+                )
+            }
+        };
+        trail.push(format!("\"{}\"", heading.title));
+        rows.push(OutlinePathRecord {
+            heading_id: id,
+            file_id,
+            parent_id: heading.parent_id,
+            depth,
+            materialized_path: path,
+            breadcrumbs_json: format!("[{}]", trail.join(",")),
+        });
+        crumbs.insert(id, trail);
+    }
+    rows
+}
+
+fn tag_rows(rows: &[(i64, &str)]) -> Vec<TagRecord> {
+    rows.iter()
+        .map(|&(heading_id, tag)| TagRecord {
+            heading_id,
+            tag: tag.to_string(),
+        })
+        .collect()
+}
+
+fn keyword_row(heading_id: i64, keyword: &str, value: &str) -> KeywordRecord {
+    KeywordRecord {
+        heading_id,
+        keyword: keyword.to_string(),
+        value: Some(value.to_string()),
+        line_number: Some(1),
+    }
+}
+
+/// Rows are `(heading_id, key, value, source, append, line_number)`.
+fn property_rows_from(rows: &[(i64, &str, &str, &str, bool, i64)]) -> Vec<PropertyRecord> {
+    rows.iter()
+        .map(
+            |&(heading_id, key, value, source, append, line_number)| PropertyRecord {
+                heading_id,
+                key: key.to_string(),
+                value: Some(value.to_string()),
+                source: source.to_string(),
+                append,
+                line_number: Some(line_number),
+            },
+        )
+        .collect()
+}
+
+/// Builds a bracket link from its raw text, e.g. `[[file:a.org::*H][desc]]`.
+fn link_row(
+    id: i64,
+    file_id: i64,
+    heading_id: i64,
+    (byte_start, byte_end): (i64, i64),
+    line: i64,
+    raw: &str,
+) -> LinkRecord {
+    let inner = raw.trim_start_matches("[[").trim_end_matches("]]");
+    let (target, description) = match inner.split_once("][") {
+        Some((target, description)) => (target, Some(description.to_string())),
+        None => (inner, None),
+    };
+    let (link_type, rest) = target.split_once(':').expect("link target has a type");
+    let (path, search_option) = match rest.split_once("::") {
+        Some((path, search)) => (path, Some(search.to_string())),
+        None => (rest, None),
+    };
+    LinkRecord {
+        id: Some(id),
+        file_id,
+        heading_id,
+        byte_start,
+        byte_end,
+        line,
+        source_context: "normal".to_string(),
+        format: "bracket".to_string(),
+        raw: raw.to_string(),
+        raw_target: target.to_string(),
+        raw_description: description,
+        link_type: link_type.to_string(),
+        path: path.to_string(),
+        search_option,
+    }
+}
+
+fn resolve_link(
+    connection: &Connection,
+    id: i64,
+    path: &Path,
+    target_file_id: i64,
+    target_heading_id: i64,
+) {
+    connection
+        .execute(
+            "UPDATE links
+             SET path_absolute = ?1,
+                 target_file_id = ?2,
+                 target_heading_id = ?3,
+                 resolution_status = 'resolved'
+             WHERE id = ?4",
+            rusqlite::params![
+                path.to_string_lossy().to_string(),
+                target_file_id,
+                target_heading_id,
+                id
+            ],
+        )
+        .expect("link target should update");
+}
+
+/// `(id, title, (year, month, day, hour, minute), weekday)`
+type ScheduledFixture = (i64, &'static str, (i32, u32, u32, u32, u32), &'static str);
+
 fn date_bound_test_connection() -> Connection {
     let schema = SchemaDefinition::new(3, false);
     let mut connection =
         open_in_memory_database_with_schema(&schema).expect("database should open");
+    let file = file_input(
+        Path::new("/tmp/date-bounds.org"),
+        naive_date_time_seconds(2026, 1, 3, 0, 0) * 1_000_000_000,
+        100,
+        naive_date_time_seconds(2026, 1, 3, 0, 1),
+    );
 
-    let file = FileRecordInput {
-        path: Path::new("/tmp/date-bounds.org").to_path_buf(),
-        identity: None,
-        mtime_ns: naive_date_time_seconds(2026, 1, 3, 0, 0) * 1_000_000_000,
-        size: 100,
-        content_hash: None,
-        indexed_at: Some(naive_date_time_seconds(2026, 1, 3, 0, 1)),
-    };
+    // (id, title, (y, m, d, h, min), weekday); list order is heading line order.
+    let scheduled: [ScheduledFixture; 8] = [
+        (100, "Start Of Day", (2026, 1, 3, 0, 0), "Sat"),
+        (101, "Morning Task", (2026, 1, 3, 9, 15), "Sat"),
+        (102, "Late Task", (2026, 1, 3, 23, 59), "Sat"),
+        (103, "Dst Task", (2026, 3, 29, 2, 30), "Sun"),
+        (106, "Month End Task", (2026, 1, 31, 23, 59), "Sat"),
+        (107, "February Start Task", (2026, 2, 1, 0, 0), "Sun"),
+        (104, "Year End Task", (2026, 12, 31, 23, 59), "Thu"),
+        (105, "Next Year Task", (2027, 1, 1, 0, 0), "Fri"),
+    ];
 
     DbWriter::rebuild_file(&mut connection, &file, |tx, file_id| {
-        let root_id = DbWriter::insert_level0_heading(
-            tx,
-            &HeadingRecord {
-                id: Some(90),
-                file_id,
-                parent_id: None,
-                level: 0,
-                line_number: None,
-                byte_start: -1,
-                byte_end: 100,
-                title: "Date Bounds".to_string(),
-                title_raw: Some("Date Bounds".to_string()),
-                todo_keyword: None,
-                todo_type: None,
-                priority: None,
-                scheduled_raw: None,
-                scheduled_ts: None,
-                scheduled_has_time: None,
-                deadline_raw: None,
-                deadline_ts: None,
-                deadline_has_time: None,
-                closed_raw: None,
-                closed_ts: None,
-                closed_has_time: None,
-                archivedp: false,
-                footnote_section_p: false,
-            },
-        )?;
-
-        DbWriter::insert_headings(
-            tx,
-            &[
-                scheduled_heading(
-                    file_id,
-                    root_id,
-                    100,
-                    1,
-                    "Start Of Day",
-                    naive_date_time_seconds(2026, 1, 3, 0, 0),
-                    "<2026-01-03 00:00>",
-                ),
-                scheduled_heading(
-                    file_id,
-                    root_id,
-                    101,
-                    2,
-                    "Morning Task",
-                    naive_date_time_seconds(2026, 1, 3, 9, 15),
-                    "<2026-01-03 09:15>",
-                ),
-                scheduled_heading(
-                    file_id,
-                    root_id,
-                    102,
-                    3,
-                    "Late Task",
-                    naive_date_time_seconds(2026, 1, 3, 23, 59),
-                    "<2026-01-03 23:59>",
-                ),
-                scheduled_heading(
-                    file_id,
-                    root_id,
-                    103,
-                    4,
-                    "Dst Task",
-                    naive_date_time_seconds(2026, 3, 29, 2, 30),
-                    "<2026-03-29 02:30>",
-                ),
-                scheduled_heading(
-                    file_id,
-                    root_id,
-                    106,
-                    5,
-                    "Month End Task",
-                    naive_date_time_seconds(2026, 1, 31, 23, 59),
-                    "<2026-01-31 23:59>",
-                ),
-                scheduled_heading(
-                    file_id,
-                    root_id,
-                    107,
-                    6,
-                    "February Start Task",
-                    naive_date_time_seconds(2026, 2, 1, 0, 0),
-                    "<2026-02-01 00:00>",
-                ),
-                scheduled_heading(
-                    file_id,
-                    root_id,
-                    104,
-                    7,
-                    "Year End Task",
-                    naive_date_time_seconds(2026, 12, 31, 23, 59),
-                    "<2026-12-31 23:59>",
-                ),
-                scheduled_heading(
-                    file_id,
-                    root_id,
-                    105,
-                    8,
-                    "Next Year Task",
-                    naive_date_time_seconds(2027, 1, 1, 0, 0),
-                    "<2027-01-01 00:00>",
-                ),
-            ],
-        )?;
-
-        DbWriter::insert_outline_path(
-            tx,
-            &[
-                outline_row(90, file_id, None, 0, "0000", "[\"Date Bounds\"]"),
-                outline_row(
-                    100,
-                    file_id,
-                    Some(90),
-                    1,
-                    "0000.0001",
-                    "[\"Date Bounds\",\"Start Of Day\"]",
-                ),
-                outline_row(
-                    101,
-                    file_id,
-                    Some(90),
-                    1,
-                    "0000.0002",
-                    "[\"Date Bounds\",\"Morning Task\"]",
-                ),
-                outline_row(
-                    102,
-                    file_id,
-                    Some(90),
-                    1,
-                    "0000.0003",
-                    "[\"Date Bounds\",\"Late Task\"]",
-                ),
-                outline_row(
-                    103,
-                    file_id,
-                    Some(90),
-                    1,
-                    "0000.0004",
-                    "[\"Date Bounds\",\"Dst Task\"]",
-                ),
-                outline_row(
-                    106,
-                    file_id,
-                    Some(90),
-                    1,
-                    "0000.0005",
-                    "[\"Date Bounds\",\"Month End Task\"]",
-                ),
-                outline_row(
-                    107,
-                    file_id,
-                    Some(90),
-                    1,
-                    "0000.0006",
-                    "[\"Date Bounds\",\"February Start Task\"]",
-                ),
-                outline_row(
-                    104,
-                    file_id,
-                    Some(90),
-                    1,
-                    "0000.0007",
-                    "[\"Date Bounds\",\"Year End Task\"]",
-                ),
-                outline_row(
-                    105,
-                    file_id,
-                    Some(90),
-                    1,
-                    "0000.0008",
-                    "[\"Date Bounds\",\"Next Year Task\"]",
-                ),
-            ],
-        )?;
-
-        DbWriter::insert_timestamps(
-            tx,
-            &[
-                scheduled_timestamp(100, 2026, 1, 3, 0, 0, "<2026-01-03 Sat 00:00>"),
-                scheduled_timestamp(101, 2026, 1, 3, 9, 15, "<2026-01-03 Sat 09:15>"),
-                scheduled_timestamp(102, 2026, 1, 3, 23, 59, "<2026-01-03 Sat 23:59>"),
-                scheduled_timestamp(103, 2026, 3, 29, 2, 30, "<2026-03-29 Sun 02:30>"),
-                scheduled_timestamp(106, 2026, 1, 31, 23, 59, "<2026-01-31 Sat 23:59>"),
-                scheduled_timestamp(107, 2026, 2, 1, 0, 0, "<2026-02-01 Sun 00:00>"),
-                scheduled_timestamp(104, 2026, 12, 31, 23, 59, "<2026-12-31 Thu 23:59>"),
-                scheduled_timestamp(105, 2027, 1, 1, 0, 0, "<2027-01-01 Fri 00:00>"),
-            ],
-        )?;
-
+        let root = base_heading(file_id, None, 90, 0, "Date Bounds");
+        let root_id = DbWriter::insert_level0_heading(tx, &root)?;
+        let children = scheduled
+            .iter()
+            .enumerate()
+            .map(|(index, &(id, title, (y, m, d, h, min), _))| {
+                base_heading(file_id, Some(root_id), id, index as i64 + 1, title).scheduled(
+                    &format!("<{y}-{m:02}-{d:02} {h:02}:{min:02}>"),
+                    naive_date_time_seconds(y, m, d, h, min),
+                )
+            })
+            .collect::<Vec<_>>();
+        DbWriter::insert_headings(tx, &children)?;
+        let all = [vec![root], children].concat();
+        DbWriter::insert_outline_path(tx, &outline_rows(file_id, &all))?;
+        let timestamps = scheduled
+            .iter()
+            .map(|&(id, _, (y, m, d, h, min), weekday)| {
+                scheduled_timestamp(
+                    id,
+                    y,
+                    m,
+                    d,
+                    h,
+                    min,
+                    &format!("<{y}-{m:02}-{d:02} {weekday} {h:02}:{min:02}>"),
+                )
+            })
+            .collect::<Vec<_>>();
+        DbWriter::insert_timestamps(tx, &timestamps)?;
         Ok(())
     })
     .expect("date bound fixture should seed");
@@ -3881,281 +3875,135 @@ fn date_bound_test_connection() -> Connection {
     connection
 }
 
+fn scheduled_timestamp(
+    heading_id: i64,
+    year: i32,
+    month: u32,
+    day: u32,
+    hour: u32,
+    minute: u32,
+    raw_value: &str,
+) -> TimestampRecord {
+    TimestampRecord {
+        heading_id,
+        role: Some("scheduled".to_string()),
+        has_time: None,
+        start_ts: Some(naive_date_time_seconds(year, month, day, hour, minute)),
+        end_ts: None,
+        timestamp_type: Some("active".to_string()),
+        range_type: Some("none".to_string()),
+        raw_value: raw_value.to_string(),
+        byte_start: heading_id,
+        byte_end: heading_id + 1,
+        line_number: Some(heading_id - 99),
+    }
+}
+
 fn temporal_test_connection() -> Connection {
     let mut connection = open_in_memory_database_with_schema(&SchemaDefinition::default())
         .expect("database should open");
-    let file = FileRecordInput {
-        path: Path::new("/tmp/temporal-predicates.org").to_path_buf(),
-        identity: None,
-        mtime_ns: naive_date_time_seconds(2026, 1, 3, 0, 0) * 1_000_000_000,
-        size: 100,
-        content_hash: None,
-        indexed_at: Some(naive_date_time_seconds(2026, 1, 3, 0, 1)),
-    };
+    let file = file_input(
+        Path::new("/tmp/temporal-predicates.org"),
+        naive_date_time_seconds(2026, 1, 3, 0, 0) * 1_000_000_000,
+        100,
+        naive_date_time_seconds(2026, 1, 3, 0, 1),
+    );
+
+    // (title, kind, has_time, hour, minute); heading ids run 201.. in list order.
+    // Planning kinds set the heading column; active/inactive add a generic timestamp.
+    let rows: [(&str, &str, Option<bool>, u32, u32); 20] = [
+        ("Scheduled Date Only", "scheduled", Some(false), 0, 0),
+        ("Scheduled Timed", "scheduled", Some(true), 9, 15),
+        ("Scheduled Midnight", "scheduled", Some(true), 0, 0),
+        ("Scheduled Unknown", "scheduled", None, 12, 0),
+        ("Deadline Date Only", "deadline", Some(false), 0, 0),
+        ("Deadline Timed", "deadline", Some(true), 10, 45),
+        ("Deadline Midnight", "deadline", Some(true), 0, 0),
+        ("Deadline Unknown", "deadline", None, 18, 0),
+        ("Closed Date Only", "closed", Some(false), 0, 0),
+        ("Closed Timed", "closed", Some(true), 11, 30),
+        ("Closed Midnight", "closed", Some(true), 0, 0),
+        ("Closed Unknown", "closed", None, 16, 0),
+        ("Active Date Only", "active", Some(false), 0, 0),
+        ("Active Timed", "active", Some(true), 9, 15),
+        ("Active Midnight", "active", Some(true), 0, 0),
+        ("Active Unknown", "active", None, 12, 0),
+        ("Inactive Date Only", "inactive", Some(false), 0, 0),
+        ("Inactive Timed", "inactive", Some(true), 13, 45),
+        ("Inactive Midnight", "inactive", Some(true), 0, 0),
+        ("Inactive Unknown", "inactive", None, 17, 0),
+    ];
 
     DbWriter::rebuild_file(&mut connection, &file, |tx, file_id| {
-        let root_id =
-            DbWriter::insert_level0_heading(tx, &base_heading(file_id, None, 200, 0, "With Time"))?;
-
-        let headings = vec![
-            planning_heading(
-                file_id,
-                root_id,
-                201,
-                1,
-                "Scheduled Date Only",
-                PlanningFixture {
-                    kind: "scheduled",
-                    timestamp: Some(naive_date_time_seconds(2026, 1, 3, 0, 0)),
-                    has_time: Some(false),
-                    raw_value: "<2026-01-03 Sat>",
-                },
-            ),
-            planning_heading(
-                file_id,
-                root_id,
-                202,
-                2,
-                "Scheduled Timed",
-                PlanningFixture {
-                    kind: "scheduled",
-                    timestamp: Some(naive_date_time_seconds(2026, 1, 3, 9, 15)),
-                    has_time: Some(true),
-                    raw_value: "<2026-01-03 Sat 09:15>",
-                },
-            ),
-            planning_heading(
-                file_id,
-                root_id,
-                203,
-                3,
-                "Scheduled Midnight",
-                PlanningFixture {
-                    kind: "scheduled",
-                    timestamp: Some(naive_date_time_seconds(2026, 1, 3, 0, 0)),
-                    has_time: Some(true),
-                    raw_value: "<2026-01-03 Sat 00:00>",
-                },
-            ),
-            planning_heading(
-                file_id,
-                root_id,
-                204,
-                4,
-                "Scheduled Unknown",
-                PlanningFixture {
-                    kind: "scheduled",
-                    timestamp: Some(naive_date_time_seconds(2026, 1, 3, 12, 0)),
-                    has_time: None,
-                    raw_value: "<2026-01-03 Sat 12:00>",
-                },
-            ),
-            planning_heading(
-                file_id,
-                root_id,
-                205,
-                5,
-                "Deadline Date Only",
-                PlanningFixture {
-                    kind: "deadline",
-                    timestamp: Some(naive_date_time_seconds(2026, 1, 3, 0, 0)),
-                    has_time: Some(false),
-                    raw_value: "<2026-01-03 Sat>",
-                },
-            ),
-            planning_heading(
-                file_id,
-                root_id,
-                206,
-                6,
-                "Deadline Timed",
-                PlanningFixture {
-                    kind: "deadline",
-                    timestamp: Some(naive_date_time_seconds(2026, 1, 3, 10, 45)),
-                    has_time: Some(true),
-                    raw_value: "<2026-01-03 Sat 10:45>",
-                },
-            ),
-            planning_heading(
-                file_id,
-                root_id,
-                207,
-                7,
-                "Deadline Midnight",
-                PlanningFixture {
-                    kind: "deadline",
-                    timestamp: Some(naive_date_time_seconds(2026, 1, 3, 0, 0)),
-                    has_time: Some(true),
-                    raw_value: "<2026-01-03 Sat 00:00>",
-                },
-            ),
-            planning_heading(
-                file_id,
-                root_id,
-                208,
-                8,
-                "Deadline Unknown",
-                PlanningFixture {
-                    kind: "deadline",
-                    timestamp: Some(naive_date_time_seconds(2026, 1, 3, 18, 0)),
-                    has_time: None,
-                    raw_value: "<2026-01-03 Sat 18:00>",
-                },
-            ),
-            planning_heading(
-                file_id,
-                root_id,
-                209,
-                9,
-                "Closed Date Only",
-                PlanningFixture {
-                    kind: "closed",
-                    timestamp: Some(naive_date_time_seconds(2026, 1, 3, 0, 0)),
-                    has_time: Some(false),
-                    raw_value: "[2026-01-03 Sat]",
-                },
-            ),
-            planning_heading(
-                file_id,
-                root_id,
-                210,
-                10,
-                "Closed Timed",
-                PlanningFixture {
-                    kind: "closed",
-                    timestamp: Some(naive_date_time_seconds(2026, 1, 3, 11, 30)),
-                    has_time: Some(true),
-                    raw_value: "[2026-01-03 Sat 11:30]",
-                },
-            ),
-            planning_heading(
-                file_id,
-                root_id,
-                211,
-                11,
-                "Closed Midnight",
-                PlanningFixture {
-                    kind: "closed",
-                    timestamp: Some(naive_date_time_seconds(2026, 1, 3, 0, 0)),
-                    has_time: Some(true),
-                    raw_value: "[2026-01-03 Sat 00:00]",
-                },
-            ),
-            planning_heading(
-                file_id,
-                root_id,
-                212,
-                12,
-                "Closed Unknown",
-                PlanningFixture {
-                    kind: "closed",
-                    timestamp: Some(naive_date_time_seconds(2026, 1, 3, 16, 0)),
-                    has_time: None,
-                    raw_value: "[2026-01-03 Sat 16:00]",
-                },
-            ),
-            base_heading(file_id, Some(root_id), 213, 13, "Active Date Only"),
-            base_heading(file_id, Some(root_id), 214, 14, "Active Timed"),
-            base_heading(file_id, Some(root_id), 215, 15, "Active Midnight"),
-            base_heading(file_id, Some(root_id), 216, 16, "Active Unknown"),
-            base_heading(file_id, Some(root_id), 217, 17, "Inactive Date Only"),
-            base_heading(file_id, Some(root_id), 218, 18, "Inactive Timed"),
-            base_heading(file_id, Some(root_id), 219, 19, "Inactive Midnight"),
-            base_heading(file_id, Some(root_id), 220, 20, "Inactive Unknown"),
-        ];
+        let root = base_heading(file_id, None, 200, 0, "With Time");
+        let root_id = DbWriter::insert_level0_heading(tx, &root)?;
+        let mut headings = Vec::new();
+        let mut timestamps = Vec::new();
+        for (index, &(title, kind, has_time, hour, minute)) in rows.iter().enumerate() {
+            let id = 201 + index as i64;
+            let ts = naive_date_time_seconds(2026, 1, 3, hour, minute);
+            let time = if has_time == Some(false) {
+                String::new()
+            } else {
+                format!(" {hour:02}:{minute:02}")
+            };
+            let raw = if matches!(kind, "closed" | "inactive") {
+                format!("[2026-01-03 Sat{time}]")
+            } else {
+                format!("<2026-01-03 Sat{time}>")
+            };
+            let mut heading = base_heading(file_id, Some(root_id), id, index as i64 + 1, title);
+            match kind {
+                "scheduled" => {
+                    heading.scheduled_raw = Some(raw);
+                    heading.scheduled_ts = Some(ts);
+                    heading.scheduled_has_time = has_time;
+                }
+                "deadline" => {
+                    heading.deadline_raw = Some(raw);
+                    heading.deadline_ts = Some(ts);
+                    heading.deadline_has_time = has_time;
+                }
+                "closed" => {
+                    heading.closed_raw = Some(raw);
+                    heading.closed_ts = Some(ts);
+                    heading.closed_has_time = has_time;
+                }
+                _ => timestamps.push(generic_timestamp(id, has_time, ts, kind, &raw)),
+            }
+            headings.push(heading);
+        }
         DbWriter::insert_headings(tx, &headings)?;
-
-        let outline_rows = (1_i64..=20_i64)
-            .map(|line_number| {
-                let heading_id = 200 + line_number;
-                outline_row(
-                    heading_id,
-                    file_id,
-                    Some(root_id),
-                    1,
-                    &format!("0000.{line_number:04}"),
-                    &format!("[\"With Time\",\"{}\"]", heading_title(heading_id)),
-                )
-            })
-            .collect::<Vec<_>>();
-        let mut outline_rows_with_root = vec![outline_row(
-            200,
-            file_id,
-            None,
-            0,
-            "0000",
-            "[\"With Time\"]",
-        )];
-        outline_rows_with_root.extend(outline_rows);
-        DbWriter::insert_outline_path(tx, &outline_rows_with_root)?;
-
-        DbWriter::insert_timestamps(
-            tx,
-            &[
-                generic_timestamp(
-                    213,
-                    Some(false),
-                    naive_date_time_seconds(2026, 1, 3, 0, 0),
-                    "active",
-                    "<2026-01-03 Sat>",
-                ),
-                generic_timestamp(
-                    214,
-                    Some(true),
-                    naive_date_time_seconds(2026, 1, 3, 9, 15),
-                    "active",
-                    "<2026-01-03 Sat 09:15>",
-                ),
-                generic_timestamp(
-                    215,
-                    Some(true),
-                    naive_date_time_seconds(2026, 1, 3, 0, 0),
-                    "active",
-                    "<2026-01-03 Sat 00:00>",
-                ),
-                generic_timestamp(
-                    216,
-                    None,
-                    naive_date_time_seconds(2026, 1, 3, 12, 0),
-                    "active",
-                    "<2026-01-03 Sat 12:00>",
-                ),
-                generic_timestamp(
-                    217,
-                    Some(false),
-                    naive_date_time_seconds(2026, 1, 3, 0, 0),
-                    "inactive",
-                    "[2026-01-03 Sat]",
-                ),
-                generic_timestamp(
-                    218,
-                    Some(true),
-                    naive_date_time_seconds(2026, 1, 3, 13, 45),
-                    "inactive",
-                    "[2026-01-03 Sat 13:45]",
-                ),
-                generic_timestamp(
-                    219,
-                    Some(true),
-                    naive_date_time_seconds(2026, 1, 3, 0, 0),
-                    "inactive",
-                    "[2026-01-03 Sat 00:00]",
-                ),
-                generic_timestamp(
-                    220,
-                    None,
-                    naive_date_time_seconds(2026, 1, 3, 17, 0),
-                    "inactive",
-                    "[2026-01-03 Sat 17:00]",
-                ),
-            ],
-        )?;
-
+        let all = [vec![root], headings].concat();
+        DbWriter::insert_outline_path(tx, &outline_rows(file_id, &all))?;
+        DbWriter::insert_timestamps(tx, &timestamps)?;
         Ok(())
     })
     .expect("temporal predicate fixture should seed");
 
     connection
+}
+
+fn generic_timestamp(
+    heading_id: i64,
+    has_time: Option<bool>,
+    start_ts: i64,
+    timestamp_type: &str,
+    raw_value: &str,
+) -> TimestampRecord {
+    TimestampRecord {
+        heading_id,
+        role: None,
+        has_time,
+        start_ts: Some(start_ts),
+        end_ts: None,
+        timestamp_type: Some(timestamp_type.to_string()),
+        range_type: Some("none".to_string()),
+        raw_value: raw_value.to_string(),
+        byte_start: heading_id,
+        byte_end: heading_id + 1,
+        line_number: Some(heading_id - 200),
+    }
 }
 
 fn reduced_body_text_capability_connection(
@@ -4189,130 +4037,6 @@ value   TEXT NOT NULL
     connection
 }
 
-fn base_heading(
-    file_id: i64,
-    parent_id: Option<i64>,
-    id: i64,
-    line_number: i64,
-    title: &str,
-) -> HeadingRecord {
-    HeadingRecord {
-        id: Some(id),
-        file_id,
-        parent_id,
-        level: if parent_id.is_some() { 1 } else { 0 },
-        line_number: if line_number > 0 {
-            Some(line_number)
-        } else {
-            None
-        },
-        byte_start: if line_number > 0 {
-            line_number * 10
-        } else {
-            -1
-        },
-        byte_end: if line_number > 0 {
-            line_number * 10 + 5
-        } else {
-            100
-        },
-        title: title.to_string(),
-        title_raw: Some(title.to_string()),
-        todo_keyword: None,
-        todo_type: None,
-        priority: None,
-        scheduled_raw: None,
-        scheduled_ts: None,
-        scheduled_has_time: None,
-        deadline_raw: None,
-        deadline_ts: None,
-        deadline_has_time: None,
-        closed_raw: None,
-        closed_ts: None,
-        closed_has_time: None,
-        archivedp: false,
-        footnote_section_p: false,
-    }
-}
-
-fn planning_heading(
-    file_id: i64,
-    root_id: i64,
-    id: i64,
-    line_number: i64,
-    title: &str,
-    planning: PlanningFixture<'_>,
-) -> HeadingRecord {
-    let mut heading = base_heading(file_id, Some(root_id), id, line_number, title);
-    match planning.kind {
-        "scheduled" => {
-            heading.scheduled_raw = Some(planning.raw_value.to_string());
-            heading.scheduled_ts = planning.timestamp;
-            heading.scheduled_has_time = planning.has_time;
-        }
-        "deadline" => {
-            heading.deadline_raw = Some(planning.raw_value.to_string());
-            heading.deadline_ts = planning.timestamp;
-            heading.deadline_has_time = planning.has_time;
-        }
-        "closed" => {
-            heading.closed_raw = Some(planning.raw_value.to_string());
-            heading.closed_ts = planning.timestamp;
-            heading.closed_has_time = planning.has_time;
-        }
-        _ => unreachable!("unexpected planning heading kind"),
-    }
-    heading
-}
-
-fn generic_timestamp(
-    heading_id: i64,
-    has_time: Option<bool>,
-    start_ts: i64,
-    timestamp_type: &str,
-    raw_value: &str,
-) -> TimestampRecord {
-    TimestampRecord {
-        heading_id,
-        role: None,
-        has_time,
-        start_ts: Some(start_ts),
-        end_ts: None,
-        timestamp_type: Some(timestamp_type.to_string()),
-        range_type: Some("none".to_string()),
-        raw_value: raw_value.to_string(),
-        byte_start: heading_id,
-        byte_end: heading_id + 1,
-        line_number: Some(heading_id - 200),
-    }
-}
-
-fn heading_title(heading_id: i64) -> &'static str {
-    match heading_id {
-        201 => "Scheduled Date Only",
-        202 => "Scheduled Timed",
-        203 => "Scheduled Midnight",
-        204 => "Scheduled Unknown",
-        205 => "Deadline Date Only",
-        206 => "Deadline Timed",
-        207 => "Deadline Midnight",
-        208 => "Deadline Unknown",
-        209 => "Closed Date Only",
-        210 => "Closed Timed",
-        211 => "Closed Midnight",
-        212 => "Closed Unknown",
-        213 => "Active Date Only",
-        214 => "Active Timed",
-        215 => "Active Midnight",
-        216 => "Active Unknown",
-        217 => "Inactive Date Only",
-        218 => "Inactive Timed",
-        219 => "Inactive Midnight",
-        220 => "Inactive Unknown",
-        _ => unreachable!("unexpected temporal predicate fixture heading"),
-    }
-}
-
 fn naive_date_time_seconds(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> i64 {
     NaiveDate::from_ymd_opt(year, month, day)
         .expect("date should be valid")
@@ -4322,696 +4046,119 @@ fn naive_date_time_seconds(year: i32, month: u32, day: u32, hour: u32, minute: u
         .timestamp()
 }
 
-fn scheduled_heading(
-    file_id: i64,
-    root_id: i64,
-    id: i64,
-    line_number: i64,
-    title: &str,
-    scheduled_ts: i64,
-    scheduled_raw: &str,
-) -> HeadingRecord {
-    HeadingRecord {
-        id: Some(id),
-        file_id,
-        parent_id: Some(root_id),
-        level: 1,
-        line_number: Some(line_number),
-        byte_start: line_number * 10,
-        byte_end: line_number * 10 + 5,
-        title: title.to_string(),
-        title_raw: Some(title.to_string()),
-        todo_keyword: None,
-        todo_type: None,
-        priority: None,
-        scheduled_raw: Some(scheduled_raw.to_string()),
-        scheduled_ts: Some(scheduled_ts),
-        scheduled_has_time: None,
-        deadline_raw: None,
-        deadline_ts: None,
-        deadline_has_time: None,
-        closed_raw: None,
-        closed_ts: None,
-        closed_has_time: None,
-        archivedp: false,
-        footnote_section_p: false,
-    }
-}
-
-fn scheduled_timestamp(
-    heading_id: i64,
-    year: i32,
-    month: u32,
-    day: u32,
-    hour: u32,
-    minute: u32,
-    raw_value: &str,
-) -> TimestampRecord {
-    TimestampRecord {
-        heading_id,
-        role: Some("scheduled".to_string()),
-        has_time: None,
-        start_ts: Some(naive_date_time_seconds(year, month, day, hour, minute)),
-        end_ts: None,
-        timestamp_type: Some("active".to_string()),
-        range_type: Some("none".to_string()),
-        raw_value: raw_value.to_string(),
-        byte_start: heading_id,
-        byte_end: heading_id + 1,
-        line_number: Some(heading_id - 99),
-    }
-}
-
-fn outline_row(
-    heading_id: i64,
-    file_id: i64,
-    parent_id: Option<i64>,
-    depth: i64,
-    materialized_path: &str,
-    breadcrumbs_json: &str,
-) -> OutlinePathRecord {
-    OutlinePathRecord {
-        heading_id,
-        file_id,
-        parent_id,
-        depth,
-        materialized_path: materialized_path.to_string(),
-        breadcrumbs_json: breadcrumbs_json.to_string(),
-    }
-}
-
 fn seed_database(connection: &mut Connection, alpha_path: &Path, beta_path: &Path) {
-    let alpha = FileRecordInput {
-        path: alpha_path.to_path_buf(),
-        identity: None,
-        mtime_ns: 1_767_398_400_000_000_000,
-        size: 100,
-        content_hash: None,
-        indexed_at: Some(1_767_398_410),
-    };
-    let beta = FileRecordInput {
-        path: beta_path.to_path_buf(),
-        identity: None,
-        mtime_ns: 1_767_484_800_000_000_000,
-        size: 120,
-        content_hash: None,
-        indexed_at: Some(1_767_484_810),
-    };
-    let gamma = FileRecordInput {
-        path: Path::new("/tmp/query-gamma.org").to_path_buf(),
-        identity: None,
-        mtime_ns: 1_767_571_200_000_000_000,
-        size: 80,
-        content_hash: None,
-        indexed_at: Some(1_767_571_210),
-    };
+    let alpha = file_input(alpha_path, 1_767_398_400_000_000_000, 100, 1_767_398_410);
+    let beta = file_input(beta_path, 1_767_484_800_000_000_000, 120, 1_767_484_810);
+    let gamma = file_input(
+        Path::new("/tmp/query-gamma.org"),
+        1_767_571_200_000_000_000,
+        80,
+        1_767_571_210,
+    );
 
     let (beta_file_id, ()) = DbWriter::rebuild_file(connection, &beta, |tx, file_id| {
-        let root_id = DbWriter::insert_level0_heading(
-            tx,
-            &HeadingRecord {
-                id: Some(20),
-                file_id,
-                parent_id: None,
-                level: 0,
-                line_number: None,
-                byte_start: -1,
-                byte_end: 120,
-                title: "Beta Index".to_string(),
-                title_raw: Some("Beta Index".to_string()),
-                todo_keyword: None,
-                todo_type: None,
-                priority: None,
-                scheduled_raw: None,
-                scheduled_ts: None,
-                scheduled_has_time: None,
-                deadline_raw: None,
-                deadline_ts: None,
-                deadline_has_time: None,
-                closed_raw: None,
-                closed_ts: None,
-                closed_has_time: None,
-                archivedp: false,
-                footnote_section_p: false,
-            },
-        )?;
-        DbWriter::insert_outline_path(
-            tx,
-            &[OutlinePathRecord {
-                heading_id: root_id,
-                file_id,
-                parent_id: None,
-                depth: 0,
-                materialized_path: "0000".to_string(),
-                breadcrumbs_json: "[\"Beta Index\"]".to_string(),
-            }],
-        )?;
-        DbWriter::insert_tags(
-            tx,
-            &[TagRecord {
-                heading_id: root_id,
-                tag: "archive".to_string(),
-            }],
-        )?;
-        DbWriter::insert_keywords(
-            tx,
-            &[KeywordRecord {
-                heading_id: root_id,
-                keyword: "AUTHOR".to_string(),
-                value: Some("Bob".to_string()),
-                line_number: Some(1),
-            }],
-        )?;
+        let root = base_heading(file_id, None, 20, 0, "Beta Index").bytes(-1, 120);
+        let root_id = DbWriter::insert_level0_heading(tx, &root)?;
+        DbWriter::insert_outline_path(tx, &outline_rows(file_id, &[root]))?;
+        DbWriter::insert_tags(tx, &tag_rows(&[(root_id, "archive")]))?;
+        DbWriter::insert_keywords(tx, &[keyword_row(root_id, "AUTHOR", "Bob")])?;
         Ok(())
     })
     .expect("beta file should seed");
 
     let (alpha_file_id, ()) = DbWriter::rebuild_file(connection, &alpha, |tx, file_id| {
-        let root_id = DbWriter::insert_level0_heading(
-            tx,
-            &HeadingRecord {
-                id: Some(10),
-                file_id,
-                parent_id: None,
-                level: 0,
-                line_number: None,
-                byte_start: -1,
-                byte_end: 100,
-                title: "Alpha Index".to_string(),
-                title_raw: Some("Alpha Index".to_string()),
-                todo_keyword: None,
-                todo_type: None,
-                priority: None,
-                scheduled_raw: None,
-                scheduled_ts: None,
-                scheduled_has_time: None,
-                deadline_raw: None,
-                deadline_ts: None,
-                deadline_has_time: None,
-                closed_raw: None,
-                closed_ts: None,
-                closed_has_time: None,
-                archivedp: false,
-                footnote_section_p: false,
-            },
-        )?;
-        DbWriter::insert_headings(
-            tx,
-            &[
-                HeadingRecord {
-                    id: Some(11),
-                    file_id,
-                    parent_id: Some(root_id),
-                    level: 1,
-                    line_number: Some(3),
-                    byte_start: 10,
-                    byte_end: 40,
-                    title: "Query Engine".to_string(),
-                    title_raw: Some("Query Engine".to_string()),
-                    todo_keyword: Some("NEXT".to_string()),
-                    todo_type: Some("open".to_string()),
-                    priority: Some("A".to_string()),
-                    scheduled_raw: Some("<2026-01-03 Fri>".to_string()),
-                    scheduled_ts: Some(1_767_398_400),
-                    scheduled_has_time: None,
-                    deadline_raw: None,
-                    deadline_ts: None,
-                    deadline_has_time: None,
-                    closed_raw: None,
-                    closed_ts: None,
-                    closed_has_time: None,
-                    archivedp: false,
-                    footnote_section_p: false,
-                },
-                HeadingRecord {
-                    id: Some(12),
-                    file_id,
-                    parent_id: Some(11),
-                    level: 2,
-                    line_number: Some(6),
-                    byte_start: 41,
-                    byte_end: 70,
-                    title: "Nested Task".to_string(),
-                    title_raw: Some("Nested Task".to_string()),
-                    todo_keyword: None,
-                    todo_type: None,
-                    priority: None,
-                    scheduled_raw: None,
-                    scheduled_ts: None,
-                    scheduled_has_time: None,
-                    deadline_raw: None,
-                    deadline_ts: None,
-                    deadline_has_time: None,
-                    closed_raw: None,
-                    closed_ts: None,
-                    closed_has_time: None,
-                    archivedp: false,
-                    footnote_section_p: false,
-                },
-                HeadingRecord {
-                    id: Some(13),
-                    file_id,
-                    parent_id: Some(root_id),
-                    level: 1,
-                    line_number: Some(8),
-                    byte_start: 71,
-                    byte_end: 95,
-                    title: "Loose Note".to_string(),
-                    title_raw: Some("Loose Note".to_string()),
-                    todo_keyword: None,
-                    todo_type: None,
-                    priority: None,
-                    scheduled_raw: None,
-                    scheduled_ts: None,
-                    scheduled_has_time: None,
-                    deadline_raw: None,
-                    deadline_ts: None,
-                    deadline_has_time: None,
-                    closed_raw: None,
-                    closed_ts: None,
-                    closed_has_time: None,
-                    archivedp: false,
-                    footnote_section_p: false,
-                },
-                HeadingRecord {
-                    id: Some(14),
-                    file_id,
-                    parent_id: Some(11),
-                    level: 2,
-                    line_number: Some(10),
-                    byte_start: 96,
-                    byte_end: 130,
-                    title: "Statistic Cookies".to_string(),
-                    title_raw: Some("REVIEW [#B] Statistic Cookies [0/1]".to_string()),
-                    todo_keyword: Some("REVIEW".to_string()),
-                    todo_type: Some("open".to_string()),
-                    priority: Some("B".to_string()),
-                    scheduled_raw: None,
-                    scheduled_ts: None,
-                    scheduled_has_time: None,
-                    deadline_raw: None,
-                    deadline_ts: None,
-                    deadline_has_time: None,
-                    closed_raw: None,
-                    closed_ts: None,
-                    closed_has_time: None,
-                    archivedp: false,
-                    footnote_section_p: false,
-                },
-                HeadingRecord {
-                    id: Some(15),
-                    file_id,
-                    parent_id: Some(11),
-                    level: 2,
-                    line_number: Some(12),
-                    byte_start: 131,
-                    byte_end: 160,
-                    title: "Overriding Child".to_string(),
-                    title_raw: Some("Overriding Child".to_string()),
-                    todo_keyword: None,
-                    todo_type: None,
-                    priority: None,
-                    scheduled_raw: None,
-                    scheduled_ts: None,
-                    scheduled_has_time: None,
-                    deadline_raw: None,
-                    deadline_ts: None,
-                    deadline_has_time: None,
-                    closed_raw: None,
-                    closed_ts: None,
-                    closed_has_time: None,
-                    archivedp: false,
-                    footnote_section_p: false,
-                },
-            ],
-        )?;
-        DbWriter::insert_outline_path(
-            tx,
-            &[
-                OutlinePathRecord {
-                    heading_id: 10,
-                    file_id,
-                    parent_id: None,
-                    depth: 0,
-                    materialized_path: "0000".to_string(),
-                    breadcrumbs_json: "[\"Alpha Index\"]".to_string(),
-                },
-                OutlinePathRecord {
-                    heading_id: 11,
-                    file_id,
-                    parent_id: Some(10),
-                    depth: 1,
-                    materialized_path: "0000.0001".to_string(),
-                    breadcrumbs_json: "[\"Alpha Index\",\"Query Engine\"]".to_string(),
-                },
-                OutlinePathRecord {
-                    heading_id: 12,
-                    file_id,
-                    parent_id: Some(11),
-                    depth: 2,
-                    materialized_path: "0000.0001.0001".to_string(),
-                    breadcrumbs_json: "[\"Alpha Index\",\"Query Engine\",\"Nested Task\"]"
-                        .to_string(),
-                },
-                OutlinePathRecord {
-                    heading_id: 13,
-                    file_id,
-                    parent_id: Some(10),
-                    depth: 1,
-                    materialized_path: "0000.0002".to_string(),
-                    breadcrumbs_json: "[\"Alpha Index\",\"Loose Note\"]".to_string(),
-                },
-                OutlinePathRecord {
-                    heading_id: 14,
-                    file_id,
-                    parent_id: Some(11),
-                    depth: 2,
-                    materialized_path: "0000.0001.0002".to_string(),
-                    breadcrumbs_json: "[\"Alpha Index\",\"Query Engine\",\"Statistic Cookies\"]"
-                        .to_string(),
-                },
-                OutlinePathRecord {
-                    heading_id: 15,
-                    file_id,
-                    parent_id: Some(11),
-                    depth: 2,
-                    materialized_path: "0000.0001.0003".to_string(),
-                    breadcrumbs_json: "[\"Alpha Index\",\"Query Engine\",\"Overriding Child\"]"
-                        .to_string(),
-                },
-            ],
-        )?;
+        let root = base_heading(file_id, None, 10, 0, "Alpha Index");
+        let root_id = DbWriter::insert_level0_heading(tx, &root)?;
+        let child = |id, parent, level, line, bytes: (i64, i64), title| {
+            base_heading(file_id, Some(parent), id, line, title)
+                .level(level)
+                .bytes(bytes.0, bytes.1)
+        };
+        let children = vec![
+            child(11, root_id, 1, 3, (10, 40), "Query Engine")
+                .todo("NEXT", "A")
+                .scheduled("<2026-01-03 Fri>", 1_767_398_400),
+            child(12, 11, 2, 6, (41, 70), "Nested Task"),
+            child(13, root_id, 1, 8, (71, 95), "Loose Note"),
+            child(14, 11, 2, 10, (96, 130), "Statistic Cookies")
+                .raw_title("REVIEW [#B] Statistic Cookies [0/1]")
+                .todo("REVIEW", "B"),
+            child(15, 11, 2, 12, (131, 160), "Overriding Child"),
+        ];
+        DbWriter::insert_headings(tx, &children)?;
+        let all = [vec![root], children].concat();
+        DbWriter::insert_outline_path(tx, &outline_rows(file_id, &all))?;
         DbWriter::insert_tags(
             tx,
-            &[
-                TagRecord {
-                    heading_id: 10,
-                    tag: "filetag".to_string(),
-                },
-                TagRecord {
-                    heading_id: 11,
-                    tag: "project".to_string(),
-                },
-                TagRecord {
-                    heading_id: 12,
-                    tag: "urgent".to_string(),
-                },
-                TagRecord {
-                    heading_id: 13,
-                    tag: "misc".to_string(),
-                },
-                TagRecord {
-                    heading_id: 14,
-                    tag: "filetag".to_string(),
-                },
-            ],
+            &tag_rows(&[
+                (10, "filetag"),
+                (11, "project"),
+                (12, "urgent"),
+                (13, "misc"),
+                (14, "filetag"),
+            ]),
         )?;
         seed_effective_tags(tx, file_id);
-        DbWriter::insert_keywords(
-            tx,
-            &[KeywordRecord {
-                heading_id: 10,
-                keyword: "AUTHOR".to_string(),
-                value: Some("Alice".to_string()),
-                line_number: Some(1),
-            }],
-        )?;
+        DbWriter::insert_keywords(tx, &[keyword_row(10, "AUTHOR", "Alice")])?;
         DbWriter::insert_properties(
             tx,
-            &[
-                PropertyRecord {
-                    heading_id: 10,
-                    key: "CATEGORY".to_string(),
-                    value: Some("work".to_string()),
-                    source: "category_keyword".to_string(),
-                    append: false,
-                    line_number: Some(2),
-                },
-                PropertyRecord {
-                    heading_id: 10,
-                    key: "OWNER".to_string(),
-                    value: Some("Alice".to_string()),
-                    source: "property_keyword".to_string(),
-                    append: false,
-                    line_number: Some(2),
-                },
-                PropertyRecord {
-                    heading_id: 10,
-                    key: "KEYWORD_APPEND".to_string(),
-                    value: Some("foo=1".to_string()),
-                    source: "property_keyword".to_string(),
-                    append: false,
-                    line_number: Some(2),
-                },
-                PropertyRecord {
-                    heading_id: 10,
-                    key: "KEYWORD_APPEND".to_string(),
-                    value: Some("bar=2".to_string()),
-                    source: "property_keyword".to_string(),
-                    append: true,
-                    line_number: Some(3),
-                },
-                PropertyRecord {
-                    heading_id: 10,
-                    key: "KEYWORD_OVERWRITTEN_BY_SECOND".to_string(),
-                    value: Some("invalid".to_string()),
-                    source: "property_keyword".to_string(),
-                    append: false,
-                    line_number: Some(4),
-                },
-                PropertyRecord {
-                    heading_id: 10,
-                    key: "KEYWORD_OVERWRITTEN_BY_SECOND".to_string(),
-                    value: Some("valid".to_string()),
-                    source: "property_keyword".to_string(),
-                    append: false,
-                    line_number: Some(5),
-                },
-                PropertyRecord {
-                    heading_id: 10,
-                    key: "ROOT_ONLY".to_string(),
-                    value: Some("root".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: false,
-                    line_number: Some(6),
-                },
-                PropertyRecord {
-                    heading_id: 10,
-                    key: "OVERRIDE_CHAIN".to_string(),
-                    value: Some("root".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: false,
-                    line_number: Some(7),
-                },
-                PropertyRecord {
-                    heading_id: 11,
-                    key: "AREA".to_string(),
-                    value: Some("infra".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: false,
-                    line_number: Some(4),
-                },
-                PropertyRecord {
-                    heading_id: 11,
-                    key: "LANG".to_string(),
-                    value: Some("rust".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: false,
-                    line_number: Some(5),
-                },
-                PropertyRecord {
-                    heading_id: 11,
-                    key: "LANG".to_string(),
-                    value: Some("emacs".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: true,
-                    line_number: Some(6),
-                },
-                PropertyRecord {
-                    heading_id: 11,
-                    key: "OVERRIDE_CHAIN".to_string(),
-                    value: Some("parent".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: false,
-                    line_number: Some(7),
-                },
-                PropertyRecord {
-                    heading_id: 11,
-                    key: "APPEND_INHERITED".to_string(),
-                    value: Some("parent".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: false,
-                    line_number: Some(8),
-                },
-                PropertyRecord {
-                    heading_id: 11,
-                    key: "APPEND_BEFORE".to_string(),
-                    value: Some("appending before".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: true,
-                    line_number: Some(9),
-                },
-                PropertyRecord {
-                    heading_id: 11,
-                    key: "APPEND_BEFORE".to_string(),
-                    value: Some("definition".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: false,
-                    line_number: Some(10),
-                },
-                PropertyRecord {
-                    heading_id: 11,
-                    key: "LOCAL_BASE_APPEND".to_string(),
-                    value: Some("parent".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: false,
-                    line_number: Some(11),
-                },
-                PropertyRecord {
-                    heading_id: 12,
-                    key: "OWNER".to_string(),
-                    value: Some("Bob".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: false,
-                    line_number: Some(9),
-                },
-                PropertyRecord {
-                    heading_id: 12,
-                    key: "APPEND_INHERITED".to_string(),
-                    value: Some("child".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: true,
-                    line_number: Some(10),
-                },
-                PropertyRecord {
-                    heading_id: 12,
-                    key: "LOCAL_BASE_APPEND".to_string(),
-                    value: Some("before".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: true,
-                    line_number: Some(11),
-                },
-                PropertyRecord {
-                    heading_id: 12,
-                    key: "LOCAL_BASE_APPEND".to_string(),
-                    value: Some("child".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: false,
-                    line_number: Some(12),
-                },
-                PropertyRecord {
-                    heading_id: 12,
-                    key: "LOCAL_BASE_APPEND".to_string(),
-                    value: Some("after".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: true,
-                    line_number: Some(13),
-                },
-                PropertyRecord {
-                    heading_id: 13,
-                    key: "DEFINED_TWICE".to_string(),
-                    value: Some("works".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: false,
-                    line_number: Some(11),
-                },
-                PropertyRecord {
-                    heading_id: 13,
-                    key: "DEFINED_TWICE".to_string(),
-                    value: Some("second is effective".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: false,
-                    line_number: Some(12),
-                },
-                PropertyRecord {
-                    heading_id: 13,
-                    key: "APPEND_REPLACED".to_string(),
-                    value: Some("first".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: false,
-                    line_number: Some(13),
-                },
-                PropertyRecord {
-                    heading_id: 13,
-                    key: "APPEND_REPLACED".to_string(),
-                    value: Some("appended".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: true,
-                    line_number: Some(14),
-                },
-                PropertyRecord {
-                    heading_id: 13,
-                    key: "APPEND_REPLACED".to_string(),
-                    value: Some("second".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: false,
-                    line_number: Some(15),
-                },
-                PropertyRecord {
-                    heading_id: 14,
-                    key: "ADD-VALUE".to_string(),
-                    value: Some("is".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: false,
-                    line_number: Some(13),
-                },
-                PropertyRecord {
-                    heading_id: 14,
-                    key: "ADD-VALUE".to_string(),
-                    value: Some("valid".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: true,
-                    line_number: Some(14),
-                },
-                PropertyRecord {
-                    heading_id: 14,
-                    key: "MULTI_APPEND".to_string(),
-                    value: Some("before".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: true,
-                    line_number: Some(15),
-                },
-                PropertyRecord {
-                    heading_id: 14,
-                    key: "MULTI_APPEND".to_string(),
-                    value: Some("first".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: false,
-                    line_number: Some(16),
-                },
-                PropertyRecord {
-                    heading_id: 14,
-                    key: "MULTI_APPEND".to_string(),
-                    value: Some("middle".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: true,
-                    line_number: Some(17),
-                },
-                PropertyRecord {
-                    heading_id: 14,
-                    key: "MULTI_APPEND".to_string(),
-                    value: Some("second".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: false,
-                    line_number: Some(18),
-                },
-                PropertyRecord {
-                    heading_id: 14,
-                    key: "MULTI_APPEND".to_string(),
-                    value: Some("after".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: true,
-                    line_number: Some(19),
-                },
-                PropertyRecord {
-                    heading_id: 15,
-                    key: "OVERRIDE_CHAIN".to_string(),
-                    value: Some("child".to_string()),
-                    source: "property_drawer".to_string(),
-                    append: false,
-                    line_number: Some(15),
-                },
-            ],
+            &property_rows_from(&[
+                (10, "CATEGORY", "work", "category_keyword", false, 2),
+                (10, "OWNER", "Alice", KEYWORD, false, 2),
+                (10, "KEYWORD_APPEND", "foo=1", KEYWORD, false, 2),
+                (10, "KEYWORD_APPEND", "bar=2", KEYWORD, true, 3),
+                (
+                    10,
+                    "KEYWORD_OVERWRITTEN_BY_SECOND",
+                    "invalid",
+                    KEYWORD,
+                    false,
+                    4,
+                ),
+                (
+                    10,
+                    "KEYWORD_OVERWRITTEN_BY_SECOND",
+                    "valid",
+                    KEYWORD,
+                    false,
+                    5,
+                ),
+                (10, "ROOT_ONLY", "root", DRAWER, false, 6),
+                (10, "OVERRIDE_CHAIN", "root", DRAWER, false, 7),
+                (11, "AREA", "infra", DRAWER, false, 4),
+                (11, "LANG", "rust", DRAWER, false, 5),
+                (11, "LANG", "emacs", DRAWER, true, 6),
+                (11, "OVERRIDE_CHAIN", "parent", DRAWER, false, 7),
+                (11, "APPEND_INHERITED", "parent", DRAWER, false, 8),
+                (11, "APPEND_BEFORE", "appending before", DRAWER, true, 9),
+                (11, "APPEND_BEFORE", "definition", DRAWER, false, 10),
+                (11, "LOCAL_BASE_APPEND", "parent", DRAWER, false, 11),
+                (12, "OWNER", "Bob", DRAWER, false, 9),
+                (12, "APPEND_INHERITED", "child", DRAWER, true, 10),
+                (12, "LOCAL_BASE_APPEND", "before", DRAWER, true, 11),
+                (12, "LOCAL_BASE_APPEND", "child", DRAWER, false, 12),
+                (12, "LOCAL_BASE_APPEND", "after", DRAWER, true, 13),
+                (13, "DEFINED_TWICE", "works", DRAWER, false, 11),
+                (
+                    13,
+                    "DEFINED_TWICE",
+                    "second is effective",
+                    DRAWER,
+                    false,
+                    12,
+                ),
+                (13, "APPEND_REPLACED", "first", DRAWER, false, 13),
+                (13, "APPEND_REPLACED", "appended", DRAWER, true, 14),
+                (13, "APPEND_REPLACED", "second", DRAWER, false, 15),
+                (14, "ADD-VALUE", "is", DRAWER, false, 13),
+                (14, "ADD-VALUE", "valid", DRAWER, true, 14),
+                (14, "MULTI_APPEND", "before", DRAWER, true, 15),
+                (14, "MULTI_APPEND", "first", DRAWER, false, 16),
+                (14, "MULTI_APPEND", "middle", DRAWER, true, 17),
+                (14, "MULTI_APPEND", "second", DRAWER, false, 18),
+                (14, "MULTI_APPEND", "after", DRAWER, true, 19),
+                (15, "OVERRIDE_CHAIN", "child", DRAWER, false, 15),
+            ]),
         )?;
         DbWriter::insert_timestamps(
             tx,
@@ -5031,131 +4178,34 @@ fn seed_database(connection: &mut Connection, alpha_path: &Path, beta_path: &Pat
         )?;
         DbWriter::insert_links(
             tx,
-            &[LinkRecord {
-                id: Some(100),
+            &[link_row(
+                100,
                 file_id,
-                heading_id: 11,
-                byte_start: 50,
-                byte_end: 80,
-                line: 4,
-                source_context: "normal".to_string(),
-                format: "bracket".to_string(),
-                raw: "[[file:beta.org][Beta notes]]".to_string(),
-                raw_target: "file:beta.org".to_string(),
-                raw_description: Some("Beta notes".to_string()),
-                link_type: "file".to_string(),
-                path: "beta.org".to_string(),
-                search_option: None,
-            }],
+                11,
+                (50, 80),
+                4,
+                "[[file:beta.org][Beta notes]]",
+            )],
         )?;
-        tx.execute(
-            "UPDATE links
-             SET path_absolute = ?1,
-                 target_file_id = ?2,
-                 target_heading_id = ?3,
-                 resolution_status = 'resolved'
-             WHERE id = 100",
-            rusqlite::params![beta_path.to_string_lossy().to_string(), beta_file_id, 20],
-        )
-        .expect("link target should update");
+        resolve_link(tx, 100, beta_path, beta_file_id, 20);
         Ok(())
     })
     .expect("alpha file should seed");
     seed_effective_properties(connection, alpha_file_id);
 
     let (gamma_file_id, ()) = DbWriter::rebuild_file(connection, &gamma, |tx, file_id| {
-        let root_id = DbWriter::insert_level0_heading(
-            tx,
-            &HeadingRecord {
-                id: Some(30),
-                file_id,
-                parent_id: None,
-                level: 0,
-                line_number: None,
-                byte_start: -1,
-                byte_end: 80,
-                title: "Gamma Index".to_string(),
-                title_raw: Some("Gamma Index".to_string()),
-                todo_keyword: None,
-                todo_type: None,
-                priority: None,
-                scheduled_raw: None,
-                scheduled_ts: None,
-                scheduled_has_time: None,
-                deadline_raw: None,
-                deadline_ts: None,
-                deadline_has_time: None,
-                closed_raw: None,
-                closed_ts: None,
-                closed_has_time: None,
-                archivedp: false,
-                footnote_section_p: false,
-            },
-        )?;
-        DbWriter::insert_headings(
-            tx,
-            &[HeadingRecord {
-                id: Some(31),
-                file_id,
-                parent_id: Some(root_id),
-                level: 1,
-                line_number: Some(2),
-                byte_start: 10,
-                byte_end: 28,
-                title: "Gamma Candidate".to_string(),
-                title_raw: Some("Gamma Candidate".to_string()),
-                todo_keyword: None,
-                todo_type: None,
-                priority: None,
-                scheduled_raw: None,
-                scheduled_ts: None,
-                scheduled_has_time: None,
-                deadline_raw: None,
-                deadline_ts: None,
-                deadline_has_time: None,
-                closed_raw: None,
-                closed_ts: None,
-                closed_has_time: None,
-                archivedp: false,
-                footnote_section_p: false,
-            }],
-        )?;
-        DbWriter::insert_outline_path(
-            tx,
-            &[
-                OutlinePathRecord {
-                    heading_id: root_id,
-                    file_id,
-                    parent_id: None,
-                    depth: 0,
-                    materialized_path: "0000".to_string(),
-                    breadcrumbs_json: "[\"Gamma Index\"]".to_string(),
-                },
-                OutlinePathRecord {
-                    heading_id: 31,
-                    file_id,
-                    parent_id: Some(root_id),
-                    depth: 1,
-                    materialized_path: "0000.0001".to_string(),
-                    breadcrumbs_json: "[\"Gamma Index\",\"Gamma Candidate\"]".to_string(),
-                },
-            ],
-        )?;
+        let root = base_heading(file_id, None, 30, 0, "Gamma Index").bytes(-1, 80);
+        let root_id = DbWriter::insert_level0_heading(tx, &root)?;
+        let candidate =
+            base_heading(file_id, Some(root_id), 31, 2, "Gamma Candidate").bytes(10, 28);
+        DbWriter::insert_headings(tx, std::slice::from_ref(&candidate))?;
+        DbWriter::insert_outline_path(tx, &outline_rows(file_id, &[root, candidate]))?;
         Ok(())
     })
     .expect("gamma file should seed");
 
-    connection
-        .execute(
-            "INSERT INTO headings
-             (id, file_id, parent_id, level, line_number, byte_start, byte_end, title, title_raw,
-              todo_keyword, todo_type, priority, scheduled_raw, scheduled_ts, deadline_raw,
-              deadline_ts, closed_raw, closed_ts, archivedp, footnote_section_p)
-             VALUES
-             (21, ?1, 20, 1, 3, 10, 40, 'Beta Target', 'Beta Target',
-              NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0)",
-            rusqlite::params![beta_file_id],
-        )
+    let beta_child = base_heading(beta_file_id, Some(20), 21, 3, "Beta Target").bytes(10, 40);
+    DbWriter::insert_headings(connection, std::slice::from_ref(&beta_child))
         .expect("beta child heading should insert");
     DbWriter::insert_outline_path(
         connection,
@@ -5169,14 +4219,8 @@ fn seed_database(connection: &mut Connection, alpha_path: &Path, beta_path: &Pat
         }],
     )
     .expect("beta child outline should insert");
-    DbWriter::insert_tags(
-        connection,
-        &[TagRecord {
-            heading_id: 21,
-            tag: "target".to_string(),
-        }],
-    )
-    .expect("beta child tag should insert");
+    DbWriter::insert_tags(connection, &tag_rows(&[(21, "target")]))
+        .expect("beta child tag should insert");
     seed_effective_tags(connection, beta_file_id);
 
     DbWriter::set_metadata_flag(
@@ -5185,235 +4229,98 @@ fn seed_database(connection: &mut Connection, alpha_path: &Path, beta_path: &Pat
         true,
     )
     .expect("body-text capability should persist");
-    DbWriter::insert_heading_bodies(
-        connection,
-        &[
-            HeadingBodyRecord {
-                heading_id: 11,
-                body_text: "SQLite index notes with FTS fallback guidance.".to_string(),
-                body_byte_start: Some(16),
-                body_byte_end: Some(62),
-            },
-            HeadingBodyRecord {
-                heading_id: 12,
-                body_text: "Nested sqlite implementation checklist.".to_string(),
-                body_byte_start: Some(63),
-                body_byte_end: Some(101),
-            },
-            HeadingBodyRecord {
-                heading_id: 13,
-                body_text: "General notes without the keyword.".to_string(),
-                body_byte_start: Some(102),
-                body_byte_end: Some(136),
-            },
-            HeadingBodyRecord {
-                heading_id: 14,
-                body_text: String::new(),
-                body_byte_start: Some(137),
-                body_byte_end: Some(137),
-            },
-            HeadingBodyRecord {
-                heading_id: 21,
-                body_text: "BETA target body mentions sqlite and fts together.".to_string(),
-                body_byte_start: Some(12),
-                body_byte_end: Some(60),
-            },
-        ],
-    )
-    .expect("heading body rows should insert");
+    // (heading_id, body_text, byte_start, byte_end)
+    let bodies = [
+        (11, "SQLite index notes with FTS fallback guidance.", 16, 62),
+        (12, "Nested sqlite implementation checklist.", 63, 101),
+        (13, "General notes without the keyword.", 102, 136),
+        (14, "", 137, 137),
+        (
+            21,
+            "BETA target body mentions sqlite and fts together.",
+            12,
+            60,
+        ),
+    ]
+    .map(|(heading_id, text, start, end)| HeadingBodyRecord {
+        heading_id,
+        body_text: text.to_string(),
+        body_byte_start: Some(start),
+        body_byte_end: Some(end),
+    });
+    DbWriter::insert_heading_bodies(connection, &bodies).expect("heading body rows should insert");
 
     DbWriter::insert_links(
         connection,
         &[
-            LinkRecord {
-                id: Some(101),
-                file_id: alpha_file_id,
-                heading_id: 12,
-                byte_start: 60,
-                byte_end: 95,
-                line: 6,
-                source_context: "normal".to_string(),
-                format: "bracket".to_string(),
-                raw: "[[file:beta.org::*Beta Target][Beta heading]]".to_string(),
-                raw_target: "file:beta.org::*Beta Target".to_string(),
-                raw_description: Some("Beta heading".to_string()),
-                link_type: "file".to_string(),
-                path: "beta.org".to_string(),
-                search_option: Some("*Beta Target".to_string()),
-            },
-            LinkRecord {
-                id: Some(102),
-                file_id: alpha_file_id,
-                heading_id: 10,
-                byte_start: 0,
-                byte_end: 24,
-                line: 1,
-                source_context: "normal".to_string(),
-                format: "bracket".to_string(),
-                raw: "[[file:beta.org][Preamble]]".to_string(),
-                raw_target: "file:beta.org".to_string(),
-                raw_description: Some("Preamble".to_string()),
-                link_type: "file".to_string(),
-                path: "beta.org".to_string(),
-                search_option: None,
-            },
-            LinkRecord {
-                id: Some(103),
-                file_id: beta_file_id,
-                heading_id: 21,
-                byte_start: 50,
-                byte_end: 84,
-                line: 4,
-                source_context: "normal".to_string(),
-                format: "bracket".to_string(),
-                raw: "[[file:alpha.org::*Query Engine][Backlink]]".to_string(),
-                raw_target: "file:alpha.org::*Query Engine".to_string(),
-                raw_description: Some("Backlink".to_string()),
-                link_type: "file".to_string(),
-                path: "alpha.org".to_string(),
-                search_option: Some("*Query Engine".to_string()),
-            },
-            LinkRecord {
-                id: Some(104),
-                file_id: beta_file_id,
-                heading_id: 20,
-                byte_start: 0,
-                byte_end: 22,
-                line: 1,
-                source_context: "normal".to_string(),
-                format: "bracket".to_string(),
-                raw: "[[file:alpha.org][Root]]".to_string(),
-                raw_target: "file:alpha.org".to_string(),
-                raw_description: Some("Root".to_string()),
-                link_type: "file".to_string(),
-                path: "alpha.org".to_string(),
-                search_option: None,
-            },
-            LinkRecord {
-                id: Some(105),
-                file_id: alpha_file_id,
-                heading_id: 13,
-                byte_start: 80,
-                byte_end: 104,
-                line: 8,
-                source_context: "normal".to_string(),
-                format: "bracket".to_string(),
-                raw: "[[file:missing.org]]".to_string(),
-                raw_target: "file:missing.org".to_string(),
-                raw_description: None,
-                link_type: "file".to_string(),
-                path: "missing.org".to_string(),
-                search_option: None,
-            },
-            LinkRecord {
-                id: Some(106),
-                file_id: beta_file_id,
-                heading_id: 21,
-                byte_start: 85,
-                byte_end: 100,
-                line: 5,
-                source_context: "normal".to_string(),
-                format: "bracket".to_string(),
-                raw: "[[id:missing-id]]".to_string(),
-                raw_target: "id:missing-id".to_string(),
-                raw_description: None,
-                link_type: "id".to_string(),
-                path: "missing-id".to_string(),
-                search_option: None,
-            },
-            LinkRecord {
-                id: Some(107),
-                file_id: alpha_file_id,
-                heading_id: 11,
-                byte_start: 81,
-                byte_end: 92,
-                line: 5,
-                source_context: "normal".to_string(),
-                format: "bracket".to_string(),
-                raw: "[[id:dup-id]]".to_string(),
-                raw_target: "id:dup-id".to_string(),
-                raw_description: None,
-                link_type: "id".to_string(),
-                path: "dup-id".to_string(),
-                search_option: None,
-            },
+            link_row(
+                101,
+                alpha_file_id,
+                12,
+                (60, 95),
+                6,
+                "[[file:beta.org::*Beta Target][Beta heading]]",
+            ),
+            link_row(
+                102,
+                alpha_file_id,
+                10,
+                (0, 24),
+                1,
+                "[[file:beta.org][Preamble]]",
+            ),
+            link_row(
+                103,
+                beta_file_id,
+                21,
+                (50, 84),
+                4,
+                "[[file:alpha.org::*Query Engine][Backlink]]",
+            ),
+            link_row(
+                104,
+                beta_file_id,
+                20,
+                (0, 22),
+                1,
+                "[[file:alpha.org][Root]]",
+            ),
+            link_row(105, alpha_file_id, 13, (80, 104), 8, "[[file:missing.org]]"),
+            link_row(106, beta_file_id, 21, (85, 100), 5, "[[id:missing-id]]"),
+            link_row(107, alpha_file_id, 11, (81, 92), 5, "[[id:dup-id]]"),
         ],
     )
     .expect("relation links should seed");
 
-    connection
-        .execute(
-            "UPDATE links
-             SET path_absolute = ?1,
-                 target_file_id = ?2,
-                 target_heading_id = ?3,
-                 resolution_status = 'resolved'
-             WHERE id = 101",
-            rusqlite::params![beta_path.to_string_lossy().to_string(), beta_file_id, 21],
-        )
-        .expect("heading target should update");
-    connection
-        .execute(
-            "UPDATE links
-             SET path_absolute = ?1,
-                 target_file_id = ?2,
-                 target_heading_id = ?3,
-                 resolution_status = 'resolved'
-             WHERE id = 102",
-            rusqlite::params![beta_path.to_string_lossy().to_string(), beta_file_id, 20],
-        )
-        .expect("preamble file target should update");
-    connection
-        .execute(
-            "UPDATE links
-             SET path_absolute = ?1,
-                 target_file_id = ?2,
-                 target_heading_id = ?3,
-                 resolution_status = 'resolved'
-             WHERE id = 103",
-            rusqlite::params![alpha_path.to_string_lossy().to_string(), alpha_file_id, 11],
-        )
-        .expect("backlink heading target should update");
-    connection
-        .execute(
-            "UPDATE links
-             SET path_absolute = ?1,
-                 target_file_id = ?2,
-                 target_heading_id = ?3,
-                 resolution_status = 'resolved'
-             WHERE id = 104",
-            rusqlite::params![alpha_path.to_string_lossy().to_string(), alpha_file_id, 10],
-        )
-        .expect("backlink root target should update");
-    connection
-        .execute(
-            "UPDATE links
-             SET resolution_status = 'broken',
-                 resolution_diagnostic = 'missing target'
-             WHERE id = 105",
-            [],
-        )
-        .expect("broken link should update");
-    connection
-        .execute(
-            "UPDATE links
-             SET target_id = 'missing-id',
-                 resolution_status = 'unresolved',
-                 resolution_diagnostic = 'missing org id'
-             WHERE id = 106",
-            [],
-        )
-        .expect("unresolved link should update");
+    resolve_link(connection, 101, beta_path, beta_file_id, 21);
+    resolve_link(connection, 102, beta_path, beta_file_id, 20);
+    resolve_link(connection, 103, alpha_path, alpha_file_id, 11);
+    resolve_link(connection, 104, alpha_path, alpha_file_id, 10);
+    for (sql, id) in [
+        (
+            "resolution_status = 'broken', resolution_diagnostic = 'missing target'",
+            105,
+        ),
+        (
+            "target_id = 'missing-id', resolution_status = 'unresolved',
+             resolution_diagnostic = 'missing org id'",
+            106,
+        ),
+    ] {
+        connection
+            .execute(&format!("UPDATE links SET {sql} WHERE id = {id}"), [])
+            .expect("link resolution state should update");
+    }
     connection
         .execute(
             "UPDATE links
              SET target_file_id = ?1,
-                 target_heading_id = ?2,
+                 target_heading_id = 31,
                  target_id = 'dup-id',
                  resolution_status = 'ambiguous',
                  resolution_diagnostic = 'duplicate org id'
              WHERE id = 107",
-            rusqlite::params![gamma_file_id, 31],
+            [gamma_file_id],
         )
         .expect("ambiguous link should update");
 }
