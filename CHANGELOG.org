@@ -4,6 +4,8 @@ This file records completed changes.
 
 * Unreleased
 
+- =FIXED= Case-insensitive query predicates (~title~, ~has-text~, ~outline-contains~, ~outline-sequence~, ~keyword~, file and link text predicates) now use Unicode lowercase folding instead of ASCII-only folding, so ~"über"~ matches ~Über~.
+
 - =FIXED= ~file+sys:~ and ~file+emacs:~ links now resolve like ~file:~ links instead of always being ~unsupported~. Rebuild existing databases to refresh affected links.
 
 - =FIXED= Config loading now rejects invalid ~todo.default_open_keywords~ and ~todo.default_closed_keywords~ entries (empty, whitespace, malformed shortcuts, duplicates across both lists) instead of storing them or silently dropping closed keywords.
