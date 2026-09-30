@@ -708,7 +708,7 @@ fn is_emphasis_post(c: char) -> bool {
         )
 }
 
-const MARKS: [u8; 6] = [b'*', b'/', b'_', b'+', b'~', b'='];
+const MARKS: [u8; 6] = *b"*/_+~=";
 
 fn mark_index(mark: u8) -> usize {
     MARKS.iter().position(|m| *m == mark).unwrap_or(0)
@@ -1546,10 +1546,9 @@ fn statistics_cookie(text: &str) -> Option<usize> {
     let rest = &inner[digits..];
     let tail = if rest.starts_with('%') {
         1
-    } else if let Some(denominator) = rest.strip_prefix('/') {
-        1 + denominator.bytes().take_while(u8::is_ascii_digit).count()
     } else {
-        return None;
+        let denominator = rest.strip_prefix('/')?;
+        1 + denominator.bytes().take_while(u8::is_ascii_digit).count()
     };
     (rest.as_bytes().get(tail) == Some(&b']')).then_some(1 + digits + tail + 1)
 }
