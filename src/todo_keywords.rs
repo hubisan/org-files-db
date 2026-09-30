@@ -73,10 +73,28 @@ pub fn resolve_todo_keywords_with_default_source(
     default_keywords: &TodoKeywordConfig,
     default_source_kind: TodoKeywordSourceKind,
 ) -> ResolvedTodoKeywords {
+    // Cheap pre-scan: without any candidate TODO keyword line, Orgize cannot yield a
+    // TODO keyword, so skip the full parse.
+    if !may_contain_todo_keyword_line(content) {
+        return resolved_from_default_keywords(default_keywords, default_source_kind);
+    }
     let org = Org::parse(content);
     let keywords = collect_document_keywords(&org.document(), &LineIndex::new(content));
     resolve_todo_keywords_from_keywords(&keywords)
         .unwrap_or_else(|| resolved_from_default_keywords(default_keywords, default_source_kind))
+}
+
+fn may_contain_todo_keyword_line(content: &str) -> bool {
+    content.lines().any(|line| {
+        let line = line.trim_start();
+        let Some(rest) = line.as_bytes().strip_prefix(b"#+") else {
+            return false;
+        };
+        ["todo", "seq_todo", "typ_todo"].iter().any(|key| {
+            rest.get(..key.len())
+                .is_some_and(|head| head.eq_ignore_ascii_case(key.as_bytes()))
+        })
+    })
 }
 
 pub(crate) fn resolve_todo_keywords_from_keywords(
