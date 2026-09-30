@@ -20,6 +20,8 @@ The ~view register~, ~view show~, and ~view remove~ commands also emit JSON. The
 
 ~view read~ emits the cached ~presentation-json~ payload directly. It does not accept an output-format option.
 
+~view read~ waits at most 60 seconds for a pending rebuild and then fails with a timeout error. The watcher control socket drops connections that send no complete request line within 5 seconds or exceed 64 KiB, so one stuck client does not block other view commands.
+
 For read-only commands, use ~--format json~ as the explicit machine-readable form. ~--json~ is a compatibility form for the same output.
 
 #+begin_src shell
