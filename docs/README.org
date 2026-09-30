@@ -9,6 +9,7 @@ This directory separates user references, machine-readable contracts, contributo
 - [[./config.org][Configuration Reference]] describes every supported TOML key.
 - [[./reference/query-language.org][Structural Query Language]] describes structural query syntax and matching semantics.
 - [[./reference/query-json.org][Query JSON Contract]] describes the stable ~orgfdb query --format json~ response.
+- [[./reference/sqlite-schema.org][SQLite Schema]] orients direct SQL users; ~sql/schema.sql~ is authoritative.
 - [[./reference/presentation.org][Presentation Output Reference]] describes ~PresentationSpec~, ~presentation-json~, and the registered-view client boundary.
 
 Use these documents when you use ~orgfdb~ or build a client for its current public interfaces.

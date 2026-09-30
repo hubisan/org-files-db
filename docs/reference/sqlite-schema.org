@@ -1,0 +1,54 @@
+#+TITLE: SQLite Schema
+
+This reference is for users who query the ~orgfdb~ database directly with SQL. For the query language and JSON output see [[./query-language.org][Structural Query Language]] and [[./query-json.org][Query JSON Contract]].
+
+* Source of truth
+
+The file ~sql/schema.sql~ is authoritative. It documents every table and column in comments, so this page does not repeat column lists. Read the schema file for exact columns, constraints and indexes.
+
+The schema version is stored in ~PRAGMA user_version~. ~CURRENT_SCHEMA_VERSION~ in ~src/db/schema.rs~ is the code source of truth. See [[../architecture.org][Architecture]] for how versions are checked and rebuilt.
+
+* PRAGMAs set on open
+
+~orgfdb~ runs these when it initializes a database (~src/db.rs~):
+
+- ~foreign_keys = ON~ enforces the foreign keys, including the cascading deletes that remove a file's rows together.
+- ~journal_mode = WAL~ lets readers query while the indexer writes.
+- ~synchronous = NORMAL~ is the usual pairing with WAL: fewer syncs while keeping the database consistent.
+
+Plain ~sqlite3~ connections do not enable ~foreign_keys~ by default. Set it yourself if you write.
+
+* Tables
+
+Core facts, written by the parser:
+
+- ~files~: one row per indexed Org file.
+- ~headings~: one row per heading, plus one synthetic level 0 row per file.
+- ~keywords~, ~properties~, ~tags~, ~links~: direct facts attached to headings.
+- ~timestamps~ and ~timestamp_repeaters~: parsed timestamps and their repeaters.
+- ~heading_bodies~: canonical body text of headings.
+- ~todo_keywords~: the TODO keyword configuration used per file.
+
+Derived tables, rebuilt when a file is reparsed:
+
+- ~effective_properties~ and ~effective_tags~: inherited projections of the direct facts.
+- ~outline_path~: materialized outline paths.
+- ~heading_fts~: optional FTS5 search index.
+
+Bookkeeping:
+
+- ~db_metadata~: key/value metadata, including the FTS state keys.
+- ~index_state~, ~index_generations~, ~index_generation_files~: the committed index generation and affected-file journal used by external caches.
+
+* Semantics for direct SQL
+
+- *Level 0 root:* every file has exactly one synthetic heading at level 0. File-level keywords, properties, file tags and file-level links attach to it. Real headings start at level 1. See [[../architecture.org][Architecture]].
+- *Byte offsets:* ~byte_start~ and ~byte_end~ are UTF-8 byte offsets into the original file, not character positions.
+- *TODO keywords:* files without their own ~#+TODO~ style lines use the configured defaults (see [[../config.org][Configuration Reference]], ~[todo]~ section). ~todo_keywords~ records how ~headings.todo_keyword~ was interpreted. Its ~source_kind~ is ~config_default~ or ~org_keyword~; for ~org_keyword~ rows ~source_keyword~ and ~source_line_number~ point at the source line.
+- *Direct vs effective:* ~properties~ and ~tags~ hold only what is written on a heading (FILETAGS sit on the level 0 heading). ~effective_properties~ and ~effective_tags~ include inherited values. Property inheritance never crosses file boundaries. In ~effective_properties~, ~local_value~ is NULL when the heading has no local definition.
+- *FTS5 is optional:* ~heading_fts~ exists only when the database was built with FTS enabled and SQLite supports FTS5. When disabled, all other tables are unaffected, and an on-disk ~heading_fts~ must not be trusted. Check ~db_metadata~ keys ~fts_available~, ~fts_body_indexed~ and ~fts_schema_version~. The table is contentless and its rowid matches ~headings.id~; only headings with level above 0 are indexed.
+- *Custom SQL functions:* ~orgfdb~ registers ~orgfdb_lower(text)~ and ~orgfdb_regexp(pattern, text)~ on its own connections. They are *not* available in a plain ~sqlite3~ shell, so queries or indexes that use them fail there. Use ~lower()~ or a ~LIKE~ pattern instead.
+
+* Read-only use
+
+While ~orgfdb watch~ runs, open the database read-only, for example ~sqlite3 -readonly index.db~. WAL mode allows such readers concurrently with the writer. Do not modify the database by hand; derived tables are rebuilt from the core tables and manual edits will be lost or corrupt the index state.
