@@ -89,7 +89,9 @@ fn starts_with_planning_keyword(line: &str) -> bool {
         .any(|keyword| strip_planning_keyword(trimmed, keyword).is_some())
 }
 
-fn parse_planning_fallback_entries(line: &str) -> Vec<(ParsedTimestampRole, String, usize)> {
+pub(super) fn parse_planning_fallback_entries(
+    line: &str,
+) -> Vec<(ParsedTimestampRole, String, usize)> {
     let mut entries = Vec::new();
     let mut offset = 0;
 

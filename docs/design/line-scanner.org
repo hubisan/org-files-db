@@ -1,0 +1,115 @@
+#+TITLE: Line Scanner
+#+STARTUP: showall
+
+This document describes the own line-based Org scanner that replaces Orgize in stages (#41, stage 1 is #101). Stage 1 adds the scanner and a differential test next to the adapter. The production parse path (~src/parser/orgize_adapter.rs~) and its output are unchanged.
+
+* Goal and scope
+
+Orgize is replaced because its node model deviates from Org in many small places (see the register in [[./parser-risks.org][Parser Risks]]) and because its recursive tree limits heading depth. The replacement is deliberately not a full Org parser. It reproduces the behavior the adapter has today after all corrections, which matches Emacs Org 9.6 (checked with Emacs 29.3).
+
+The scanner has two stages. Both work on byte offsets into the UTF-8 source and are iterative, so nesting depth never grows the call stack.
+
+- Stage A, ~src/parser/line_lexer.rs~: a pure classifier for one line.
+- Stage B, ~src/parser/structure_scanner.rs~: an automaton over the classified lines that builds the structural model.
+
+Timestamps, links, title parsing and property rows stay in their existing helpers (see the section on helpers).
+
+* Stage A: line classes
+
+Stage A never looks at neighbouring lines. A line ends at ~\n~; a ~\r~ right before it is not part of the text. Blanks are spaces and tabs. Classes are tried in this order, the first match wins.
+
+| Class | Rule | Notes |
+|-
+| ~Headline~ | ~^\*+ ~ (one or more stars and a space) | Level is the star count. A bare ~*~, ~*\t~ and ~**x~ are text, verified with ~org-element-parse-buffer~. #101 proposed ~^\*+[ \t]~ and ~^\*+$~; Emacs disagrees, and Orgize agrees with Emacs here. |
+| ~Empty~ | only blanks | |
+| ~Comment~ | blanks, ~#~, then a space or the line end | |
+| ~BlockBegin~ | blanks, ~#+begin_~ (any case), at least one non-blank name character | Arguments after the name are free text. The name is the maximal non-blank run (~#+begin_x:~ has the name ~x:~). |
+| ~BlockEnd~ | blanks, ~#+end_~ (any case), name, blanks only | ~#+end_x q~ is text. |
+| ~Keyword~ | blanks, ~#+~, a non-empty key without blanks or colon, ~:~, optional blanks, value | ~#+KEY:value~ is a keyword; ~#+a b: c~, ~#+: x~ and ~#+key~ are text. Block lines are tried first. |
+| ~Planning~ | blanks, then ~SCHEDULED:~, ~DEADLINE:~ or ~CLOSED:~ in any case | Nothing after the keyword is needed; ~CLOSED:~ alone is a planning line. ~SCHEDULEDX:~ is not. |
+| ~Drawer~ | blanks, ~:NAME:~, blanks | NAME is one or more Unicode alphanumerics, ~_~ or ~-~. Stage B decides between a drawer and a property row. |
+| ~DrawerEnd~ | blanks, ~:END:~ (any case), blanks | |
+| ~FixedWidth~ | blanks, ~:~, then a space or the line end | |
+| ~Text~ | everything else | ~::~, ~:::~, ~:a b:~ and ~:x:y:~ are text. |
+
+The class list is shorter than the sketch in ~old-files/docs/lexer-design.org~ on purpose. Clock lines, table rules and formulas do not affect the facts the scanner must reproduce. Keyword names keep the case of the source; the model exposes ranges instead of copies.
+
+* Stage B: structure automaton
+
+** Section position and containers
+
+The automaton keeps two things. The section position decides whether a planning line or a property drawer is still allowed. A stack of open containers decides how far a search for an end line may look.
+
+| Position | Meaning |
+|-
+| ~FileStart~ | before the first headline, only comment lines seen so far |
+| ~AfterHeadline~ | the line directly after a headline |
+| ~AfterPlanning~ | the line directly after the planning line |
+| ~Body~ | everything else |
+
+The diagram is in [[./line-scanner.svg][line-scanner.svg]] (source: ~line-scanner.dot~, render with ~dot -Tsvg docs/design/line-scanner.dot -o docs/design/line-scanner.svg~).
+
+[[./line-scanner.svg]]
+
+** Rules, each checked against Emacs
+
+- *Headlines always end the section.* The search limit for any end line is the next headline line. A headline-looking line inside a src, example or quote block or inside a drawer is a headline, and the block or drawer is then unclosed (Emacs: ~* not~ inside ~#+begin_example~ is a headline). Only a block that is closed before the next headline is a block.
+- *Unclosed blocks and drawers are text.* A begin line without a matching end before the limit is a paragraph line; the lines after it are classified as if it were not there. A search that found nothing is remembered per name and limit, so a run of unclosed begins stays linear.
+- *Blocks end at the first matching end line.* The name is compared case-insensitively. A non-matching ~#+end_~ line inside is content. Nested blocks of different names are not tracked for the outer block: ~#+begin_quote~, ~#+begin_src~, ~#+end_quote~, ~#+end_src~ is a quote block with an unclosed src block inside.
+- *Raw and greater blocks.* ~src~, ~example~, ~export~, ~comment~ and ~verse~ contents are raw: nothing inside is structure. ~quote~, ~center~ and every other name (special blocks such as ~justify~) contain parsed content. The content of a greater block is scanned with its end line as the limit, so a drawer that starts inside and ends outside is unclosed.
+- *Drawers end at the first ~:END:~ line* (any case), searched up to the limit. A drawer cannot nest because the first ~:END:~ always ends the outer one. A ~:END:~ line outside a drawer starts a drawer named END when another ~:END:~ follows (Emacs reports ~drawer name=END~ for that).
+- *Planning* only on the line directly after a headline. A second planning line, a blank line or a comment line in between makes it text.
+- *Property drawer* only when ~:PROPERTIES:~ is the first element of its section, optionally after the planning line. At file level only comment lines may precede it, not even blank lines, keywords or planning lines. The name is matched in any case, because ~org-entry-get~ reads ~:properties:~ while ~org-element~ reports a generic drawer; the adapter follows ~org-entry-get~, like the Emacs oracle.
+- *Property drawers with other rows.* ~org-element~ builds a property drawer only when every row between ~:PROPERTIES:~ and ~:END:~ is a property (~:KEY:~ alone or followed by a blank and a value). Otherwise Emacs reads a generic drawer and parses its content (comments, blocks, keywords). The scanner records the property rows in both cases and, in the second case, also opens a drawer region and scans the content.
+- *Affiliated keywords.* ~#+NAME:~, ~#+CAPTION:~, ~#+HEADER:~, ~#+RESULTS:~, ~#+ATTR_x:~ and the other Org affiliated keywords belong to the next element when a non-empty line follows inside the same container. They are then no keyword lines, and the element range starts at the first of them. A comment line after them is part of a paragraph, not a comment. Without a following element they are plain keywords.
+- *Comments and fixed-width lines* form one region per run of consecutive lines.
+- *Line endings.* CRLF is handled in the lexer. A lone ~\r~ is part of the text.
+- *Depth.* The scanner returns an error for a headline deeper than ~MAX_HEADING_LEVEL~, like the adapter. The adapter's own pre-check is stricter: it also counts ~*~ lines in blocks and ones followed by a tab. The scanner does not need the limit for stack safety; the limit stays a product rule until stage 3.
+
+** Output model
+
+~scan_structure~ returns a ~Structure~ with these parts.
+
+- ~headings~: level, parent index, line number, headline range, subtree range (up to the next heading of the same or a lower level), section range (up to the next heading of any level), optional planning line range, optional property drawer.
+- ~file_properties~: the property drawer of the file-level section.
+- ~keywords~: key, value and line ranges of keyword lines outside raw blocks.
+- ~regions~: blocks (name, range, content range), generic drawers, comment runs and fixed-width runs, ordered by start. Ranges end after the terminator of the last line; Orgize and Emacs also include blank lines after an element, which the differential test trims on both sides.
+
+The synthetic level-0 file root is not part of the scanner output. The adapter builds it from the file-level facts.
+
+* What stays in helpers
+
+The scanner only finds lines. It reuses these modules and adds no second implementation.
+
+- ~properties.rs~: property rows (~parsed_property_from_raw_line~), comment line test, file keyword properties and tags.
+- ~title.rs~: headline title, tags, TODO keyword and priority from the raw headline line.
+- ~timestamp_raw.rs~: planning entries and timestamp values from the planning line. The scanner only reports the planning line range.
+- ~link_scanner.rs~: links, fed with ignored ranges. Stage 2 derives those ranges from scanner regions.
+- ~line_index.rs~: line numbers for byte offsets.
+
+* Differential test
+
+~src/parser/structure_differential_tests.rs~ parses every input with the adapter and the scanner and compares heading count, level, order, parent, byte range, line number, raw title and tags (via the existing title helpers), planning timestamps (role, start offset), property rows per heading and at file level, keyword lines, and the ranges of blocks, drawers, comments and fixed-width runs as Orgize reports them.
+
+Inputs: every ~tests/data/parser/**/fixture.org~, every file in ~tests/data/emacs-oracle/~, every ~docs/**/*.org~, ~README.org~, ~CHANGELOG.org~, a table of hand-written adversarial inputs (placement variants from ~property_drawer_placement_matches_org~, blocks, drawers, affiliated keywords, CRLF, multi-byte text, depth limits), and 6000 deterministic random line sequences. Set ~STRUCTURE_DIFF_CASES~ for more, and ~STRUCTURE_DIFF_REPORT=1~ (or ~2~ to print inputs) with ~--nocapture~ to list every difference instead of failing.
+
+A difference has to be a scanner fix or an entry of ~ALLOWED~ in the test file. An entry names the input and the category and carries the Emacs evidence as a comment. The test also fails when an entry is never hit. The entries are Orgize deviations the adapter inherits:
+
+- A planning keyword line without a timestamp (~SCHEDULED: garbage~, ~CLOSED:~) is an empty planning element in Emacs, so a property drawer after it still counts. The adapter treats the line as body text and loses the drawer.
+- A block with a non-matching ~#+end_~ line before the real end, or with mixed-case names (~#+begin_SRC~ ... ~#+End_src~), is a block in Emacs. Orgize finds none.
+- ~:my-drawer:~ and ~:äö:~ are drawers in Emacs. Orgize accepts neither hyphens nor non-ASCII letters in drawer names.
+- A drawer directly after an affiliated keyword is a drawer in Emacs. Orgize builds none.
+- ~#+NAME:~ before a keyword, comment, stray end line or unclosed block is no keyword element in Emacs. Orgize reports a keyword.
+- Orgize panics on a quote, center or special block with no content line (~#+begin_quote~ directly followed by ~#+end_quote~). Emacs parses an empty quote-block. The test skips such inputs and fails on any other panic.
+
+* Staging plan
+
+- Stage 1 (#101): lexer, scanner, differential test, this document. Nothing in production changes.
+- Stage 2: derive link ignored ranges, source contexts, body ranges, planning and property facts from the scanner and drop the matching Orgize calls, one fact group per change, each with the differential test as guard. Decide each allow-listed difference: the scanner follows Emacs, so the parser contract version is bumped where output changes.
+- Stage 3: replace the remaining Orgize uses (title inline markup, timestamps in body text, document keywords), remove the dependency and the heading depth limit that exists only because of Orgize recursion.
+
+* Open questions for stage 2
+
+- Affiliated keywords and Orgize: which of ~#+NAME:~, ~#+CAPTION:~ should still be stored as document keywords? Today Orgize stores those it does not attach to an element.
+- Lists, tables, footnote definitions, LaTeX environments (~\begin{x}~ to ~\end{x}~) and dynamic blocks (~#+BEGIN: name~) are not modeled. Emacs hides raw lines inside LaTeX environments and tables from block and drawer detection; the differential test found no such case in the corpus. Model them when a corpus file needs it.
+- Orgize panics on empty quote blocks (see above). This is a production crash in the adapter until stage 2 removes the call; it should get its own issue.
