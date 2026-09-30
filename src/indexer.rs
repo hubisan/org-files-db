@@ -3584,7 +3584,11 @@ index_body_text = false
         assert_eq!(report.indexed_files.len(), 1);
         assert!(report.diagnostics.is_empty());
 
-        let connection = Connection::open(&db_path).expect("db should open");
+        let connection = crate::db::open_existing_database_read_only_with_schema(
+            &db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("db should open");
         let properties: Vec<(String, String, Option<String>, i64)> = query_rows(
             &connection,
             "SELECT headings.title, properties.key, properties.value, properties.append
