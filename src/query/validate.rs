@@ -7,12 +7,24 @@ use super::ast::{
 };
 use super::priority::normalize_priority_value;
 
+/// Only the validator constructs this; the compiler relies on its invariants.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ValidatedQuery {
-    pub target: QueryTarget,
-    pub predicate: Option<ValidatedExpr>,
+    pub(crate) target: QueryTarget,
+    pub(crate) predicate: Option<ValidatedExpr>,
 }
 
+impl ValidatedQuery {
+    pub fn target(&self) -> QueryTarget {
+        self.target
+    }
+
+    pub fn predicate(&self) -> Option<&ValidatedExpr> {
+        self.predicate.as_ref()
+    }
+}
+
+/// Only the validator constructs this; the compiler relies on its invariants.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum ValidatedExpr {
     And(Vec<ValidatedExpr>),
@@ -21,24 +33,51 @@ pub enum ValidatedExpr {
     Predicate(ValidatedPredicate),
 }
 
+/// Only the validator constructs this; the compiler relies on its invariants.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ValidatedPredicate {
-    pub target: QueryTarget,
-    pub name: String,
-    pub args: Vec<ValidatedArg>,
-    pub options: Vec<ValidatedOption>,
+    pub(crate) target: QueryTarget,
+    pub(crate) name: String,
+    pub(crate) args: Vec<ValidatedArg>,
+    pub(crate) options: Vec<ValidatedOption>,
 }
 
+impl ValidatedPredicate {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn args(&self) -> &[ValidatedArg] {
+        &self.args
+    }
+
+    pub fn options(&self) -> &[ValidatedOption] {
+        &self.options
+    }
+}
+
+/// Only the validator constructs this; the compiler relies on its invariants.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum ValidatedArg {
     Scalar(QueryValue),
     NestedQuery(Box<ValidatedQuery>),
 }
 
+/// Only the validator constructs this; the compiler relies on its invariants.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ValidatedOption {
-    pub name: String,
-    pub value: QueryValue,
+    pub(crate) name: String,
+    pub(crate) value: QueryValue,
+}
+
+impl ValidatedOption {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn value(&self) -> &QueryValue {
+        &self.value
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
