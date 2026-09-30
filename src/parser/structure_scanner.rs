@@ -1,9 +1,9 @@
-//! Stage B of the Orgize replacement (#101, #103): the structure automaton.
+//! Stage B of the own Org scanner (#101, #103): the structure automaton.
 //!
 //! Turns the per-line classes of `line_lexer` into the heading tree, per-section
 //! planning and property drawers, block and drawer regions, keyword lines, and
 //! comment and fixed-width runs. The parse entry (`orgize_adapter`) builds every
-//! structural fact from this output; Orgize only reads inline details.
+//! structural fact from this output; `inline_scanner` reads the text between.
 //! States and transitions: `docs/design/line-scanner.org`.
 
 use std::{collections::HashSet, ops::Range};
@@ -13,8 +13,9 @@ use super::model::{ParsedKeyword, ParsedProperty, ParsedPropertySource};
 use super::properties::parsed_property_from_raw_line;
 
 /// Deepest heading level accepted. A product rule (#44) that started as a stack guard
-/// for Orgize's recursive tree; the scanner itself never recurses. It counts every
-/// `^\*+ ` line, because Org reads such a line as a headline wherever it stands.
+/// for the recursive tree of the former Orgize backend; the scanner itself never recurses,
+/// so it only protects against pathological files now. It counts every `^\*+ ` line,
+/// because Org reads such a line as a headline wherever it stands.
 pub const MAX_HEADING_LEVEL: usize = 100;
 
 /// Heading deeper than `MAX_HEADING_LEVEL`.

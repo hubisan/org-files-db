@@ -39,10 +39,11 @@ Rust CLI that indexes Org files into SQLite and answers queries over them.
 
 ## Parser validation
 
-Prefer Orgize as the implementation parser. Use Emacs Org-mode
-(`org-element-parse-buffer`) as a reference oracle for tricky syntax (planning lines,
-timestamps, special properties, tags, drawers, agenda semantics). Document any
-Orgize/Emacs disagreement in the issue before choosing behavior. Never evaluate unsafe
+The parser is the project's own line lexer, structure scanner and inline scanner
+(`docs/design/line-scanner.org`); Orgize was removed (#41). Emacs Org-mode
+(`org-element-parse-buffer`) is the reference: match it, check tricky syntax with
+`scripts/emacs-oracle.py`, and document any deliberate difference in
+`docs/design/parser-risks.org` before choosing behavior. Never evaluate unsafe
 Emacs Lisp, diary expressions or `.dir-locals.el` forms from project files.
 
 ## Agent skills

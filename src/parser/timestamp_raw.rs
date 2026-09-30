@@ -1,4 +1,4 @@
-//! Orgize-free parsing of raw timestamp and planning-line text.
+//! Parsing of raw timestamp and planning-line text.
 
 use super::line_index::LineIndex;
 use super::model::{
@@ -101,6 +101,105 @@ fn timestamp_length(text: &str) -> Option<usize> {
     {
         Some(Some(second)) => Some(first + 2 + second),
         _ => Some(first),
+    }
+}
+
+/// Length of the timestamp object at the start of `text` as `org-element-timestamp-parser`
+/// reads it inside running text. A bracket timestamp is `timestamp_length`; a diary sexp
+/// (`<%%(...)>`, accepted by `org-element--timestamp-regexp`) ends at the first `]` or `>`
+/// of the line, which is the `.*?` of the parser; an active timestamp with a repeater whose
+/// date is not followed by a blank (`<2024-04-01<2024-05-05 Mon +1d>`) is accepted by the
+/// same regexp and ends at the first `]` or `>` as well. A second timestamp may follow `--`.
+pub(super) fn inline_timestamp_length(text: &str) -> Option<usize> {
+    let first = if text.starts_with("<%%") {
+        diary_timestamp_length(text)?;
+        raw_end(text)?
+    } else if let Some(first) = bracket_timestamp_length(text) {
+        first
+    } else if loose_repeater_timestamp(text) {
+        raw_end(text)?
+    } else {
+        return None;
+    };
+    match text[first..]
+        .strip_prefix("--")
+        .map(bracket_timestamp_length)
+    {
+        Some(Some(second)) => Some(first + 2 + second),
+        _ => Some(first),
+    }
+}
+
+/// Offset behind the first `]` or `>` of the line of `text`.
+fn raw_end(text: &str) -> Option<usize> {
+    let end = text.find([']', '>', '\n'])?;
+    matches!(text.as_bytes()[end], b']' | b'>').then_some(end + 1)
+}
+
+/// `<[0-9]+-[0-9]+-[0-9]+[^>\n]+?\+[0-9]+[dwmy]>` (the third alternative of
+/// `org-element--timestamp-regexp`) that holds a date as `org-parse-time-string` reads it,
+/// which Org needs to make a timestamp of it.
+fn loose_repeater_timestamp(text: &str) -> bool {
+    let Some(rest) = text.strip_prefix('<') else {
+        return false;
+    };
+    let digits = |text: &str| text.bytes().take_while(u8::is_ascii_digit).count();
+    // Two digit groups with a `-` behind each, then the digits of the third.
+    let mut third = 0;
+    for _ in 0..2 {
+        let length = digits(&rest[third..]);
+        if length == 0 || rest.as_bytes().get(third + length) != Some(&b'-') {
+            return false;
+        }
+        third += length + 1;
+    }
+    if digits(&rest[third..]) == 0 {
+        return false;
+    }
+    let Some(end) = rest
+        .find(['>', '\n'])
+        .filter(|end| rest.as_bytes()[*end] == b'>')
+    else {
+        return false;
+    };
+    let inner = &rest[..end];
+    // `+N` and a unit at the end, behind at least one character after a digit of the date.
+    let Some(before_unit) = inner.strip_suffix(['d', 'w', 'm', 'y']) else {
+        return false;
+    };
+    let repeater = before_unit.trim_end_matches(|c: char| c.is_ascii_digit());
+    repeater.len() < before_unit.len()
+        && repeater.ends_with('+')
+        && repeater.len() > third + 2
+        && inner.as_bytes().windows(10).any(is_iso_date_bytes)
+}
+
+fn is_iso_date_bytes(bytes: &[u8]) -> bool {
+    bytes.iter().enumerate().all(|(index, byte)| match index {
+        4 | 7 => *byte == b'-',
+        _ => byte.is_ascii_digit(),
+    })
+}
+
+/// The body timestamp object for the raw value `raw_value`, which starts at `byte_start`.
+pub(super) fn body_timestamp(
+    raw_value: &str,
+    byte_start: usize,
+    lines: &LineIndex,
+) -> ParsedTimestamp {
+    let (start_ts, end_ts, range_type) = normalize_raw_timestamp_bounds(raw_value);
+    ParsedTimestamp {
+        role: Some(ParsedTimestampRole::Body),
+        timestamp_type: timestamp_type_from_raw(raw_value).unwrap_or(ParsedTimestampType::Active),
+        range_type,
+        has_time: raw_timestamp_has_explicit_time(raw_value),
+        start_ts,
+        end_ts,
+        byte_start,
+        byte_end: byte_start + raw_value.len(),
+        line_number: Some(lines.line_for(byte_start)),
+        modifiers: parse_timestamp_modifiers_from_raw(raw_value).unwrap_or_default(),
+        raw_value: raw_value.to_string(),
     }
 }
 
