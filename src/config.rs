@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{BTreeSet, HashSet},
     error::Error,
     fmt, fs,
     path::{Component, Path, PathBuf},
@@ -134,20 +134,7 @@ impl Config {
                     links.custom_protocols,
                 ),
             },
-            todo: TodoConfig {
-                default_open_keywords: todo
-                    .default_open_keywords
-                    .unwrap_or_else(default_open_keyword_specs)
-                    .into_iter()
-                    .map(|spec| parse_todo_keyword_spec(&spec))
-                    .collect(),
-                default_closed_keywords: todo
-                    .default_closed_keywords
-                    .unwrap_or_else(default_closed_keyword_specs)
-                    .into_iter()
-                    .map(|spec| parse_todo_keyword_spec(&spec))
-                    .collect(),
-            },
+            todo: todo_config(path, todo)?,
             search: SearchConfig {
                 fts5_enabled: search.fts5_enabled.unwrap_or(true),
                 index_body_text: search.index_body_text.unwrap_or(false),
@@ -274,6 +261,12 @@ pub enum ConfigError {
         path: PathBuf,
         value: String,
     },
+    InvalidTodoKeyword {
+        path: PathBuf,
+        field: &'static str,
+        value: String,
+        message: &'static str,
+    },
     InvalidExclusionPattern {
         path: PathBuf,
         field: &'static str,
@@ -315,6 +308,16 @@ impl fmt::Display for ConfigError {
                 "failed to expand config path {}: home directory could not be determined",
                 path.display()
             ),
+            Self::InvalidTodoKeyword {
+                path,
+                field,
+                value,
+                message,
+            } => write!(
+                f,
+                "invalid {field} entry `{value}` in config {}: {message}",
+                path.display()
+            ),
             Self::InvalidTimezone { path, value } => write!(
                 f,
                 "invalid query.timezone `{}` in config {}: expected an IANA timezone name such as `UTC` or `Europe/Zurich`",
@@ -345,6 +348,7 @@ impl Error for ConfigError {
             | Self::MissingDirectory { .. }
             | Self::MissingHomeDirectory { .. }
             | Self::InvalidTimezone { .. }
+            | Self::InvalidTodoKeyword { .. }
             | Self::InvalidExclusionPattern { .. } => None,
         }
     }
@@ -406,6 +410,66 @@ struct RawQueryConfig {
 
 fn default_db_path() -> PathBuf {
     PathBuf::from("org-files-db.sqlite")
+}
+
+fn todo_config(path: &Path, todo: RawTodoConfig) -> Result<TodoConfig, ConfigError> {
+    let mut seen = BTreeSet::new();
+    let default_open_keywords = todo_keyword_list(
+        path,
+        "todo.default_open_keywords",
+        todo.default_open_keywords
+            .unwrap_or_else(default_open_keyword_specs),
+        &mut seen,
+    )?;
+    let default_closed_keywords = todo_keyword_list(
+        path,
+        "todo.default_closed_keywords",
+        todo.default_closed_keywords
+            .unwrap_or_else(default_closed_keyword_specs),
+        &mut seen,
+    )?;
+    Ok(TodoConfig {
+        default_open_keywords,
+        default_closed_keywords,
+    })
+}
+
+fn todo_keyword_list(
+    path: &Path,
+    field: &'static str,
+    specs: Vec<String>,
+    seen: &mut BTreeSet<String>,
+) -> Result<Vec<TodoKeyword>, ConfigError> {
+    specs
+        .into_iter()
+        .map(|spec| {
+            let invalid = |message| ConfigError::InvalidTodoKeyword {
+                path: path.to_path_buf(),
+                field,
+                value: spec.clone(),
+                message,
+            };
+            let keyword = parse_todo_keyword_spec(&spec);
+            if keyword.name.is_empty() {
+                return Err(invalid("keyword must not be empty"));
+            }
+            if keyword
+                .name
+                .chars()
+                .any(|c| c.is_whitespace() || matches!(c, '(' | ')' | '|'))
+            {
+                return Err(invalid(
+                    "expected `NAME` or `NAME(x)`; keywords must not contain whitespace, `(`, `)` or `|`",
+                ));
+            }
+            if !seen.insert(keyword.name.clone()) {
+                return Err(invalid(
+                    "keyword is listed more than once across open and closed keywords",
+                ));
+            }
+            Ok(keyword)
+        })
+        .collect()
 }
 
 fn default_open_keyword_specs() -> Vec<String> {
@@ -1196,6 +1260,65 @@ timezone = "Europe/Zurich"
                 timezone: Some("Europe/Zurich".to_string()),
             }
         );
+    }
+
+    #[test]
+    fn rejects_invalid_todo_keyword_specs() {
+        let test_dir = TestDir::new("invalid-todo-keywords");
+        let config_path = test_dir.path().join("config.toml");
+        for (open, closed, field, value) in [
+            (
+                r#"["TODO", ""]"#,
+                r#"["DONE"]"#,
+                "todo.default_open_keywords",
+                "",
+            ),
+            (
+                r#"["A B"]"#,
+                r#"["DONE"]"#,
+                "todo.default_open_keywords",
+                "A B",
+            ),
+            (
+                r#"["X(xy)"]"#,
+                r#"["DONE"]"#,
+                "todo.default_open_keywords",
+                "X(xy)",
+            ),
+            (
+                r#"["TODO", "TODO(t)"]"#,
+                r#"["DONE"]"#,
+                "todo.default_open_keywords",
+                "TODO(t)",
+            ),
+            (
+                r#"["TODO", "WAIT"]"#,
+                r#"["TODO"]"#,
+                "todo.default_closed_keywords",
+                "TODO",
+            ),
+        ] {
+            write_file(
+                &config_path,
+                &format!(
+                    "db_path = \"db.sqlite\"\n\n[todo]\ndefault_open_keywords = {open}\ndefault_closed_keywords = {closed}\n"
+                ),
+            );
+
+            let error = Config::load_from_file(&config_path).expect_err("config should fail");
+
+            match error {
+                ConfigError::InvalidTodoKeyword {
+                    field: actual_field,
+                    value: actual_value,
+                    ..
+                } => {
+                    assert_eq!(actual_field, field, "{open} / {closed}");
+                    assert_eq!(actual_value, value, "{open} / {closed}");
+                }
+                other => panic!("unexpected error for {open} / {closed}: {other}"),
+            }
+        }
     }
 
     #[test]

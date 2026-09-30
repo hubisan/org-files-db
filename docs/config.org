@@ -241,6 +241,8 @@ Supported keys:
 
 In-buffer ~#+TODO~, ~#+SEQ_TODO~, and ~#+TYP_TODO~ declarations take precedence over these defaults.
 
+Each entry is ~NAME~ or ~NAME(x)~, optionally ~NAME(x!)~ or ~NAME(x@)~. Names must be non-empty and must not contain whitespace, ~(~, ~)~ or ~|~. A keyword may appear only once across both lists. Invalid entries fail config loading with an error naming the field and the entry. In-buffer declarations are not validated this way.
+
 ** ~todo.default_open_keywords~
 
 ~default_open_keywords~ defines open TODO keywords.

@@ -4,6 +4,8 @@ This file records completed changes.
 
 * Unreleased
 
+- =FIXED= Config loading now rejects invalid ~todo.default_open_keywords~ and ~todo.default_closed_keywords~ entries (empty, whitespace, malformed shortcuts, duplicates across both lists) instead of storing them or silently dropping closed keywords.
+
 - =CHANGED= Link resolution now builds ID, heading-title, ~CUSTOM_ID~ and root-heading lookups once per pass instead of querying per link; rebuilding a file with 10,000 linked headings drops from about 88 s to about 3 s.
 
 - =FIXED= ~--help~ and ~--version~ now print to standard output and exit with code ~0~ instead of writing to standard error with exit code ~2~.
