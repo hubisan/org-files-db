@@ -1,0 +1,6 @@
+#+TITLE: Text Edge Cases
+*not a heading
+ * indented star
+* TODOX not a keyword
+** todo lowercase is title
+Body line.

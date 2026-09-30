@@ -133,6 +133,255 @@ A trailing tag block is stripped from the title only when every tag is non-empty
 
 Keep normalization tests tied to the same source ranges used for links and heading metadata. Parser changes must not shift unrelated byte coordinates.
 
+* Register
+
+Each entry records one known Orgize deviation or project workaround. The Orgize strategy is tracked in #41. Test names refer to ~tests/orgize_adapter.rs~ unless noted. Emacs was not available while writing this register, so Org behavior is stated per Org syntax and not verified against ~org-element-parse-buffer~.
+
+** R1 Link nodes unused, own link scanner
+
+- Repro:
+  #+begin_src org
+  ,* Task
+  See [[file:a b.org::*Heading][text]], <file:x.org> and https://example.org/x.
+  #+end_src
+- Orgize: exposes link nodes for bracket links only and does not cover angle or configurable plain links, nor the project source-context model.
+- Org: bracket, angle and plain links are all link objects, plain links depending on ~org-link-types~.
+- Workaround: ~scan_links~ and ~LinkScanner::scan~ in ~src/parser/link_scanner.rs~, called from ~parse_document_core~ in ~src/parser/orgize_adapter.rs~.
+- Test: ~orgize_adapter_collects_project_owned_links_including_plain_file_splits~, plus the unit tests in ~src/parser/link_scanner.rs~.
+- Tracked in #41.
+
+** R2 Bracket-link placeholders in titles
+
+- Repro:
+  #+begin_src org
+  ,* TODO Read [[https://example.org][the [docs]]] now
+  #+end_src
+- Orgize: fragments the headline title around links, so title text and nodes no longer match the source.
+- Org: the link is one object inside the title.
+- Workaround: ~placeholder_bracket_links_in_title~ and ~restore_title_link_placeholders~ in ~src/parser/orgize_adapter.rs~, driven by scanner link ranges.
+- Test: ~orgize_adapter_recovers_fragmented_bracket_link_titles_and_timestamps~.
+- Tracked in #41.
+
+** R3 Link descriptions re-rendered via sentinel parse
+
+- Repro:
+  #+begin_src org
+  ,* [[https://example.org][*bold* description]]
+  #+end_src
+- Orgize: title nodes are not usable for the description once the link is fragmented (R2).
+- Org: the description is parsed as inline objects and displayed without markup.
+- Workaround: ~render_link_description_for_title~ in ~src/parser/orgize_adapter.rs~ parses the description behind prefix and suffix sentinel words and strips them.
+- Test: ~orgize_adapter_renders_recovered_link_descriptions_like_inline_titles~.
+- Tracked in #41.
+
+** R4 Titles re-normalized by synthetic re-parse
+
+- Repro:
+  #+begin_src org
+  ,* [#A] *Important* task
+  #+end_src
+- Orgize: title elements are not used when priority or placeholders were recovered from source.
+- Org: the title excludes the cookie and keeps inline objects.
+- Workaround: ~normalize_title_from_raw~ and ~normalize_title_preserving_leading_keyword~ re-parse ~* SENTINEL title~ with ~Org::parse~ in ~src/parser/orgize_adapter.rs~.
+- Test: ~orgize_adapter_only_re_normalizes_todo_titles_with_link_placeholders~, ~orgize_adapter_removes_priority_and_statistics_cookies_from_titles~.
+- Tracked in #41.
+
+** R5 Title re-read from the raw source line
+
+- Repro:
+  #+begin_src org
+  ,* Title with :not tag:
+  ,* Title :valid_tag:
+  #+end_src
+- Orgize: ~title_raw~ can differ from the source line, and its tag handling is not the Org tag rule.
+- Org: a trailing tag block needs non-empty tags of alphanumerics or ~_@#%~.
+- Workaround: ~source_title_from_content_line~, ~strip_trailing_org_tags~ and ~is_org_tag_block~ in ~src/parser/orgize_adapter.rs~.
+- Test: ~orgize_adapter_keeps_invalid_tag_block_in_title~, ~orgize_adapter_strips_valid_org_tag_characters~.
+- Tracked in #41.
+
+** R6 Priority recovered from source text
+
+- Repro:
+  #+begin_src org
+  ,* TODO [#10] Numeric priority
+  #+end_src
+- Orgize: ~headline.priority()~ returns nothing for multi-digit cookies.
+- Org: numeric priorities are allowed, for example ~[#10]~.
+- Workaround: ~priority_from_source_title~ and ~priority_cookie_value~ in ~src/parser/orgize_adapter.rs~, accepting uppercase letters or all digits.
+- Test: ~orgize_adapter_preserves_multi_digit_numeric_priority~.
+- Tracked in #41.
+
+** R7 Orgize TODO keyword discarded when not active
+
+- Repro:
+  #+begin_src org
+  ,* WAITING Task
+  #+end_src
+  With ~WAITING~ not in the effective keyword set.
+- Orgize: may still report a keyword that the effective configuration does not contain.
+- Org: only keywords from ~#+TODO~ style lines, or the defaults, are TODO keywords.
+- Workaround: the ~todo_keyword_is_active~ check in ~collect_headlines~ in ~src/parser/orgize_adapter.rs~ clears the keyword and restores the title.
+- Test: ~orgize_adapter_core_parser_uses_only_effective_todo_keywords~.
+- Tracked in #41.
+
+** R8 TODO keyword inferred when Orgize misses it
+
+- Repro:
+  #+begin_src org
+  ,#+TODO: [[b]] | DONE
+  ,* [[b]] title
+  #+end_src
+- Orgize: does not recognize keywords that look like links or contain markup characters.
+- Org: any keyword from the configuration followed by whitespace is a TODO keyword.
+- Workaround: ~infer_todo_keyword~ and ~placeholder_title_after_todo_prefix~ in ~src/parser/orgize_adapter.rs~.
+- Test: ~orgize_adapter_does_not_panic_on_link_like_todo_keywords~.
+- Tracked in #41.
+
+** R9 Planning child without Timestamp node
+
+- Repro:
+  #+begin_src org
+  ,* Task
+  SCHEDULED: <2024-11-20 Wed 10:00-11:00>
+  #+end_src
+- Orgize: a ~PLANNING_*~ child may have no ~Timestamp~ node for such forms.
+- Org: the planning value is a timestamp.
+- Workaround: ~parsed_timestamp_from_planning_fallback~ and ~extract_first_raw_timestamp~ in ~src/parser/orgize_adapter.rs~, called from ~populate_heading_timestamps~.
+- Test: ~planning_fallback_ignores_link_as_timestamp_candidate~; no direct test for the no-node case beyond R10.
+- Tracked in #41.
+
+** R10 Repeater and deadline planning via line fallback
+
+- Repro:
+  #+begin_src org
+  ,* Task
+  DEADLINE: <2024-11-20 Wed 10:00-11:00 +1w/2d>
+  #+end_src
+- Orgize: the repeater-or-delay grammar lacks the ~/~ range form, so the planning line is not recognized and ~headline.planning()~ is empty.
+- Org: ~+1w/2d~ is a repeater with a habit-style range.
+- Workaround: ~populate_repeater_deadline_planning_fallback~ and ~parse_planning_fallback_entries~ in ~src/parser/orgize_adapter.rs~. Candidates must start with ~<~ or ~[~ plus an ISO date and close on the same line, and ~HH:MM-HH:MM~ ranges are parsed.
+- Test: ~planning_fallback_keeps_time_range_with_repeater_deadline~, ~planning_fallback_keeps_single_time_with_repeater_deadline~.
+- Tracked in #41.
+
+** R11 Timestamp modifiers parsed from raw text
+
+- Repro:
+  #+begin_src org
+  ,* Task
+  SCHEDULED: <2024-11-20 Wed .+1w -2d>
+  #+end_src
+- Orgize: repeater and warning nodes are incomplete for some combinations and units.
+- Org: repeaters ~+~, ~++~, ~.+~ and warnings ~-~, ~--~ are all valid, in any order.
+- Workaround: ~timestamp_modifiers~ prefers ~parse_timestamp_modifiers_from_raw~ over ~timestamp_modifiers_from_orgize~ in ~src/parser/orgize_adapter.rs~.
+- Test: ~orgize_adapter_collects_ranges_repeaters_and_body_timestamps~; the modifier expectations in ~tests/parser_fixtures.rs~ (~orgize_adapter_smoke_tests_structured_fixtures~).
+- Tracked in #41.
+
+** R12 Explicit time and range type from raw text
+
+- Repro:
+  #+begin_src org
+  ,* Task
+  <2024-11-20 Wed 10:00-11:00> and <2024-11-20 Wed>--<2024-11-22 Fri>
+  #+end_src
+- Orgize: cannot always tell an explicit time or a time range from a date range.
+- Org: ~HH:MM-HH:MM~ is a time range, ~--~ a date range.
+- Workaround: ~timestamp_has_explicit_time~ with ~raw_timestamp_has_explicit_time~, and ~timestamp_range_type~, in ~src/parser/orgize_adapter.rs~.
+- Test: ~orgize_adapter_collects_ranges_repeaters_and_body_timestamps~.
+- Tracked in #41.
+
+** R13 Generic drawer named PROPERTIES
+
+- Repro:
+  #+begin_src org
+  ,* Task
+  :PROPERTIES:
+  :ID: abc
+  :END:
+  #+end_src
+- Orgize: may expose the drawer as a generic ~DRAWER~ instead of a property drawer.
+- Org: it is the property drawer only at the start of its section (after planning, or comments and blank lines in the file section).
+- Workaround: ~properties_drawer_node_in_document~, ~properties_drawer_node_in_headline~ and ~properties_drawer_node_in_section~ in ~src/parser/orgize_adapter.rs~ accept a generic drawer named PROPERTIES only at the section start.
+- Test: ~property_drawer_directly_after_heading_is_a_property~, ~property_drawer_after_planning_line_is_a_property~, ~property_drawer_after_body_text_is_not_a_heading_property~, ~property_drawer_after_comment_is_a_file_property~.
+- Tracked in #41.
+
+** R14 Empty property rows recovered line by line
+
+- Repro:
+  #+begin_src org
+  ,* Task
+  :PROPERTIES:
+  :EMPTY:
+  :OTHER: x
+  :END:
+  #+end_src
+- Orgize: drops ~:EMPTY:~ rows without trailing whitespace.
+- Org: a property with an empty value.
+- Workaround: ~parsed_properties_from_drawer_fallback~, ~property_drawer_content_bounds~ and ~parsed_property_from_raw_line~ in ~src/parser/orgize_adapter.rs~, skipping lines Orgize already reported.
+- Test: ~orgize_adapter_falls_back_to_empty_property_drawer_rows_omitted_by_orgize~, ~orgize_adapter_preserves_empty_and_trailing_space_property_rows_across_multiple_headings~.
+- Tracked in #41.
+
+** R15 Body timestamps inside links filtered
+
+- Repro:
+  #+begin_src org
+  ,* Task
+  [[file:notes-<2024-11-20>.org]]
+  #+end_src
+- Orgize: reports a timestamp node inside the link target.
+- Org: link targets are not timestamps.
+- Workaround: ~link_contains_range~ in ~push_body_timestamp_if_new~ in ~src/parser/orgize_adapter.rs~ drops timestamps inside scanner link ranges.
+- Test: no direct test; ~orgize_adapter_recovers_fragmented_bracket_link_titles_and_timestamps~ covers related title timestamps.
+- Tracked in #41.
+
+** R16 No JUSTIFY block kind
+
+- Repro:
+  #+begin_src org
+  ,#+BEGIN_JUSTIFY
+  [[https://example.org][text]]
+  ,#+END_JUSTIFY
+  #+end_src
+- Orgize: parses ~JUSTIFY~ as a generic special block.
+- Org: ~JUSTIFY~ is a special block too, so the project distinguishes it only for link source context.
+- Workaround: ~special_block_is_justify~ in ~src/parser/orgize_adapter.rs~ maps it to ~ParsedLinkSourceContext::JustifyBlock~ in ~collect_link_structural_context~.
+- Test: ~orgize_adapter_ignores_links_in_ignored_regions_and_marks_source_contexts~ (uses a JUSTIFY block).
+- Tracked in #41.
+
+** R17 ParseConfig ignores in-buffer #+TODO
+
+- Repro:
+  #+begin_src org
+  ,#+TODO: NEXT | FINISHED
+  ,* NEXT Task
+  #+end_src
+- Orgize: ~ParseConfig~ takes the keyword sets up front and does not read ~#+TODO~ lines of the buffer.
+- Org: in-buffer declarations override the defaults.
+- Workaround: a pre-parse collects document keywords and resolves the effective set (~collect_document_keywords~, ~resolve_todo_keywords_from_keywords~ in ~src/todo_keywords.rs~) before ~parse_org_document~ in ~src/parser/orgize_adapter.rs~ builds ~ParseConfig~.
+- Test: ~orgize_adapter_prefers_org_todo_keywords_over_configured_defaults~, ~orgize_adapter_treats_org_todo_keywords_as_overrides~.
+- Tracked in #41.
+
+** R18 Diary timestamps in planning lines
+
+- Repro:
+  #+begin_src org
+  ,* Task
+  SCHEDULED: <%%(diary-float t 42)>
+  #+end_src
+- Orgize: does not build a planning node, so the line is paragraph text with a diary timestamp.
+- Org: the planning value is a diary sexp timestamp. It is never evaluated by the project.
+- Workaround: none by design. The value stays a body diary timestamp with no start or end, and the planning shortcuts stay empty.
+- Test: ~orgize_adapter_only_populates_shortcuts_when_parser_exposes_planning~, ~orgize_adapter_excludes_structured_metadata_from_body_text~.
+- Tracked in #41.
+
+** R19 Deep headline nesting recursion
+
+- Repro: a file with many thousands of nested headings, ~*~ repeated to a very high level.
+- Orgize: parsing and the recursive headline tree walk use the call stack.
+- Org: no depth limit.
+- Workaround: none. ~collect_headlines~ in ~src/parser/orgize_adapter.rs~ recurses per level, so extreme depth risks a stack overflow.
+- Test: no direct test.
+- Tracked in #41 and #44.
+
 * Risk handling rules
 
 Use these rules when a parser difference appears:

@@ -24,3 +24,58 @@ Current categories:
 - ~priorities~
 - ~todo-keywords~
 - ~file-scope~
+
+* Fixture inventory
+
+- ~body/section-ownership~ - body text belongs to the owning heading and excludes child subtrees
+- ~body/structured-metadata-exclusion~ - body excludes planning, drawers and keywords but keeps prose, including before the first heading
+- ~file-scope/file-keywords-and-preamble~ - TITLE, FILETAGS, CATEGORY and preamble text on the synthetic level-0 node
+- ~file-scope/multiple-title-keywords~ - several TITLE keywords are combined in file order
+- ~file-scope/raw-generic-keywords~ - generic keywords, also late ones, land on the file node
+- ~headings/basic-heading~ - simplest headline extraction
+- ~headings/nested-planning-lines~ - nested headings with per-line planning and a custom ~#+TODO~
+- ~headings/nested-parent-indexes~ - parent links with a skipped level and a return to level 1 (basis for materialized paths)
+- ~headings/not-headings-stay-text~ - star without space, indented star, ~TODOX~ and lowercase ~todo~ are not keywords or headings
+- ~links/orgize-compatibility~ - titles with bracket links and timestamps that Orgize fragments
+- ~links/plain-and-bracket-links~ - plain, bracket and custom-id links plus a ~CUSTOM_ID~ target
+- ~planning/one-line-planning~ - all three planning keywords on one line
+- ~priorities/todo-priority-tags~ - default TODO/DONE keywords, priority and tags with nesting
+- ~properties/buffer-level-drawer~ - property drawer before the first heading
+- ~properties/drawer-after-planning~ - property drawer directly after a planning line
+- ~properties/duplicate-and-append~ - duplicate keys and ~+~ append semantics
+- ~properties/file-level-keywords~ - ~#+PROPERTY~ and ~#+CATEGORY~ keywords
+- ~properties/heading-drawer-multiple-properties~ - several properties in a heading drawer
+- ~properties/late-file-keywords~ - file-level keywords after headings normalize onto the file node
+- ~timestamps/planning-timestamp~ - planning and body timestamps: ranges, times, repeaters, warnings, diary, invalid placements
+- ~todo-keywords/custom-sequence~ - custom ~#+TODO~ sequence overrides defaults
+- ~todo-keywords/overlapping-file-local-lines~ - overlapping ~#+TODO~ and ~#+SEQ_TODO~ lines
+- ~todo-keywords/simplified-file-local-lines~ - ~TODO~, ~SEQ_TODO~, ~TYP_TODO~ accumulate and override defaults
+
+* Coverage
+
+- Should be parsed: covered (headings, planning, properties, timestamps, tags, priorities)
+- Should not be parsed: covered (~planning/*~ invalid placements, diary expression, ~headings/not-headings-stay-text~)
+- Edge cases that stay normal text: covered (~headings/not-headings-stay-text~, ~timestamps/planning-timestamp~)
+- Known Orgize problems: covered (~links/orgize-compatibility~)
+- Custom ~#+TODO~ declarations: covered (~todo-keywords/*~)
+- Org default TODO behavior: covered (~priorities/todo-priority-tags~)
+- File-level properties and keywords: covered (~properties/*~, ~file-scope/*~)
+- FILETAGS: covered (~file-scope/file-keywords-and-preamble~, keyword row only)
+- Body text before and inside headings: covered (~body/*~)
+- Nested headings for materialized paths: parent indexes covered; the path strings themselves are not covered by fixtures (covered by unit tests of the indexing code)
+- Links outside regular headings and link extraction: not covered by fixtures because the harness has no link keys (covered by unit tests in ~src/parser/link_scanner.rs~)
+- Timestamps with repeaters: covered (~timestamps/planning-timestamp~)
+
+* Known deviations
+
+The parser deviates from Emacs Org-mode in documented places, listed in the ~* Register~ section (entries R1-R19) of [[file:../../../docs/design/parser-risks.org][docs/design/parser-risks.org]]. Fixtures that exercise entries:
+
+- R1-R5 (own link scanner, bracket links in titles, title re-normalization): ~links/orgize-compatibility~, ~links/plain-and-bracket-links~
+- R6-R8 (priority and TODO keyword recovery): ~priorities/todo-priority-tags~, ~todo-keywords/*~, ~headings/not-headings-stay-text~
+- R9-R12 (planning and timestamp fallbacks): ~timestamps/planning-timestamp~, ~planning/one-line-planning~, ~headings/nested-planning-lines~
+- R13-R14 (property drawer fallbacks): ~properties/*~
+- R15 (body timestamps inside links): ~links/orgize-compatibility~
+- R17 (in-buffer ~#+TODO~ ignored by ParseConfig): ~todo-keywords/*~
+- R18 (diary timestamps in planning): ~timestamps/planning-timestamp~, ~body/structured-metadata-exclusion~
+- R16 (JUSTIFY) and R19 (deep nesting): not covered by fixtures
+
