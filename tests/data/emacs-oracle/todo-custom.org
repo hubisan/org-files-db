@@ -1,0 +1,11 @@
+#+TODO: TODO(t) NEXT(n) WAIT(w@/!) | DONE(d!) CANCEL(c@)
+#+SEQ_TODO: BUG(b) | FIXED(f)
+
+* TODO One
+* NEXT Two
+* WAIT Three
+* DONE Four
+* CANCEL Five
+* BUG Six
+* FIXED Seven
+* WAIT

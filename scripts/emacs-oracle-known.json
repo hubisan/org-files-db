@@ -1,0 +1,117 @@
+[
+ {
+  "fixture": "properties-root-blank",
+  "fact": "properties",
+  "category": "a",
+  "note": "Root property drawer after a blank line is accepted by orgfdb, not by Emacs (tracked in #75)"
+ },
+ {
+  "fixture": "emacs-oracle/properties\\.org",
+  "fact": "properties",
+  "category": "a",
+  "note": "Drawer after a comment under a heading is accepted by orgfdb, not by Emacs (tracked in #75)",
+  "scope": "^L29 "
+ },
+ {
+  "fixture": "todo-custom",
+  "fact": "todo_keywords|title|todo|todo_type",
+  "category": "a",
+  "note": "Fast key with logging cookies WAIT(w@/!) is not parsed (tracked in #75)"
+ },
+ {
+  "fixture": "properties-indented",
+  "fact": "properties",
+  "category": "a",
+  "note": "Indented :PROPERTIES: drawer is not recognized; Org allows indentation"
+ },
+ {
+  "fixture": "emacs-oracle/properties\\.org",
+  "fact": "properties",
+  "category": "a",
+  "note": "Duplicate drawer key: Emacs uses the first definition, orgfdb the last (docs/design/parser-risks.org, fixture duplicate-and-append pins last-wins)",
+  "scope": "^L41 "
+ },
+ {
+  "fixture": "duplicate-and-append",
+  "fact": "properties",
+  "category": "a",
+  "note": "Duplicate drawer key: Emacs uses the first definition, orgfdb the last (fixture pins last-wins)"
+ },
+ {
+  "fixture": "properties\\.org",
+  "fact": "properties",
+  "category": "a",
+  "note": "Property value keeps leading and trailing whitespace; Org trims it",
+  "scope": "^L57 "
+ },
+ {
+  "fixture": "orgize-compatibility",
+  "fact": "link\\.(type|path)",
+  "category": "a",
+  "note": "[[test.org::Heading]] is classified as type 'test.org' with path ':Heading'; Org reads a fuzzy link with the whole target as path",
+  "text": "test\\.org::"
+ },
+ {
+  "fixture": "(structured-metadata-exclusion|planning-timestamp)",
+  "fact": "scheduled",
+  "category": "a",
+  "note": "SCHEDULED with a diary sexp is stored as a body timestamp, not as scheduled_raw (schema.sql allows scheduled_ts NULL for diary values; fixtures pin current behavior)",
+  "scope": "^L(21|39) "
+ },
+ {
+  "fixture": "tags-priority",
+  "fact": "priority|title",
+  "category": "a",
+  "note": "Priority cookie after COMMENT is read as priority; Org only reads the cookie before COMMENT",
+  "scope": "^L16 "
+ },
+ {
+  "fixture": "planning-timestamp",
+  "fact": "closed",
+  "category": "c",
+  "note": "Lowercase 'scheduled:' is not planning in orgfdb (fixture pins it); Org 9.6 parses it as a planning line and, through a case-fold quirk, files the timestamp under :closed",
+  "scope": "^L56 "
+ },
+ {
+  "fixture": "emacs-oracle/links",
+  "fact": "link\\.type",
+  "category": "c",
+  "note": "file+sys:/file+emacs: keep the full scheme as link_type; Org splits :type file plus :application (query-language.org resolver section)",
+  "text": "file\\+(sys|emacs)"
+ },
+ {
+  "fixture": "emacs-oracle/links",
+  "fact": "link\\.(type|path)",
+  "category": "c",
+  "note": "Bracket link with an unregistered scheme is typed by orgfdb; Org treats unregistered schemes as fuzzy (links.custom_protocols in config.org)",
+  "text": "unknown:thing"
+ },
+ {
+  "fixture": "emacs-oracle/links",
+  "fact": "link-extra-in-orgfdb",
+  "category": "c",
+  "note": "Links inside property drawer values are stored with source_context property_drawer (schema.sql); Org does not parse objects in property values",
+  "text": "property_drawer"
+ },
+ {
+  "fixture": "tags-priority",
+  "fact": "title|tags",
+  "category": "c",
+  "note": "Tag block with empty pieces (::a::) stays in the title; orgfdb requires every tag non-empty (parser-risks.org, Title normalization); org-element yields empty tags",
+  "scope": "^L7 "
+ },
+ {
+  "fixture": "tags-priority",
+  "fact": "priority|title",
+  "category": "c",
+  "note": "Numeric priority [#10] is stored as priority (schema.sql); org-element only reads a single character cookie",
+  "scope": "^L11 "
+ },
+ {
+  "fixture": "todo-default",
+  "fact": "title|todo|todo_type",
+  "category": "c",
+  "note": "Bare '* TODO' is a TODO state in orgfdb and in Org's outline/agenda regexps (org-entry-get); org-element requires trailing text",
+  "scope": "^L4 "
+ }
+]

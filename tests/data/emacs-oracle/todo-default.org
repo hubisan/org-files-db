@@ -1,0 +1,7 @@
+* TODO Default todo
+* DONE Default done
+* NEXT Not a keyword without config
+* TODO
+* TODOX Not a keyword
+* DONE Done with tags :a:b:
+* TODO [#A] Priority :t:
