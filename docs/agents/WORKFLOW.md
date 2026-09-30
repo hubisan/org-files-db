@@ -80,6 +80,17 @@ that needs a code change is.
 - Load context progressively. Subagent briefs name the exact files and sections so the
   implementer does not rediscover them. Do not scan `.claude/skills/`.
 
+## Tests
+
+- Edge cases live in the tests of the unit that owns them (parser, tag, query, config and
+  so on), not in indexer or CLI tests.
+- Indexer and CLI tests keep one or two end-to-end smoke tests per feature plus contract
+  and exit-code checks. Do not repeat a lower-layer test at a higher layer.
+- Prefer table-driven tests over several near-identical test functions.
+- Unit tests use the shared helpers in `crate::test_support` (`TestDir`, `write_file`).
+  Extend that module instead of defining a local copy. Integration tests in `tests/`
+  cannot reach it and keep their own helpers.
+
 ## Commits and completion
 
 - One commit per completed ticket after review and `make ci`, on a `<type>/<slug>` branch

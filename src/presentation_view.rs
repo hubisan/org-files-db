@@ -1072,42 +1072,14 @@ mod tests {
         PresentationViewRegistrationAction, PresentationViewRegistryHandle, ViewControlClientError,
         ViewControlRequest, ViewControlResponse, ViewControlServerError, CONTROL_MAX_REQUEST_BYTES,
     };
+    use crate::test_support::TestDir;
     use serde_json::json;
-    use std::{
-        fs,
-        path::PathBuf,
-        time::{SystemTime, UNIX_EPOCH},
-    };
+    use std::path::PathBuf;
     use std::{
         io::{BufRead, BufReader, Write},
         os::unix::net::UnixStream,
         time::{Duration, Instant},
     };
-
-    struct TestDir {
-        path: PathBuf,
-    }
-
-    impl TestDir {
-        fn new(name: &str) -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system time should be after unix epoch")
-                .as_nanos();
-            let path = std::env::temp_dir().join(format!(
-                "org-files-db-presentation-view-{name}-{}-{unique}",
-                std::process::id()
-            ));
-            fs::create_dir_all(&path).expect("test directory should be created");
-            Self { path }
-        }
-    }
-
-    impl Drop for TestDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
-    }
 
     fn definition(name: &str, title_width: u64) -> PresentationViewDefinition {
         PresentationViewDefinition {

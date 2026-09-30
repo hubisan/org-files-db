@@ -1,9 +1,10 @@
+use crate::test_support::{write_file, TestDir};
 use std::{
     collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
     thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 use rusqlite::{params, Connection, OptionalExtension};
@@ -28,37 +29,6 @@ const QUIET_INTERVAL: Duration = Duration::from_millis(500);
 const EVENTUAL_TIMEOUT: Duration = Duration::from_secs(8);
 
 type RealRuntimeError = WatcherRuntimeError<NotifyWatcherError, WatcherExecutionError>;
-
-struct TestDir {
-    path: PathBuf,
-}
-
-impl TestDir {
-    fn new(name: &str) -> Self {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time should be after unix epoch")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "org-files-db-watcher-e2e-{}-{}-{}",
-            name,
-            std::process::id(),
-            unique
-        ));
-        fs::create_dir_all(&path).expect("test directory should be created");
-        Self { path }
-    }
-
-    fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for TestDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
-}
 
 struct RealWatcherHarness {
     config: Config,
@@ -274,13 +244,6 @@ impl RealWatcherHarness {
             link_rows(&self.connection)
         )
     }
-}
-
-fn write_file(path: &Path, content: &str) {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).expect("parent directory should exist");
-    }
-    fs::write(path, content).expect("test file should be written");
 }
 
 fn write_bytes(path: &Path, content: &[u8]) {

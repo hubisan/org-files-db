@@ -373,12 +373,8 @@ mod tests {
         open_in_memory_database, open_in_memory_database_with_schema, read_schema_version,
         sqlite_supports_fts5, DbError, DbReader, SchemaDefinition, CURRENT_SCHEMA_VERSION,
     };
+    use crate::test_support::TestDir;
     use rusqlite::{params, Connection, OptionalExtension};
-    use std::{
-        fs,
-        path::{Path, PathBuf},
-        time::{SystemTime, UNIX_EPOCH},
-    };
 
     type MigratedLegacyRepeaterRow = (
         Option<String>,
@@ -399,37 +395,6 @@ mod tests {
         Option<i64>,
         Option<String>,
     );
-    struct TestDir {
-        path: PathBuf,
-    }
-
-    impl TestDir {
-        fn new(name: &str) -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system time should be after unix epoch")
-                .as_nanos();
-            let path = std::env::temp_dir().join(format!(
-                "org-files-db-db-tests-{}-{}-{}",
-                name,
-                std::process::id(),
-                unique
-            ));
-            fs::create_dir_all(&path).expect("test dir should be created");
-            Self { path }
-        }
-
-        fn path(&self) -> &Path {
-            &self.path
-        }
-    }
-
-    impl Drop for TestDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
-    }
-
     fn count_rows(connection: &Connection, sql: &str) -> i64 {
         connection
             .query_row(sql, [], |row| row.get(0))

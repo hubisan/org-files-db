@@ -17,50 +17,16 @@ use crate::query::{
     QueryDateResolutionOptions, QueryExecutionOptions, QueryTarget, QueryValidationOptions,
 };
 use crate::tag::derive_effective_tags;
+use crate::test_support::TestDir;
 use chrono::NaiveDate;
 use rusqlite::{limits::Limit, Connection};
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{fs, path::Path};
 
 struct PlanningFixture<'a> {
     kind: &'a str,
     timestamp: Option<i64>,
     has_time: Option<bool>,
     raw_value: &'a str,
-}
-
-struct TestDir {
-    path: PathBuf,
-}
-
-impl TestDir {
-    fn new(name: &str) -> Self {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time should be after unix epoch")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "org-files-db-query-sqlite-{}-{}-{}",
-            name,
-            std::process::id(),
-            unique
-        ));
-        fs::create_dir_all(&path).expect("test dir should be created");
-        Self { path }
-    }
-
-    fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for TestDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
 }
 
 fn validation_options() -> QueryValidationOptions {

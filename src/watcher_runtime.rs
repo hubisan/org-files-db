@@ -521,6 +521,7 @@ mod tests {
         WatcherCycleReport, WatcherMessageSource, WatcherRuntime, WatcherRuntimeError,
         WatcherRuntimeState, WatcherStartupError, MAX_SOURCE_MESSAGES_PER_CYCLE,
     };
+    use crate::test_support::{write_file, TestDir};
     use crate::{
         config::{Config, SearchConfig},
         db::{open_database_with_schema, SchemaDefinition, CURRENT_SCHEMA_VERSION},
@@ -540,48 +541,10 @@ mod tests {
         convert::Infallible,
         error::Error,
         fmt, fs,
-        path::{Path, PathBuf},
+        path::PathBuf,
         rc::Rc,
-        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+        time::{Duration, Instant},
     };
-
-    struct TestDir {
-        path: PathBuf,
-    }
-
-    impl TestDir {
-        fn new(name: &str) -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system time should be after unix epoch")
-                .as_nanos();
-            let path = std::env::temp_dir().join(format!(
-                "org-files-db-watcher-runtime-tests-{}-{}-{}",
-                name,
-                std::process::id(),
-                unique
-            ));
-            fs::create_dir_all(&path).expect("test directory should be created");
-            Self { path }
-        }
-
-        fn path(&self) -> &Path {
-            &self.path
-        }
-    }
-
-    impl Drop for TestDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
-    }
-
-    fn write_file(path: &Path, content: &str) {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).expect("parent directory should exist");
-        }
-        fs::write(path, content).expect("file should be written");
-    }
 
     fn search_config() -> SearchConfig {
         SearchConfig {

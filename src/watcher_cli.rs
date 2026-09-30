@@ -319,6 +319,7 @@ mod tests {
         drive_watcher_loop, next_wait_duration, CountingViewRebuildRefresh, LoopClock,
         NoopViewRebuildRefresh, ShutdownRequest, WatcherCommandError, MAX_IDLE_POLL_INTERVAL,
     };
+    use crate::test_support::TestDir;
     use crate::{
         config::{Config, ConfiguredDir},
         notify_source::{NotifySourceMessage, NotifyWatcherError},
@@ -331,38 +332,10 @@ mod tests {
     use std::{
         cell::{Cell, RefCell},
         collections::VecDeque,
-        fs,
         path::PathBuf,
         rc::Rc,
-        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+        time::{Duration, Instant},
     };
-
-    struct TestDir {
-        path: PathBuf,
-    }
-
-    impl TestDir {
-        fn new(name: &str) -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system time should be after unix epoch")
-                .as_nanos();
-            let path = std::env::temp_dir().join(format!(
-                "org-files-db-watcher-cli-tests-{}-{}-{}",
-                name,
-                std::process::id(),
-                unique
-            ));
-            fs::create_dir_all(&path).expect("test directory should be created");
-            Self { path }
-        }
-    }
-
-    impl Drop for TestDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
-    }
 
     struct TestSource {
         queue: Rc<RefCell<VecDeque<NotifySourceMessage>>>,

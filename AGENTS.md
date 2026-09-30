@@ -32,6 +32,7 @@ Rust CLI that indexes Org files into SQLite and answers queries over them.
 
 - Run `make ci` (fmt, clippy, test, build) before declaring work done. State exactly
   which checks were not run.
+- Test placement and shared helpers (`crate::test_support`): `docs/agents/WORKFLOW.md`, section Tests.
 - Update docs in the same change: CLI -> `docs/cli.org`, config -> `docs/config.org`,
   parser/indexing -> the relevant file in `docs/`, README when claims go stale,
   `CHANGELOG.org` for user-visible changes.
