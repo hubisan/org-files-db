@@ -1,4 +1,9 @@
-use std::{error::Error, fmt, path::PathBuf, time::Instant};
+use std::{
+    error::Error,
+    fmt,
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
 #[cfg(test)]
 use std::path::Path;
@@ -258,6 +263,27 @@ pub(crate) struct WatcherRuntime<S> {
     state: WatcherRuntimeState,
     recovery: WatcherRecoveryContext,
     watch_targets: Vec<PathBuf>,
+    retry_notices: Vec<WatcherRetryNotice>,
+}
+
+/// A transient batch failure that was requeued instead of stopping the watcher.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WatcherRetryNotice {
+    pub(crate) attempt: u32,
+    pub(crate) delay: Duration,
+    pub(crate) cause: String,
+}
+
+impl fmt::Display for WatcherRetryNotice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "watcher batch failed transiently (attempt {}); retrying in {}s: {}",
+            self.attempt,
+            self.delay.as_secs(),
+            self.cause
+        )
+    }
 }
 
 impl WatcherRuntime<NotifyWatcherSource> {
@@ -304,11 +330,22 @@ where
             state: WatcherRuntimeState::Running,
             recovery: WatcherRecoveryContext::default(),
             watch_targets,
+            retry_notices: Vec::new(),
         };
 
-        executor
-            .execute(NormalizedWatcherBatch::Reconcile)
-            .map_err(WatcherStartupError::Reconciliation)?;
+        if let Err(error) = executor.execute(NormalizedWatcherBatch::Reconcile) {
+            let Some(cause) = E::transient_failure(&error) else {
+                return Err(WatcherStartupError::Reconciliation(error));
+            };
+            let (attempt, delay) = runtime
+                .controller
+                .requeue_transient_batch(NormalizedWatcherBatch::Reconcile, now);
+            runtime.retry_notices.push(WatcherRetryNotice {
+                attempt,
+                delay,
+                cause,
+            });
+        }
         runtime
             .drain_source::<E::Error>(now)
             .map_err(|error| match error {
@@ -337,6 +374,11 @@ where
     #[cfg(test)]
     pub(crate) fn recovery_context(&self) -> &WatcherRecoveryContext {
         &self.recovery
+    }
+
+    /// Drains transient-failure notices recorded since the last call.
+    pub(crate) fn take_retry_notices(&mut self) -> Vec<WatcherRetryNotice> {
+        std::mem::take(&mut self.retry_notices)
     }
 
     pub(crate) fn begin_shutdown(&mut self) {
@@ -476,6 +518,25 @@ where
                 Ok(WatcherExecutionStatus::Executed)
             }
             Err(source) => {
+                // During shutdown the flush is attempted once; a transient
+                // failure then ends the watcher instead of waiting.
+                if let Some(cause) =
+                    E::transient_failure(&source).filter(|_| self.controller.is_accepting_inputs())
+                {
+                    let (attempt, delay) = self
+                        .controller
+                        .finish_execution_transient_failure(now)
+                        .map_err(|error| {
+                            self.state = WatcherRuntimeState::Terminated;
+                            WatcherRuntimeError::Controller(error)
+                        })?;
+                    self.retry_notices.push(WatcherRetryNotice {
+                        attempt,
+                        delay,
+                        cause,
+                    });
+                    return Ok(WatcherExecutionStatus::Idle);
+                }
                 self.state = WatcherRuntimeState::Terminated;
                 self.controller
                     .finish_execution_failure(now)
@@ -1131,11 +1192,13 @@ mod tests {
     }
 
     #[test]
-    fn failed_recovery_terminates_and_preserves_last_committed_state() {
-        let test_dir = TestDir::new("failed-recovery-rollback");
+    fn invalid_utf8_source_is_skipped_and_the_watcher_keeps_running() {
+        let test_dir = TestDir::new("skip-invalid-utf8-recovery");
         let note = test_dir.path().join("note.org");
-        let config = explicit_config(&test_dir, vec![note.clone()]);
+        let other = test_dir.path().join("other.org");
+        let config = explicit_config(&test_dir, vec![note.clone(), other.clone()]);
         write_file(&note, "* Original\n");
+        write_file(&other, "* Other\n");
         let indexer = Indexer::new(OrgizeAdapter::new());
         let mut connection = open_database(&config);
         indexer
@@ -1148,6 +1211,46 @@ mod tests {
             let mut runtime = WatcherRuntime::start_registered(source, &config, now, &mut executor)
                 .expect("startup should succeed");
             fs::write(&note, b"* Invalid\n\xff").expect("invalid source should be written");
+            write_file(&other, "* Other updated\n");
+            handle.push(NotifySourceMessage::Input(WatcherInput::Uncertain(
+                WatcherUncertainty::Rescan,
+            )));
+            runtime
+                .process_available(now, &mut executor)
+                .expect("rescan should queue recovery");
+            let deadline = runtime.next_deadline().expect("recovery should be pending");
+            runtime
+                .process_available(deadline, &mut executor)
+                .expect("an invalid source must not stop the watcher");
+            assert_eq!(runtime.state(), WatcherRuntimeState::Running);
+            assert!(runtime.take_retry_notices().is_empty());
+        }
+
+        assert_eq!(
+            heading_titles(&connection),
+            vec!["Original", "Other updated"]
+        );
+    }
+
+    #[test]
+    fn fatal_execution_failure_terminates_and_preserves_last_committed_state() {
+        let test_dir = TestDir::new("fatal-recovery-rollback");
+        let config = recursive_config(&test_dir);
+        let root = config.dirs[0].path.clone();
+        let note = root.join("note.org");
+        write_file(&note, "* Original\n");
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = open_database(&config);
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        let (source, handle) = TestSource::new(vec![root.clone()]);
+        let now = Instant::now();
+        {
+            let mut executor = IndexerWatcherExecutor::new(&indexer, &mut connection, &config);
+            let mut runtime = WatcherRuntime::start_registered(source, &config, now, &mut executor)
+                .expect("startup should succeed");
+            fs::remove_dir_all(&root).expect("watch root should be removed");
             handle.push(NotifySourceMessage::Input(WatcherInput::Uncertain(
                 WatcherUncertainty::Rescan,
             )));
@@ -1157,12 +1260,86 @@ mod tests {
             let deadline = runtime.next_deadline().expect("recovery should be pending");
             let error = runtime
                 .process_available(deadline, &mut executor)
-                .expect_err("failed reconciliation recovery should terminate");
-            assert!(matches!(error, WatcherRuntimeError::Execution { .. }));
+                .expect_err("an unavailable watch root must terminate the watcher");
+            assert!(!error.to_string().is_empty());
             assert_eq!(runtime.state(), WatcherRuntimeState::Terminated);
         }
 
         assert_eq!(heading_titles(&connection), vec!["Original"]);
+    }
+
+    #[test]
+    fn busy_database_requeues_the_batch_with_backoff_and_recovers() {
+        let test_dir = TestDir::new("busy-database-retry");
+        let note = test_dir.path().join("note.org");
+        let config = explicit_config(&test_dir, vec![note.clone()]);
+        write_file(&note, "* Original\n");
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = open_database(&config);
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        connection
+            .busy_timeout(Duration::ZERO)
+            .expect("busy timeout should be configurable");
+        let (source, handle) = TestSource::new(vec![test_dir.path().to_path_buf()]);
+        let now = Instant::now();
+        let locker = Connection::open(&config.db_path).expect("second connection should open");
+        {
+            let mut executor = IndexerWatcherExecutor::new(&indexer, &mut connection, &config);
+            let mut runtime = WatcherRuntime::start_registered(source, &config, now, &mut executor)
+                .expect("startup should succeed");
+            write_file(&note, "* Updated\n");
+            locker
+                .execute_batch("BEGIN IMMEDIATE")
+                .expect("write lock should be held");
+            handle.push(NotifySourceMessage::Input(WatcherInput::Uncertain(
+                WatcherUncertainty::Rescan,
+            )));
+            runtime
+                .process_available(now, &mut executor)
+                .expect("rescan should queue recovery");
+
+            let first = runtime.next_deadline().expect("batch should be pending");
+            let report = runtime
+                .process_available(first, &mut executor)
+                .expect("busy database must not stop the watcher");
+            assert_eq!(report.execution_status, WatcherExecutionStatus::Idle);
+            assert_eq!(runtime.state(), WatcherRuntimeState::Running);
+            let notices = runtime.take_retry_notices();
+            assert_eq!(notices.len(), 1);
+            assert_eq!(notices[0].attempt, 1);
+            assert_eq!(notices[0].delay, Duration::from_secs(1));
+
+            let second = runtime.next_deadline().expect("retry should be pending");
+            assert_eq!(second, first + Duration::from_secs(1));
+            assert_eq!(
+                runtime
+                    .process_available(second - Duration::from_millis(1), &mut executor)
+                    .expect("backoff should hold the batch")
+                    .execution_status,
+                WatcherExecutionStatus::Idle
+            );
+            runtime
+                .process_available(second, &mut executor)
+                .expect("busy database must still not stop the watcher");
+            let notices = runtime.take_retry_notices();
+            assert_eq!(notices.len(), 1);
+            assert_eq!(notices[0].attempt, 2);
+            assert_eq!(notices[0].delay, Duration::from_secs(2));
+
+            locker
+                .execute_batch("ROLLBACK")
+                .expect("write lock should release");
+            let third = runtime.next_deadline().expect("retry should be pending");
+            let report = runtime
+                .process_available(third, &mut executor)
+                .expect("retry should succeed once the lock is gone");
+            assert_eq!(report.execution_status, WatcherExecutionStatus::Executed);
+            assert!(runtime.take_retry_notices().is_empty());
+        }
+
+        assert_eq!(heading_titles(&connection), vec!["Updated"]);
     }
 
     #[test]
