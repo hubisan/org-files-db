@@ -66,7 +66,7 @@ The diagram is in [[./line-scanner.svg][line-scanner.svg]] (source: ~line-scanne
 - *Affiliated keywords.* ~#+NAME:~, ~#+CAPTION:~, ~#+HEADER:~, ~#+RESULTS:~, ~#+ATTR_x:~ and the other Org affiliated keywords belong to the next element when a non-empty line follows inside the same container. They are then no document keywords (the output lists them in ~affiliated~), and the element range starts at the first of them. A comment line after them is part of a paragraph, not a comment. Without a following element (a blank line, a headline or the end of the file after the whole chain of them) they are plain keywords (Emacs: ~#+NAME: n~ before ~#+TITLE: t~ gives only ~TITLE~; ~#+NAME: x~ before a blank line gives ~NAME~).
 - *Comments and fixed-width lines* form one region per run of consecutive lines.
 - *Line endings.* CRLF is handled in the lexer. A lone ~\r~ is part of the text.
-- *Depth.* The scanner returns an error for a headline deeper than ~MAX_HEADING_LEVEL~ (100, #44), which the adapter reports as a parse error naming level and line. Only ~^\*+ ~ lines count, wherever they stand, since Org reads a ~*~ line inside a block as a headline; ~**\tx~ is text and never counts. The scanner is iterative and does not need the limit for stack safety; it stays a product rule.
+- *Depth.* There is no depth limit, as in Org. The scanner is iterative, so any depth is stack-safe. Only ~^\*+ ~ lines are headlines, wherever they stand, since Org reads a ~*~ line inside a block as a headline; ~**\tx~ is text.
 
 ** Output model
 
@@ -126,7 +126,7 @@ The scanner only finds lines. It reuses these modules and adds no second impleme
 
 * Resolved differences from Orgize
 
-The stage 1 differential test allowed these adapter deviations from Emacs. The adapter now follows Emacs on each (verified with ~emacs --batch -Q~, ~org-element-parse-buffer~ and ~org-entry-get~). The parser contract version is 9 since #105.
+The stage 1 differential test allowed these adapter deviations from Emacs. The adapter now follows Emacs on each (verified with ~emacs --batch -Q~, ~org-element-parse-buffer~ and ~org-entry-get~). The parser contract version is 10 since the depth limit was removed.
 
 - A planning keyword line without a timestamp (~SCHEDULED: garbage~, ~CLOSED:~) is an empty planning element (Emacs: planning L2-2, property-drawer L3-5), so the property drawer after it counts and the line is not body text.
 - A block ends at the first matching end line, names compare without case (Emacs: src-block L2-5 across a non-matching ~#+end_example~; src-block L2-3 for ~#+begin_SRC~ ... ~#+End_src~).
@@ -140,7 +140,7 @@ The stage 1 differential test allowed these adapter deviations from Emacs. The a
 
 - Stage 1 (#101): lexer, scanner, differential test, this document.
 - Stage 2 (#103, done): the production path is built from the scanner, Orgize is reduced to the inline seam, the differential test became the regression corpus, and every allowed deviation follows Emacs.
-- Stage 3 (#105, done): own inline scanning replaces the three inline uses (timestamp nodes and inline code ranges, title normalization, timestamp conversion) and the dependency is removed. ~MAX_HEADING_LEVEL~ (100) is unchanged: the scanners need no limit for stack safety, so it only protects against pathological files and stays a product rule until the owner decides.
+- Stage 3 (#105, done): own inline scanning replaces the three inline uses (timestamp nodes and inline code ranges, title normalization, timestamp conversion) and the dependency is removed. The heading depth limit of 100 (~MAX_HEADING_LEVEL~) was removed afterwards, since the scanners need no limit for stack safety.
 
 * Open questions
 
