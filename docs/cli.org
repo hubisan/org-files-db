@@ -221,7 +221,7 @@ A view definition contains:
 - the view name
 - the structural query
 - the query output mode
-- explicit query includes
+- explicit query includes (stored and shown, but they add nothing to the presentation payload)
 - the effective query timezone
 - whether the validated query depends on relative dates
 - the presentation specification
@@ -533,7 +533,7 @@ Only outline-path columns accept the ~outline_path~ option object.
 
 The registry records required query includes for every supported column. The CLI adds these includes before it runs the query.
 
-Displayed columns, sort-only columns, and row sources can add required includes. Explicit ~--include~ values stay enabled.
+Displayed columns, sort-only columns, and row sources can add required includes. Explicit ~--include~ values are accepted but add nothing to a ~presentation-json~ response, because its ~results~ are slim action records. A client that needs more data about a result loads it by id with ~(id N ...)~ and the normal JSON query.
 
 For example, a hidden ~outline-path~ sort adds ~path~. An ~effective-properties~ row source adds ~effective_properties~.
 
@@ -581,15 +581,18 @@ The response contains:
 - ~presentation_version~
 - ~database_id~
 - ~generation~
+- ~files~
 - ~results~
 - ~schemas~
 - ~rows~
 
-~presentation_version~ is ~2~ for the current compact wire format.
+~presentation_version~ is ~3~ for the current compact wire format.
 
-~results~ stores each original top-level query result once.
+~files~ lists each absolute file path once.
 
-~schemas~ defines the positional row, row-context, and cell layouts.
+~results~ stores one slim positional action record per top-level query result: kind, database id and source location, plus the resolved target for links. It does not repeat the normal query result objects.
+
+~schemas~ defines the positional result, row, row-context, and cell layouts.
 
 Each row refers to one result through the ~result_index~ position defined by that schema.
 

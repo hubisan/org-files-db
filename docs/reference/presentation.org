@@ -51,7 +51,9 @@ Only ~orgfdb query~ accepts ~--format presentation-json~.
 
 The CLI rejects ~--presentation-spec-json~ with normal ~--format json~ output.
 
-~--output~, ~--include~, ~--restrict-files-json~, and ~--config~ keep their normal query meanings.
+~--output~, ~--restrict-files-json~, ~--config~, ~--expect-database-id~, and ~--expect-generation~ keep their normal query meanings.
+
+~--include~ is accepted but adds no data to the response: ~results~ are slim action records. Presentation still infers the includes it needs for columns, sort rules, and the row source.
 
 The query runs once and returns one complete ~presentation-json~ response.
 
@@ -107,7 +109,9 @@ The Emacs client registers its predefined structural views through ~orgfdb view 
 
 It reads candidates through ~orgfdb view read~.
 
-It uses each row's ~result_index~ to reach the original result for actions.
+It uses each row's ~result_index~ to reach the action record of the original result.
+
+It loads anything beyond that record on demand, by id, after the user selected a candidate (see "Loading more data by id").
 
 It uses ~search_text~ for matching and ~display_text~ for visible candidate text.
 
@@ -324,9 +328,9 @@ A missing required include produces a presentation error.
 
 Rust derives includes from displayed columns, sort columns, and the row source.
 
-It combines these includes with explicit ~--include~ values.
+It loads only these includes; explicit ~--include~ values are ignored.
 
-Explicit includes remain available in the original result objects for client actions.
+Explicit ~--include~ values do not change the presentation response.
 
 For example, a hidden ~outline-path~ sort adds ~path~ automatically.
 
@@ -391,9 +395,9 @@ Normal displayed columns repeat for each expanded row.
 
 * Result representation
 
-The ~results~ array stores the original top-level ~QueryResultNode~ objects.
+The ~results~ array stores one slim action record for each top-level query result.
 
-The objects keep the requested query output mode and include-controlled data.
+The records carry what a client needs to act on the selected candidate. They do not repeat the normal query result objects.
 
 Presentation sorting does not reorder the ~results~ array.
 
@@ -401,9 +405,7 @@ A presentation row refers to one top-level result through ~result_index~.
 
 Several rows can refer to the same result after row expansion.
 
-With ~--output outline~, nested ~children~ stay inside their top-level result object.
-
-Nested children do not create separate presentation rows.
+With ~--output outline~, nested ~children~ do not get records. Only top-level results do, and nested children do not create separate presentation rows.
 
 * Sorting
 
@@ -490,9 +492,11 @@ The wire format does not contain role ranges or heading-level roles.
 
 It also does not contain Emacs face names, colors, or font sizes.
 
-* Presentation JSON version 2
+* Presentation JSON version 3
 
-The current wire format uses ~presentation_version = 2~.
+The current wire format uses ~presentation_version = 3~.
+
+Version 3 replaces the full query result objects in ~results~ with slim positional action records and adds the top-level ~files~ table. Rows are unchanged from version 2.
 
 The top-level response contains:
 
@@ -500,6 +504,7 @@ The top-level response contains:
 presentation_version
 database_id
 generation
+files
 results
 schemas
 rows
@@ -509,7 +514,101 @@ rows
 
 The one-shot query reads index state and query data inside one database read transaction.
 
-A cached view stores the complete production ~presentation-json~ payload for its rebuild target.
+A cached view stores the complete production ~presentation-json~ payload for its rebuild target. ~view read~ emits the same shape as the one-shot path.
+
+** Example payload
+
+Response for ~orgfdb query --format presentation-json --presentation-spec-json '{"columns":[{"name":"title"}]}' '(headings (id 12 13))'~ in a database with one file:
+
+#+begin_src json
+{
+  "presentation_version": 3,
+  "database_id": "5fc8935f-1093-4144-8f03-cb76ae3166f6",
+  "generation": 2,
+  "files": ["/notes/projects.org"],
+  "results": [
+    [1, 12, 0, 6, 126],
+    [1, 13, 0, 9, 188]
+  ],
+  "schemas": {"result_kinds": ["root", "heading", "file", "link"], "...": "..."},
+  "rows": [
+    [0, null, [["Query engine", null, 1]]],
+    [1, null, [["Broken refs", null, 1]]]
+  ]
+}
+#+end_src
+
+A link result adds its target fields:
+
+#+begin_src json
+{
+  "files": ["/notes/projects.org", "/notes/notes.org"],
+  "results": [
+    [3, 21, 0, 6, 126, 1, 1, null],
+    [3, 22, 0, 11, 240, null, null, null]
+  ]
+}
+#+end_src
+
+Record 21 is a link in ~projects.org~ at line 6 that resolves to ~notes.org~ line 1 (a file target, so no byte offset). Record 22 has no resolved target.
+
+** Files table
+
+~files~ is an array of absolute paths. Each distinct path appears once, in order of first use by a result record. A record refers to a path by its index.
+
+** Action records
+
+Each element of ~results~ is a positional array. The position ~i~ of the array in ~results~ is the ~result_index~ that rows use.
+
+Position 0 is ~kind~, an index into ~schemas.result_kinds~. The kinds are:
+
+| Index | Kind | Result |
+|-------+------+--------|
+| 0 | ~root~ | a synthetic file root returned by a ~headings~ query |
+| 1 | ~heading~ | a real heading |
+| 2 | ~file~ | a file returned by a ~files~ query |
+| 3 | ~link~ | a stored link |
+
+Records of kind ~root~, ~heading~, and ~file~ have five positions:
+
+| Position | Field | Meaning |
+|----------+-------+---------|
+| 0 | ~kind~ | index into ~schemas.result_kinds~ |
+| 1 | ~id~ | the ~id~ of the normal query result: heading id, file id (also for ~root~), or link id |
+| 2 | ~file~ | index into ~files~ |
+| 3 | ~line~ | line number, or ~null~ |
+| 4 | ~byte_start~ | byte offset of the heading, or ~null~ |
+
+The ~line~ and ~byte_start~ values equal ~location.line~ and ~location.byte_start~ of the normal query result. A ~root~ or ~file~ record has no ~byte_start~, so position 4 is ~null~.
+
+A ~link~ record has eight positions. The first five describe the link itself: ~file~, ~line~, and ~byte_start~ are the location of the link in its source file. The remaining three describe the resolved target:
+
+| Position | Field | Meaning |
+|----------+-------+---------|
+| 5 | ~target_file~ | index into ~files~, or ~null~ |
+| 6 | ~target_line~ | line of the target heading, or of the file root for a file target |
+| 7 | ~target_byte_start~ | byte offset of the target heading, or ~null~ for a file target |
+
+All three target positions are ~null~ when the link has no resolved target in the index. A target is resolved when its ~resolution_status~ is ~resolved~. The target is the heading or file the link resolved to when the index was built.
+
+Clients must treat the record length as part of the kind: five positions for ~root~, ~heading~, and ~file~, eight for ~link~. ~schemas.result_shapes~ names the positions per kind.
+
+** Loading more data by id
+
+A record holds only what is needed to open, jump to, or follow a result. A client that needs more, such as a heading title for an inserted link, the outline path, or the rest of a link, loads it by id after the user selected a candidate.
+
+Use the normal JSON query with the ~id~ predicate and the guard options, passing the ~database_id~ and ~generation~ of the presentation response:
+
+#+begin_src sh
+orgfdb query --format json --include path \
+  --expect-database-id "$DATABASE_ID" --expect-generation "$GENERATION" \
+  --error-format json \
+  '(headings (id 12))'
+#+end_src
+
+Use ~(links (id N))~ for ~link~ records and ~(files (id N))~ for ~file~ and ~root~ records. The ~id~ of a ~root~ record is the file id. Several ids can be loaded in one query, for example ~(headings (id 12 13))~.
+
+Database ids are only valid for one generation. If the index changed after the response, the command fails with exit code ~1~ and the error kind ~stale-index~ and returns no results. The client then reads a fresh presentation response.
 
 ** Wire schemas
 
@@ -517,6 +616,17 @@ The response emits positional schemas with each payload:
 
 #+begin_src json
 {
+  "result_kinds": ["root", "heading", "file", "link"],
+  "result_shapes": {
+    "root": ["kind", "id", "file", "line", "byte_start"],
+    "heading": ["kind", "id", "file", "line", "byte_start"],
+    "file": ["kind", "id", "file", "line", "byte_start"],
+    "link": [
+      "kind", "id", "file", "line", "byte_start",
+      "target_file", "target_line", "target_byte_start"
+    ]
+  },
+  "result_file_encoding": "index-into-files",
   "row_fields": ["result_index", "row_context", "cells"],
   "cell_fields": ["search_text", "display_text", "role"],
   "row_context_shapes": {
@@ -544,7 +654,7 @@ The response emits positional schemas with each payload:
 }
 #+end_src
 
-Clients must read ~presentation_version~ before they decode positional rows.
+Clients must read ~presentation_version~ before they decode positional records and rows.
 
 Clients can use the emitted ~schemas~ object instead of duplicating field names.
 
@@ -606,7 +716,7 @@ The cell keeps all three positions, so later fields never shift.
 
 The role is either ~null~ or an index into ~schemas.role_values~.
 
-The current version 2 role indexes are:
+The current version 3 role indexes are:
 
 | Index | Role |
 |-------+------|
@@ -624,7 +734,7 @@ The current version 2 role indexes are:
 | 11 | ~property-name~ |
 | 12 | ~property-value~ |
 
-The version 2 positional field meanings and current role indexes are stable within version 2.
+The version 3 positional field meanings and current role indexes are stable within version 3.
 
 An incompatible positional change requires a new ~presentation_version~.
 
@@ -721,6 +831,8 @@ Historical benchmark evidence selected the current production strategies.
 At 50,000 results, presentation JSON version 2 reduced payload size by 12.22 % to 40.70 % in measured workloads.
 
 Selective parallel presentation work reduced complete presentation time by 8.6 % to 39.8 % in selected large workloads.
+
+Version 3 (#116) replaced the full result objects by action records. On a generated corpus of 50,100 headings (100 files with tags, planning lines and links) and the columns ~title~, ~tags~, ~file-name~, and ~outline-path~, the response dropped from 89.5 MB to 28.8 MB (the ~results~ part from 61.8 MB to 1.1 MB). Emacs 29.3 ~json-parse-buffer~ with ~:array-type 'array~ and GC disabled dropped from about 3.5 s to about 0.63 s. The one-shot CLI call (release build) dropped from about 1.37 s to about 1.0 s.
 
 The cache study reduced measured repeated-view CLI latency by 92.6 % to 94.8 % for four large workloads.
 

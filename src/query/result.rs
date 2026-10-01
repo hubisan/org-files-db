@@ -403,6 +403,7 @@ impl From<QueryExecutionError> for QueryShapeError {
 mod enrich;
 mod execute;
 mod flat;
+mod link_targets;
 mod loaders;
 mod outline;
 mod paths;
@@ -414,6 +415,7 @@ pub use self::execute::{
     execute_and_shape_query, shape_matched_heading_nodes, shape_query_results,
 };
 use self::flat::*;
+pub use self::link_targets::{load_link_target_locations, LinkTargetLocation};
 use self::loaders::*;
 use self::outline::*;
 pub(crate) use self::paths::load_heading_paths_from_relation;

@@ -8,8 +8,9 @@ use crate::{
     db::{index_state::IndexState, open_existing_database_read_only, read_index_state},
     presentation::{PresentationResponse, PresentationSpec},
     query::{
-        execute_and_shape_query, parse_query, sqlite_query_validation_options, validate_query,
-        QueryExecutionOptions, QueryInclude, QueryResponse,
+        execute_and_shape_query, load_link_target_locations, parse_query,
+        sqlite_query_validation_options, validate_query, QueryExecutionOptions, QueryInclude,
+        QueryResponse,
     },
 };
 
@@ -134,7 +135,6 @@ pub(super) fn query_response_with_restriction(
 pub(super) fn presentation_response_with_restriction(
     query: &str,
     output: CliQueryOutput,
-    includes: &[CliQueryInclude],
     config_path: Option<&Path>,
     restricted_file_paths: Option<Vec<String>>,
     spec: &PresentationSpec,
@@ -156,13 +156,10 @@ pub(super) fn presentation_response_with_restriction(
     let validation_options =
         sqlite_query_validation_options(&connection).map_err(CliError::QueryExecute)?;
     let validated = validate_query(parsed, &validation_options).map_err(CliError::QueryValidate)?;
-    let explicit_includes = includes
-        .iter()
-        .copied()
-        .map(QueryInclude::from)
-        .collect::<Vec<_>>();
+    // `--include` adds nothing to a presentation response; only the includes
+    // the columns, sort rules and row source need are loaded.
     let query_includes = spec
-        .combined_includes_for_query_target(validated.target, &explicit_includes)
+        .required_includes_for_query_target(validated.target)
         .map_err(CliError::PresentationSpec)?;
     let options = QueryExecutionOptions {
         output_mode: output.into(),
@@ -173,8 +170,15 @@ pub(super) fn presentation_response_with_restriction(
     };
     let query_response =
         execute_and_shape_query(&connection, &validated, &options).map_err(CliError::QueryShape)?;
+    let link_targets = load_link_target_locations(&connection, &query_response.results)
+        .map_err(CliError::QueryShape)?;
     let response = spec
-        .build_response(state.database_id, state.generation, query_response.results)
+        .build_response(
+            state.database_id,
+            state.generation,
+            query_response.results,
+            &link_targets,
+        )
         .map_err(CliError::PresentationBuild)?;
 
     connection

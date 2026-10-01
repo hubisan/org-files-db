@@ -12,7 +12,7 @@ use crate::{
     presentation_view_cache::{PresentationViewCacheReadError, PresentationViewCacheStore},
     query::{
         parse_query, query_depends_on_relative_dates, sqlite_query_validation_options,
-        validate_query, QueryInclude,
+        validate_query,
     },
 };
 
@@ -136,12 +136,7 @@ pub(super) fn presentation_view_definition(
     spec.validate_for_query_target(validated.target)
         .map_err(CliError::PresentationSpec)?;
 
-    let explicit_includes = includes
-        .iter()
-        .copied()
-        .map(QueryInclude::from)
-        .collect::<Vec<_>>();
-    spec.combined_includes_for_query_target(validated.target, &explicit_includes)
+    spec.required_includes_for_query_target(validated.target)
         .map_err(CliError::PresentationSpec)?;
 
     let presentation_spec = serde_json::from_str(presentation_spec_json)
