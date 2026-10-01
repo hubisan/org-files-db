@@ -2,20 +2,16 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
     path::Path,
-    time::{Duration, Instant},
 };
 
 use chrono::{DateTime, Utc};
 use rusqlite::{params_from_iter, Connection};
 use serde::Serialize;
 
-use super::benchmark_trace;
 use super::sql_support::id_chunk_capacity;
 use super::sqlite::{
-    cleanup_temporary_matched_relation, execute_sqlite_query_with_relation_and_strategies,
-    file_relation_columns, heading_relation_columns, HeadingQueryMatch,
-    MatchedRelationReuseStrategy, MatchedSqlRelation, MetadataPredicateSqlStrategy,
-    PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY, PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
+    cleanup_temporary_matched_relation, execute_sqlite_query_with_relation, file_relation_columns,
+    heading_relation_columns, HeadingQueryMatch, MatchedSqlRelation,
 };
 use super::{
     FileQueryRow, HeadingQueryRow, LinkQueryRow, QueryExecutionError, QueryRows, QueryTarget,
@@ -113,25 +109,6 @@ enum ResultDomain {
     Headings,
     Links,
 }
-
-// Non-production variants are comparison baselines used by tests and the `bench` feature.
-#[cfg_attr(not(any(test, feature = "bench")), allow(dead_code))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum HeadingPathStrategy {
-    RecursiveQueryDerived,
-    RustDrivenBulkAncestors,
-}
-
-// Non-production variants are comparison baselines used by tests and the `bench` feature.
-#[cfg_attr(not(any(test, feature = "bench")), allow(dead_code))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum DirectFlatShapingStrategy {
-    CloneBaseline,
-    MoveOwned,
-}
-
-const PRODUCTION_DIRECT_FLAT_SHAPING_STRATEGY: DirectFlatShapingStrategy =
-    DirectFlatShapingStrategy::MoveOwned;
 
 fn public_result_kind(domain: ResultDomain, heading_level: i64) -> QueryResultKind {
     match domain {
@@ -433,21 +410,11 @@ mod paths;
 mod tests;
 
 use self::enrich::*;
-#[cfg(feature = "bench")]
-pub(crate) use self::execute::execute_and_shape_query_with_metadata_strategy;
 pub use self::execute::{
     execute_and_shape_query, shape_matched_heading_nodes, shape_query_results,
-};
-#[cfg(any(test, feature = "bench"))]
-pub(crate) use self::execute::{
-    execute_and_shape_query_with_direct_flat_shaping_strategy,
-    execute_and_shape_query_with_path_strategy,
-    execute_and_shape_query_with_relation_reuse_strategy,
 };
 use self::flat::*;
 use self::loaders::*;
 use self::outline::*;
+pub(crate) use self::paths::load_heading_paths_from_relation;
 use self::paths::*;
-pub(crate) use self::paths::{
-    load_heading_paths_from_relation, load_heading_paths_recursive_from_relation,
-};

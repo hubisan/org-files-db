@@ -1,7 +1,4 @@
-use std::{
-    env, fmt,
-    time::{Duration, Instant},
-};
+use std::{env, fmt};
 
 use regex::Regex;
 use rusqlite::{
@@ -11,7 +8,6 @@ use rusqlite::{
 };
 use serde::Serialize;
 
-use super::benchmark_trace;
 use super::priority::normalize_priority;
 use super::result::QueryExecutionOptions;
 use super::sql_support::id_chunk_capacity;
@@ -33,16 +29,9 @@ mod sql;
 mod tests;
 
 pub use self::compile::compile_sqlite_query;
+pub(crate) use self::compile::compile_sqlite_query_with_file_restriction;
 use self::compile::*;
-pub(crate) use self::compile::{
-    compile_sqlite_query_with_file_restriction, compile_sqlite_query_with_metadata_strategy,
-    MetadataPredicateSqlStrategy, PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
-};
-#[cfg(any(test, feature = "bench"))]
 pub(crate) use self::execute::execute_sqlite_query_with_relation;
-#[cfg(test)]
-pub(crate) use self::execute::execute_sqlite_query_with_relation_and_metadata_strategy;
-pub(crate) use self::execute::execute_sqlite_query_with_relation_and_strategies;
 pub use self::execute::{
     execute_sqlite_query, execute_sqlite_query_with_options, sqlite_query_validation_options,
 };
@@ -50,9 +39,8 @@ use self::predicates::*;
 use self::relation::*;
 pub(crate) use self::relation::{
     cleanup_temporary_matched_relation, file_relation_columns, heading_matched_relation_cost,
-    heading_relation_columns, ExecutedSqliteQuery, MatchedRelationCost,
-    MatchedRelationReuseStrategy, MatchedSqlRelation, TemporaryMatchedRelation,
-    PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY,
+    heading_relation_columns, ExecutedSqliteQuery, MatchedRelationCost, MatchedSqlRelation,
+    TemporaryMatchedRelation,
 };
 use self::rows::*;
 pub use self::rows::{

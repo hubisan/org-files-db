@@ -3,33 +3,23 @@
 
 * Purpose
 
-This document describes the retained presentation benchmark infrastructure.
+The presentation benchmark code was removed in #114 and lives in git history before that change. This page keeps the measurements that explain completed design decisions.
 
-The retained benchmarks use the final production presentation and cache implementations.
+The benchmarks used the final production presentation and cache implementations at the time of measurement.
 
-Historical sections keep measurements that explain completed design decisions.
-
-Historical A/B implementations do not remain executable only to reproduce old comparisons.
+Historical A/B implementations did not remain executable only to reproduce old comparisons.
 
 * Benchmark classification
 
-| Component | Classification | Long-term purpose |
-|-----------+----------------+-------------------|
-| ~orgfdb-presentation-benchmark~ | long-term regression benchmark | Detect changes in query, presentation, serialization, payload size, and full CLI latency. |
-| ~orgfdb-presentation-payload-analysis~ | reusable diagnostic benchmark | Attribute production ~presentation-json~ bytes to results, rows, cells, roles, and repeated values. |
-| ~orgfdb-presentation-cache-benchmark~ | reusable production-path diagnostic benchmark | Measure production view rebuild readiness, cache-hit CLI latency, and the uncached reference on one host. |
-| former ~orgfdb-presentation-parallel-benchmark~ | removed completed A/B benchmark | The paired sequential-versus-parallel experiment selected the production thresholds. |
-| former cache benchmark schema 1 comparison paths | simplified after completed design work | The pre-production cache simulator and rebuild-group A/B modes no longer represent the production cache. |
+| Component | Former purpose |
+|-----------+----------------|
+| ~orgfdb-presentation-benchmark~ | Regression benchmark for query, presentation, serialization, payload size, and full CLI latency. |
+| ~orgfdb-presentation-payload-analysis~ | Diagnostic that attributed production ~presentation-json~ bytes to results, rows, cells, roles, and repeated values. |
+| ~orgfdb-presentation-cache-benchmark~ | Production-path diagnostic for view rebuild readiness, cache-hit CLI latency, and the uncached reference on one host. |
+| ~orgfdb-presentation-parallel-benchmark~ | Completed A/B benchmark; the paired sequential-versus-parallel experiment selected the production thresholds. |
+| ~orgfdb-query-sql-benchmark~ | Query diagnostic benchmark; see ~docs/query-sql-performance.org~. |
 
-~orgfdb-query-sql-benchmark~ remains a separate query diagnostic benchmark.
-
-It reuses the deterministic presentation corpus generator.
-
-Its current purpose and commands are documented in ~docs/query-sql-performance.org~.
-
-No removed A/B benchmark requires a production-only compatibility path.
-
-The retained presentation timing benchmark still uses stage helpers that the production presentation path also uses.
+All of these were removed in #114.
 
 * Shared deterministic corpus
 
@@ -69,7 +59,7 @@ The cache benchmark keeps four representative large workloads:
 - ~headings.effective-properties~
 - ~files.keywords~
 
-* Retained regression benchmark
+* Regression benchmark
 
 ** Production presentation timing
 
@@ -103,46 +93,6 @@ The benchmark protects the production query-to-presentation path from large perf
 
 It also protects representative expanded-row and wide-layout workloads.
 
-** Run the timing benchmark
-
-Build the production CLI and timing benchmark.
-
-#+begin_src sh
-cargo build --release --features bench --bin orgfdb --bin orgfdb-presentation-benchmark
-#+end_src
-
-Run a short smoke benchmark first.
-
-#+begin_src sh
-rm -rf /tmp/orgfdb-presentation-smoke-work
-rm -f /tmp/orgfdb-presentation-smoke.json
-
-target/release/orgfdb-presentation-benchmark \
-  --orgfdb target/release/orgfdb \
-  --rows 100,1000 \
-  --warmups 1 \
-  --iterations 2 \
-  --work-dir /tmp/orgfdb-presentation-smoke-work \
-  --output /tmp/orgfdb-presentation-smoke.json
-#+end_src
-
-Use a new work directory for a full benchmark.
-
-#+begin_src sh
-rm -rf /tmp/orgfdb-presentation-benchmark-work
-rm -f /tmp/orgfdb-presentation-benchmark.json
-
-target/release/orgfdb-presentation-benchmark \
-  --orgfdb target/release/orgfdb \
-  --rows 100,1000,10000,50000 \
-  --warmups 1 \
-  --iterations 3 \
-  --work-dir /tmp/orgfdb-presentation-benchmark-work \
-  --output /tmp/orgfdb-presentation-benchmark.json
-#+end_src
-
-Keep the machine under stable low load during timing runs.
-
 ** Timing output
 
 Each timing contains ~min_ns~, ~median_ns~, ~p95_ns~, ~max_ns~, and the sample count.
@@ -157,17 +107,7 @@ Fresh CLI samples capture stdout through a pipe.
 
 The CLI measurement therefore includes payload transfer into the benchmark process.
 
-** Machine comparison
-
-Use timing values for same-machine regression comparisons.
-
-Keep the build profile, CPU availability, filesystem, and system load comparable.
-
-Do not compare absolute timing values from different machines as direct regressions.
-
-Payload bytes and deterministic corpus fingerprints can be compared across machines for the same code and inputs.
-
-* Retained diagnostic benchmarks
+* Diagnostic benchmarks
 
 ** Presentation payload analysis
 
@@ -199,29 +139,6 @@ It also records exact repetition counters and per-result, per-row, and per-cell 
 Use this diagnostic when payload size changes unexpectedly.
 
 Use it before a future wire-format change that needs byte attribution.
-
-*** Run the payload analyzer
-
-Build the analyzer after the timing benchmark creates its work directory.
-
-#+begin_src sh
-cargo build --release --bin orgfdb-presentation-payload-analysis
-#+end_src
-
-Run the analyzer against the same result sizes.
-
-#+begin_src sh
-rm -f /tmp/orgfdb-presentation-payload-analysis.json
-
-target/release/orgfdb-presentation-payload-analysis \
-  --rows 100,1000,10000,50000 \
-  --work-dir /tmp/orgfdb-presentation-benchmark-work \
-  --output /tmp/orgfdb-presentation-payload-analysis.json
-#+end_src
-
-Payload byte attribution is deterministic for the same code and corpus.
-
-Timing is not part of this analyzer.
 
 ** Production presentation cache benchmark
 
@@ -263,58 +180,9 @@ The benchmark no longer duplicates those behaviors with alternative benchmark-on
 
 Every cache-hit sample must equal the uncached production presentation payload byte for byte.
 
-*** Run the cache benchmark
-
-Build the production CLI and the feature-gated diagnostic benchmark.
-
-#+begin_src sh
-cargo build --release \
-  --features bench \
-  --bin orgfdb \
-  --bin orgfdb-presentation-cache-benchmark
-#+end_src
-
-Run a short smoke benchmark first.
-
-#+begin_src sh
-rm -rf /tmp/orgfdb-presentation-cache-smoke-work
-rm -f /tmp/orgfdb-presentation-cache-smoke.json
-
-target/release/orgfdb-presentation-cache-benchmark \
-  --orgfdb target/release/orgfdb \
-  --rows 100 \
-  --warmups 0 \
-  --iterations 1 \
-  --work-dir /tmp/orgfdb-presentation-cache-smoke-work \
-  --output /tmp/orgfdb-presentation-cache-smoke.json
-#+end_src
-
-Use the representative large size for a diagnostic run.
-
-#+begin_src sh
-rm -rf /tmp/orgfdb-presentation-cache-benchmark-work
-rm -f /tmp/orgfdb-presentation-cache-benchmark.json
-
-target/release/orgfdb-presentation-cache-benchmark \
-  --orgfdb target/release/orgfdb \
-  --rows 50000 \
-  --warmups 1 \
-  --iterations 3 \
-  --work-dir /tmp/orgfdb-presentation-cache-benchmark-work \
-  --output /tmp/orgfdb-presentation-cache-benchmark.json
-#+end_src
-
-Use cache timings for same-machine comparisons.
-
-Filesystem cache state, CPU count, and process scheduling affect these measurements.
-
-Do not compare absolute cache timings across different machines.
-
 * Historical measurements from completed design decisions
 
-The following sections explain current architecture choices.
-
-The removed A/B executables are not required to reproduce these historical comparisons.
+The following sections explain current architecture choices. None of the benchmark executables exist any more.
 
 ** Compact presentation wire selection
 
@@ -352,7 +220,7 @@ The normal ~orgfdb query --format json~ contract did not change.
 
 The temporary representation A/B benchmark was removed after the decision.
 
-The retained payload analyzer follows the selected production representation.
+The payload analyzer followed the selected production representation.
 
 ** Selective Rayon parallelism
 
@@ -398,7 +266,7 @@ The production v4 validation confirmed that the selected dispatch reached the no
 
 The former ~presentation-parallel-benchmark~ feature and binary only supported this completed A/B decision.
 
-They are removed from the retained benchmark infrastructure.
+They were removed from the benchmark infrastructure.
 
 The normal timing benchmark records the current production strategy instead.
 
@@ -440,7 +308,7 @@ The pre-production cache simulator no longer represents the final implementation
 
 Its worker modes, rebuild-group comparisons, and cancellation experiment are removed from executable benchmark code.
 
-The retained cache benchmark now measures the real production cache path.
+The cache benchmark measured the real production cache path.
 
 * Raw benchmark results
 

@@ -8,15 +8,6 @@ pub(in crate::query::sqlite) const QUERY_MATCHED_HEADINGS_TABLE: &str =
     "orgfdb_query_matched_headings";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum MatchedRelationReuseStrategy {
-    QueryDerived,
-    SelectiveTemp,
-}
-
-pub(crate) const PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY: MatchedRelationReuseStrategy =
-    MatchedRelationReuseStrategy::SelectiveTemp;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MatchedRelationCost {
     Cheap,
     Expensive,
@@ -160,17 +151,7 @@ pub(in crate::query::sqlite) fn materialize_heading_relation(
              footnote_section_p INTEGER NOT NULL
          ) WITHOUT ROWID"
     );
-    let (create_result, create_duration) =
-        benchmark_trace::timed(|| connection.execute_batch(&create_sql));
-    benchmark_trace::record(
-        benchmark_trace::TEMP_RELATION_MATERIALIZATION,
-        "temp-matched-headings-create",
-        create_duration,
-        0,
-        1,
-        0,
-    );
-    create_result.map_err(|source| {
+    connection.execute_batch(&create_sql).map_err(|source| {
         QueryExecutionError::database(
             QueryTarget::Headings,
             "materialize_heading_relation.create",
@@ -184,37 +165,14 @@ pub(in crate::query::sqlite) fn materialize_heading_relation(
         compiled.params.len(),
         compiled.sql,
     );
-    let (populate_result, populate_duration) = benchmark_trace::timed(|| {
-        connection.execute(&populate_sql, params_from_iter(compiled.params.iter()))
-    });
-    match populate_result {
-        Ok(inserted_rows) => {
-            benchmark_trace::record(
-                benchmark_trace::TEMP_RELATION_MATERIALIZATION,
-                "temp-matched-headings-populate",
-                populate_duration,
-                inserted_rows,
-                1,
-                compiled.params.len(),
-            );
-        }
-        Err(source) => {
-            benchmark_trace::record(
-                benchmark_trace::TEMP_RELATION_MATERIALIZATION,
-                "temp-matched-headings-populate",
-                populate_duration,
-                0,
-                1,
-                compiled.params.len(),
-            );
-            let _ =
-                cleanup_temporary_matched_relation(connection, TemporaryMatchedRelation::Headings);
-            return Err(QueryExecutionError::database(
-                QueryTarget::Headings,
-                "materialize_heading_relation.populate",
-                source,
-            ));
-        }
+    if let Err(source) = connection.execute(&populate_sql, params_from_iter(compiled.params.iter()))
+    {
+        let _ = cleanup_temporary_matched_relation(connection, TemporaryMatchedRelation::Headings);
+        return Err(QueryExecutionError::database(
+            QueryTarget::Headings,
+            "materialize_heading_relation.populate",
+            source,
+        ));
     }
 
     Ok(CompiledSqlQuery {
@@ -235,16 +193,7 @@ pub(in crate::query::sqlite) fn reset_temporary_heading_relation(
         "/* orgfdb:temp-matched-headings-reset params=0 */
          DROP TABLE IF EXISTS temp.{QUERY_MATCHED_HEADINGS_TABLE}"
     );
-    let (result, duration) = benchmark_trace::timed(|| connection.execute_batch(&sql));
-    benchmark_trace::record(
-        benchmark_trace::TEMP_RELATION_MATERIALIZATION,
-        "temp-matched-headings-reset",
-        duration,
-        0,
-        1,
-        0,
-    );
-    result.map_err(|source| {
+    connection.execute_batch(&sql).map_err(|source| {
         QueryExecutionError::database(
             QueryTarget::Headings,
             "materialize_heading_relation.reset",
@@ -263,16 +212,7 @@ pub(crate) fn cleanup_temporary_matched_relation(
                 "/* orgfdb:temp-matched-headings-drop params=0 */
                  DROP TABLE IF EXISTS temp.{QUERY_MATCHED_HEADINGS_TABLE}"
             );
-            let (result, duration) = benchmark_trace::timed(|| connection.execute_batch(&sql));
-            benchmark_trace::record(
-                benchmark_trace::TEMP_RELATION_MATERIALIZATION,
-                "temp-matched-headings-drop",
-                duration,
-                0,
-                1,
-                0,
-            );
-            result.map_err(|source| {
+            connection.execute_batch(&sql).map_err(|source| {
                 QueryExecutionError::database(
                     QueryTarget::Headings,
                     "materialize_heading_relation.cleanup",

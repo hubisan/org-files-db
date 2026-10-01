@@ -91,17 +91,11 @@ impl QueryScope {
 #[derive(Debug)]
 pub(in crate::query::sqlite) struct AliasAllocator {
     pub(in crate::query::sqlite) next_scope_id: usize,
-    pub(in crate::query::sqlite) metadata_predicate_strategy: MetadataPredicateSqlStrategy,
 }
 
 impl AliasAllocator {
-    pub(in crate::query::sqlite) fn with_metadata_predicate_strategy(
-        strategy: MetadataPredicateSqlStrategy,
-    ) -> Self {
-        Self {
-            next_scope_id: 0,
-            metadata_predicate_strategy: strategy,
-        }
+    pub(in crate::query::sqlite) fn new() -> Self {
+        Self { next_scope_id: 0 }
     }
 
     pub(in crate::query::sqlite) fn next_scope(&mut self, target: QueryTarget) -> QueryScope {

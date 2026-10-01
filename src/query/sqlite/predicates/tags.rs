@@ -3,15 +3,9 @@ use super::*;
 pub(in crate::query::sqlite) fn compile_heading_tags_predicate(
     scope: &QueryScope,
     predicate: &ValidatedPredicate,
-    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
 ) -> Result<SqlFragment, QueryExecutionError> {
     if !option_bool_with_default(&predicate.options, "inherit", true)? {
-        return compile_tags_predicate(
-            QueryTarget::Headings,
-            predicate,
-            &scope.heading_col("id"),
-            metadata_predicate_strategy,
-        );
+        return compile_tags_predicate(QueryTarget::Headings, predicate, &scope.heading_col("id"));
     }
 
     compile_heading_effective_tags_exists(scope, predicate)
@@ -80,19 +74,13 @@ pub(in crate::query::sqlite) fn compile_file_tags_predicate(
     scope: &QueryScope,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    compile_tags_predicate(
-        QueryTarget::Files,
-        predicate,
-        &scope.root_col("id"),
-        MetadataPredicateSqlStrategy::HeadingDrivenExists,
-    )
+    compile_tags_predicate(QueryTarget::Files, predicate, &scope.root_col("id"))
 }
 
 pub(in crate::query::sqlite) fn compile_tags_predicate(
     target: QueryTarget,
     predicate: &ValidatedPredicate,
     heading_id_sql: &str,
-    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
 ) -> Result<SqlFragment, QueryExecutionError> {
     let regexp = option_bool(&predicate.options, "regexp")?;
     let match_all = matches!(
@@ -108,8 +96,9 @@ pub(in crate::query::sqlite) fn compile_tags_predicate(
             QueryExecutionError::unsupported_backend_feature(target, "tags", message)
         })?;
 
-    let predicate_driven =
-        metadata_predicate_strategy == MetadataPredicateSqlStrategy::PredicateDrivenIn && !regexp;
+    // Heading targets match through `IN (SELECT ...)`; file targets and regexp
+    // predicates keep the heading-driven `EXISTS` form.
+    let predicate_driven = target == QueryTarget::Headings && !regexp;
     let mut parts = Vec::new();
     let mut params = Vec::new();
     if match_all {
@@ -170,14 +159,12 @@ pub(in crate::query::sqlite) fn compile_tags_predicate(
 pub(in crate::query::sqlite) fn compile_heading_property_predicate(
     scope: &QueryScope,
     predicate: &ValidatedPredicate,
-    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
 ) -> Result<SqlFragment, QueryExecutionError> {
     compile_resolved_property_predicate(
         QueryTarget::Headings,
         predicate,
         &scope.heading_col("id"),
         option_bool_with_default(&predicate.options, "inherit", true)?,
-        metadata_predicate_strategy,
     )
 }
 
@@ -185,13 +172,7 @@ pub(in crate::query::sqlite) fn compile_file_property_predicate(
     scope: &QueryScope,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    compile_resolved_property_predicate(
-        QueryTarget::Files,
-        predicate,
-        &scope.root_col("id"),
-        false,
-        MetadataPredicateSqlStrategy::HeadingDrivenExists,
-    )
+    compile_resolved_property_predicate(QueryTarget::Files, predicate, &scope.root_col("id"), false)
 }
 
 pub(in crate::query::sqlite) fn compile_resolved_property_predicate(
@@ -199,7 +180,6 @@ pub(in crate::query::sqlite) fn compile_resolved_property_predicate(
     predicate: &ValidatedPredicate,
     heading_id_sql: &str,
     inherit: bool,
-    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
 ) -> Result<SqlFragment, QueryExecutionError> {
     let regexp = option_bool(&predicate.options, "regexp")?;
     let key = arg_as_string(&predicate.args[0]).map_err(|message| {
@@ -211,8 +191,9 @@ pub(in crate::query::sqlite) fn compile_resolved_property_predicate(
     } else {
         "local_value"
     };
-    let predicate_driven =
-        metadata_predicate_strategy == MetadataPredicateSqlStrategy::PredicateDrivenIn && !regexp;
+    // Heading targets match through `IN (SELECT ...)`; file targets and regexp
+    // predicates keep the heading-driven `EXISTS` form.
+    let predicate_driven = target == QueryTarget::Headings && !regexp;
     let mut sql = if predicate_driven {
         format!("({heading_id_sql} IN (SELECT heading_id FROM effective_properties WHERE key = ?")
     } else {
@@ -244,14 +225,14 @@ pub(in crate::query::sqlite) fn compile_keyword_predicate(
     target: QueryTarget,
     predicate: &ValidatedPredicate,
     heading_id_sql: &str,
-    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
 ) -> Result<SqlFragment, QueryExecutionError> {
     let regexp = option_bool(&predicate.options, "regexp")?;
     let key = arg_as_string(&predicate.args[0]).map_err(|message| {
         QueryExecutionError::unsupported_backend_feature(target, "keyword", message)
     })?;
-    let predicate_driven =
-        metadata_predicate_strategy == MetadataPredicateSqlStrategy::PredicateDrivenIn && !regexp;
+    // Heading targets match through `IN (SELECT ...)`; file targets and regexp
+    // predicates keep the heading-driven `EXISTS` form.
+    let predicate_driven = target == QueryTarget::Headings && !regexp;
     let mut sql = if predicate_driven {
         format!(
             "({heading_id_sql} IN (SELECT keywords.heading_id FROM keywords WHERE orgfdb_lower(keywords.keyword) = orgfdb_lower(?)"
@@ -281,17 +262,11 @@ pub(in crate::query::sqlite) fn compile_keyword_predicate(
 pub(in crate::query::sqlite) fn compile_heading_keyword_predicate(
     scope: &QueryScope,
     predicate: &ValidatedPredicate,
-    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
 ) -> Result<SqlFragment, QueryExecutionError> {
     let heading_id = if option_bool_with_default(&predicate.options, "inherit", true)? {
         scope.root_col("id")
     } else {
         scope.heading_col("id")
     };
-    compile_keyword_predicate(
-        QueryTarget::Headings,
-        predicate,
-        &heading_id,
-        metadata_predicate_strategy,
-    )
+    compile_keyword_predicate(QueryTarget::Headings, predicate, &heading_id)
 }

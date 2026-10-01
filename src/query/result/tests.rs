@@ -1,10 +1,7 @@
 use super::{
-    execute_and_shape_query, execute_and_shape_query_with_direct_flat_shaping_strategy,
-    execute_and_shape_query_with_path_strategy,
-    execute_and_shape_query_with_relation_reuse_strategy, load_heading_paths_from_relation,
-    load_heading_paths_recursive_from_relation, shape_query_results, DirectFlatShapingStrategy,
-    EffectivePropertyFact, HeadingPathStrategy, QueryExecutionOptions, QueryInclude,
-    QueryOutputMode, QueryResponse, QueryResultKind, QueryResultNode, QueryShapeErrorKind,
+    execute_and_shape_query, load_heading_paths_from_relation, shape_query_results,
+    EffectivePropertyFact, QueryExecutionOptions, QueryInclude, QueryOutputMode, QueryResponse,
+    QueryResultKind, QueryResultNode, QueryShapeErrorKind,
 };
 use crate::db::{
     open_in_memory_database_with_schema, DbWriter, EffectivePropertyRecord, EffectiveTagRecord,
@@ -12,7 +9,7 @@ use crate::db::{
     SchemaDefinition, TagRecord,
 };
 use crate::property::{derive_effective_properties, PropertyRow};
-use crate::query::sqlite::{execute_sqlite_query_with_relation, MatchedRelationReuseStrategy};
+use crate::query::sqlite::execute_sqlite_query_with_relation;
 use crate::query::{
     execute_sqlite_query, parse_query, validate_query, HeadingQueryMatch, QueryRows, QueryTarget,
     QueryValidationOptions,
@@ -673,59 +670,6 @@ fn relation_backed_nested_path_matches_standalone_shaping() {
 }
 
 #[test]
-fn complete_relation_backed_path_strategies_match() {
-    let connection = seeded_connection();
-    let query = validated(r#"(headings (level 1))"#);
-    let options = QueryExecutionOptions {
-        includes: vec![QueryInclude::Path],
-        ..QueryExecutionOptions::default()
-    };
-
-    let recursive = execute_and_shape_query_with_path_strategy(
-        &connection,
-        &query,
-        &options,
-        HeadingPathStrategy::RecursiveQueryDerived,
-    )
-    .expect("recursive complete path shaping should work");
-    let rust = execute_and_shape_query_with_path_strategy(
-        &connection,
-        &query,
-        &options,
-        HeadingPathStrategy::RustDrivenBulkAncestors,
-    )
-    .expect("Rust-driven complete path shaping should work");
-
-    assert_eq!(rust, recursive);
-}
-
-#[test]
-fn rust_driven_path_matches_recursive_relation_for_nested_heading() {
-    let connection = seeded_connection();
-    let query = validated(r#"(headings (title "Nested" :exact t))"#);
-    let options = QueryExecutionOptions {
-        includes: vec![QueryInclude::Path],
-        ..QueryExecutionOptions::default()
-    };
-    let executed = execute_sqlite_query_with_relation(&connection, &query, &options)
-        .expect("query should execute");
-    let rows = match &executed.rows {
-        QueryRows::Headings(rows) => rows,
-        QueryRows::Links(_) | QueryRows::Files(_) => {
-            panic!("heading query should return headings")
-        }
-    };
-
-    let expected =
-        load_heading_paths_recursive_from_relation(&connection, &executed.relation, rows)
-            .expect("recursive path strategy should load");
-    let actual = load_heading_paths_from_relation(&connection, &executed.relation, rows)
-        .expect("Rust-driven path strategy should load");
-
-    assert_eq!(actual, expected);
-}
-
-#[test]
 fn rust_driven_path_respects_small_runtime_variable_limit() {
     let connection = seeded_connection();
     let query = validated(r#"(headings (level 1))"#);
@@ -741,15 +685,14 @@ fn rust_driven_path_respects_small_runtime_variable_limit() {
             panic!("heading query should return headings")
         }
     };
-    let expected =
-        load_heading_paths_recursive_from_relation(&connection, &executed.relation, rows)
-            .expect("recursive path strategy should load");
+    let expected = load_heading_paths_from_relation(&connection, &executed.relation, rows)
+        .expect("path loader should load");
 
     let previous = connection
         .set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 2)
         .expect("runtime variable limit should change");
     let actual = load_heading_paths_from_relation(&connection, &executed.relation, rows)
-        .expect("Rust-driven path strategy should respect the small variable limit");
+        .expect("path loader should respect the small variable limit");
     connection
         .set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, previous)
         .expect("runtime variable limit should restore");
@@ -778,7 +721,7 @@ fn rust_driven_path_rejects_cross_file_parent() {
     };
 
     let error = load_heading_paths_from_relation(&connection, &executed.relation, rows)
-        .expect_err("Rust-driven path strategy should reject a cross-file parent");
+        .expect_err("path loader should reject a cross-file parent");
 
     assert_eq!(error.kind, QueryShapeErrorKind::MissingStoredData);
     assert!(error
@@ -807,7 +750,7 @@ fn rust_driven_path_keeps_ancestor_outline_validation() {
     };
 
     let error = load_heading_paths_from_relation(&connection, &executed.relation, rows)
-        .expect_err("Rust-driven path strategy should validate ancestor outline rows");
+        .expect_err("path loader should validate ancestor outline rows");
 
     assert_eq!(error.kind, QueryShapeErrorKind::MissingStoredData);
     assert!(error
@@ -1255,40 +1198,7 @@ fn includes_do_not_change_matched_ids() {
 }
 
 #[test]
-fn direct_flat_owned_shaping_matches_clone_baseline() {
-    let connection = seeded_connection();
-    let query = validated(r#"(headings (tags "project"))"#);
-    let options = QueryExecutionOptions {
-        output_mode: QueryOutputMode::Flat,
-        includes: vec![
-            QueryInclude::Path,
-            QueryInclude::Properties,
-            QueryInclude::EffectiveProperties,
-            QueryInclude::Keywords,
-        ],
-        ..QueryExecutionOptions::default()
-    };
-
-    let baseline = execute_and_shape_query_with_direct_flat_shaping_strategy(
-        &connection,
-        &query,
-        &options,
-        DirectFlatShapingStrategy::CloneBaseline,
-    )
-    .expect("clone baseline should shape");
-    let owned = execute_and_shape_query_with_direct_flat_shaping_strategy(
-        &connection,
-        &query,
-        &options,
-        DirectFlatShapingStrategy::MoveOwned,
-    )
-    .expect("owned candidate should shape");
-
-    assert_eq!(baseline, owned);
-}
-
-#[test]
-fn selective_temp_relation_matches_query_derived_output_and_cleans_up() {
+fn selective_temp_relation_shapes_and_cleans_up() {
     let connection = seeded_connection();
     let query = validated(r#"(headings (and (tags "project") (property "AREA" "infra")))"#);
     let options = QueryExecutionOptions {
@@ -1301,22 +1211,10 @@ fn selective_temp_relation_matches_query_derived_output_and_cleans_up() {
         ..QueryExecutionOptions::default()
     };
 
-    let derived = execute_and_shape_query_with_relation_reuse_strategy(
-        &connection,
-        &query,
-        &options,
-        MatchedRelationReuseStrategy::QueryDerived,
-    )
-    .expect("query-derived result should shape");
-    let selective = execute_and_shape_query_with_relation_reuse_strategy(
-        &connection,
-        &query,
-        &options,
-        MatchedRelationReuseStrategy::SelectiveTemp,
-    )
-    .expect("selective TEMP result should shape");
+    let selective = execute_and_shape_query(&connection, &query, &options)
+        .expect("selective TEMP result should shape");
 
-    assert_eq!(derived, selective);
+    assert!(!selective.results.is_empty());
     let temp_count: i64 = connection
         .query_row(
             "SELECT COUNT(*) FROM sqlite_temp_master WHERE type = 'table' AND name = 'orgfdb_query_matched_headings'",
@@ -1334,7 +1232,7 @@ fn selective_temp_relation_cleans_up_after_shaping_error() {
         .execute("DELETE FROM outline_path WHERE heading_id = 11", [])
         .expect("outline row should delete");
     let query = validated(r#"(headings (and (tags "project") (property "AREA" "infra")))"#);
-    let error = execute_and_shape_query_with_relation_reuse_strategy(
+    let error = execute_and_shape_query(
         &connection,
         &query,
         &QueryExecutionOptions {
@@ -1342,7 +1240,6 @@ fn selective_temp_relation_cleans_up_after_shaping_error() {
             includes: vec![QueryInclude::EffectiveProperties],
             ..QueryExecutionOptions::default()
         },
-        MatchedRelationReuseStrategy::SelectiveTemp,
     )
     .expect_err("missing outline data should still fail shaping");
     assert_eq!(error.kind, QueryShapeErrorKind::MissingStoredData);

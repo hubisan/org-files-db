@@ -1,39 +1,14 @@
 use super::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum MetadataPredicateSqlStrategy {
-    HeadingDrivenExists,
-    PredicateDrivenIn,
-}
-
-pub(crate) const PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY: MetadataPredicateSqlStrategy =
-    MetadataPredicateSqlStrategy::PredicateDrivenIn;
-
 pub fn compile_sqlite_query(
     query: &ValidatedQuery,
 ) -> Result<CompiledSqlQuery, QueryExecutionError> {
-    compile_sqlite_query_with_metadata_strategy(
-        query,
-        false,
-        PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
-    )
+    compile_sqlite_query_with_file_restriction(query, false)
 }
 
 pub(crate) fn compile_sqlite_query_with_file_restriction(
     query: &ValidatedQuery,
     restrict_files: bool,
-) -> Result<CompiledSqlQuery, QueryExecutionError> {
-    compile_sqlite_query_with_metadata_strategy(
-        query,
-        restrict_files,
-        PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
-    )
-}
-
-pub(crate) fn compile_sqlite_query_with_metadata_strategy(
-    query: &ValidatedQuery,
-    restrict_files: bool,
-    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
 ) -> Result<CompiledSqlQuery, QueryExecutionError> {
     ensure_relative_dates_resolved(query).map_err(|error| {
         QueryExecutionError::date_resolution(
@@ -42,7 +17,7 @@ pub(crate) fn compile_sqlite_query_with_metadata_strategy(
             error.to_string(),
         )
     })?;
-    let mut aliases = AliasAllocator::with_metadata_predicate_strategy(metadata_predicate_strategy);
+    let mut aliases = AliasAllocator::new();
     let scope = aliases.next_scope(query.target);
     let where_clause = add_file_restriction(
         compile_query_match_filter(query, &scope, &mut aliases)?,
@@ -433,17 +408,9 @@ pub(in crate::query::sqlite) fn compile_heading_predicate(
             &predicate.options,
             true,
         ),
-        "tags" => {
-            compile_heading_tags_predicate(scope, predicate, aliases.metadata_predicate_strategy)
-        }
-        "property" => compile_heading_property_predicate(
-            scope,
-            predicate,
-            aliases.metadata_predicate_strategy,
-        ),
-        "keyword" => {
-            compile_heading_keyword_predicate(scope, predicate, aliases.metadata_predicate_strategy)
-        }
+        "tags" => compile_heading_tags_predicate(scope, predicate),
+        "property" => compile_heading_property_predicate(scope, predicate),
+        "keyword" => compile_heading_keyword_predicate(scope, predicate),
         "scheduled" => compile_date_predicate(
             QueryTarget::Headings,
             "scheduled",
@@ -567,12 +534,9 @@ pub(in crate::query::sqlite) fn compile_file_predicate(
         ),
         "tags" => compile_file_tags_predicate(scope, predicate),
         "property" => compile_file_property_predicate(scope, predicate),
-        "keyword" => compile_keyword_predicate(
-            QueryTarget::Files,
-            predicate,
-            &scope.root_col("id"),
-            MetadataPredicateSqlStrategy::HeadingDrivenExists,
-        ),
+        "keyword" => {
+            compile_keyword_predicate(QueryTarget::Files, predicate, &scope.root_col("id"))
+        }
         "has-link" => compile_has_link_predicate(scope, aliases, predicate),
         "links-to" => compile_links_to_predicate(scope, aliases, predicate),
         "linked-from" => compile_linked_from_predicate(scope, aliases, predicate),
@@ -710,9 +674,8 @@ pub(in crate::query::sqlite) fn priority_rank_sql(column: &str) -> String {
 pub(in crate::query::sqlite) fn compile_heading_root_file_query(
     query: &ValidatedQuery,
     restrict_files: bool,
-    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
 ) -> Result<CompiledSqlQuery, QueryExecutionError> {
-    let mut aliases = AliasAllocator::with_metadata_predicate_strategy(metadata_predicate_strategy);
+    let mut aliases = AliasAllocator::new();
     let scope = aliases.next_heading_root_scope();
     let where_clause = add_file_restriction(
         compile_query_match_filter(query, &scope, &mut aliases)?,
