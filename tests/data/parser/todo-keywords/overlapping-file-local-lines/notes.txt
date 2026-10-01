@@ -1,0 +1,2 @@
+# classification: org-special-case
+# note: Overlapping Org in-buffer TODO declarations are accepted and the resulting TODO config remains usable.

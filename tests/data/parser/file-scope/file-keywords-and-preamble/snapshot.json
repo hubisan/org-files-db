@@ -1,0 +1,90 @@
+{
+  "file_path": "file-scope/file-keywords-and-preamble/fixture.org",
+  "metadata": {
+    "title": "File Scope Fixture",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "File Scope Fixture",
+        "line_number": 1
+      },
+      {
+        "key": "FILETAGS",
+        "value": ":project:parser:",
+        "line_number": 2
+      },
+      {
+        "key": "CATEGORY",
+        "value": "parser-regressions",
+        "line_number": 3
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "file-scope/file-keywords-and-preamble/fixture.org",
+      "level": 0,
+      "title": "File Scope Fixture",
+      "title_raw": "File Scope Fixture",
+      "body_text": "Intro paragraph before the first headline.",
+      "body_byte_start": 89,
+      "body_byte_end": 131,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [
+        "project",
+        "parser"
+      ],
+      "properties": [
+        {
+          "key": "CATEGORY",
+          "value": "parser-regressions",
+          "source": "category_keyword",
+          "append": false,
+          "line_number": 3
+        }
+      ],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 143,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "file-scope/file-keywords-and-preamble/fixture.org",
+      "level": 1,
+      "title": "Heading",
+      "title_raw": "Heading",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 7,
+      "byte_start": 133,
+      "byte_end": 143,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}

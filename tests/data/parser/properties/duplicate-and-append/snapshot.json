@@ -1,0 +1,98 @@
+{
+  "file_path": "properties/duplicate-and-append/fixture.org",
+  "metadata": {
+    "title": "Duplicate And Append",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Duplicate And Append",
+        "line_number": 1
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "properties/duplicate-and-append/fixture.org",
+      "level": 0,
+      "title": "Duplicate And Append",
+      "title_raw": "Duplicate And Append",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 136,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "properties/duplicate-and-append/fixture.org",
+      "level": 1,
+      "title": "Task",
+      "title_raw": "Task",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [
+        {
+          "key": "DEFINED_TWICE",
+          "value": "invalid",
+          "source": "property_drawer",
+          "append": false,
+          "line_number": 4
+        },
+        {
+          "key": "DEFINED_TWICE",
+          "value": "valid",
+          "source": "property_drawer",
+          "append": false,
+          "line_number": 5
+        },
+        {
+          "key": "ADD-VALUE",
+          "value": "is",
+          "source": "property_drawer",
+          "append": false,
+          "line_number": 6
+        },
+        {
+          "key": "ADD-VALUE",
+          "value": "valid",
+          "source": "property_drawer",
+          "append": true,
+          "line_number": 7
+        }
+      ],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 2,
+      "byte_start": 30,
+      "byte_end": 136,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}

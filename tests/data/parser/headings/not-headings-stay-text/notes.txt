@@ -1,0 +1,2 @@
+# classification: org-special-case
+# note: Star without space, indented star and non-keyword or lowercase todo words stay normal text or plain titles.

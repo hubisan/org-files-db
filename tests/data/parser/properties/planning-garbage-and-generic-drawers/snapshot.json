@@ -1,0 +1,171 @@
+{
+  "file_path": "properties/planning-garbage-and-generic-drawers/fixture.org",
+  "metadata": {
+    "title": "Planning Garbage and Generic Drawers",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Planning Garbage and Generic Drawers",
+        "line_number": 1
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "properties/planning-garbage-and-generic-drawers/fixture.org",
+      "level": 0,
+      "title": "Planning Garbage and Generic Drawers",
+      "title_raw": "Planning Garbage and Generic Drawers",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 612,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "properties/planning-garbage-and-generic-drawers/fixture.org",
+      "level": 1,
+      "title": "Garbage planning keeps the drawer",
+      "title_raw": "Garbage planning keeps the drawer",
+      "body_text": "Body one.",
+      "body_byte_start": 133,
+      "body_byte_end": 142,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [
+        {
+          "key": "ID",
+          "value": "garbage",
+          "source": "property_drawer",
+          "append": false,
+          "line_number": 5
+        }
+      ],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 2,
+      "byte_start": 46,
+      "byte_end": 143,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "properties/planning-garbage-and-generic-drawers/fixture.org",
+      "level": 1,
+      "title": "Bare keyword keeps the drawer",
+      "title_raw": "Bare keyword keeps the drawer",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [
+        {
+          "key": "ID",
+          "value": "bare",
+          "source": "property_drawer",
+          "append": false,
+          "line_number": 11
+        }
+      ],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 8,
+      "byte_start": 143,
+      "byte_end": 212,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "properties/planning-garbage-and-generic-drawers/fixture.org",
+      "level": 1,
+      "title": "Drawer with a comment row has no properties",
+      "title_raw": "Drawer with a comment row has no properties",
+      "body_text": ":PROPERTIES:\n# note\n:ID: hidden\n:END:\nBody three.",
+      "body_byte_start": 258,
+      "body_byte_end": 307,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 13,
+      "byte_start": 212,
+      "byte_end": 308,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "properties/planning-garbage-and-generic-drawers/fixture.org",
+      "level": 1,
+      "title": "Key with a colon",
+      "title_raw": "Key with a colon",
+      "body_text": "# classification: org-special-case\n# note: An empty or garbage planning line is still a planning element, so the drawer after it counts. A drawer with a row that is no property is a generic drawer without properties. A key is the token up to its last colon.",
+      "body_byte_start": 354,
+      "body_byte_end": 611,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [
+        {
+          "key": "A:B",
+          "value": "c",
+          "source": "property_drawer",
+          "append": false,
+          "line_number": 21
+        }
+      ],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 19,
+      "byte_start": 308,
+      "byte_end": 612,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}

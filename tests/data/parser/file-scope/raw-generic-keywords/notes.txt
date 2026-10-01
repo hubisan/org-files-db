@@ -1,0 +1,2 @@
+# classification: org-special-case
+# note: Generic keyword rows are file-level rows on the synthetic level 0 heading even when they appear later in the file.

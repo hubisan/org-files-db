@@ -1,0 +1,2 @@
+# classification: org-special-case
+# note: Multiple document titles are combined in file order and later titles do not rename headings.
