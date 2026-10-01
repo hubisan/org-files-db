@@ -19,7 +19,9 @@ pub(crate) use index_state::{
     IndexGenerationChange, IndexStateReadError,
 };
 pub(crate) use reader::{DbReadError, DbReader, HeadingListRow, LinkListRow};
-pub use schema::{sqlite_supports_fts5, SchemaDefinition, CURRENT_SCHEMA_VERSION};
+pub use schema::{
+    sqlite_supports_fts5, SchemaDefinition, CURRENT_SCHEMA_VERSION, MIN_SUPPORTED_SCHEMA_VERSION,
+};
 pub use writer::DbWriteError;
 pub(crate) use writer::{
     DbWriter, EffectivePropertyRecord, EffectiveTagRecord, FileRecordInput, HeadingBodyRecord,
@@ -265,6 +267,15 @@ fn validate_schema_version(
             supported_version: schema.version,
         });
     }
+    // Version 0 is a new, empty database. Versions below the minimum are old
+    // caches that are never migrated or wiped automatically.
+    if on_disk_version != 0 && on_disk_version < MIN_SUPPORTED_SCHEMA_VERSION {
+        return Err(DbError::UnsupportedLegacySchemaVersion {
+            target: target.to_string(),
+            on_disk_version,
+            minimum_version: MIN_SUPPORTED_SCHEMA_VERSION,
+        });
+    }
 
     Ok(())
 }
@@ -290,6 +301,11 @@ pub enum DbError {
         target: String,
         on_disk_version: u32,
         supported_version: u32,
+    },
+    UnsupportedLegacySchemaVersion {
+        target: String,
+        on_disk_version: u32,
+        minimum_version: u32,
     },
     OutdatedSchemaVersion {
         target: String,
@@ -336,6 +352,15 @@ impl fmt::Display for DbError {
                 "failed to open SQLite database {}: unsupported future schema version {} (this binary supports up to {})",
                 target, on_disk_version, supported_version
             ),
+            Self::UnsupportedLegacySchemaVersion {
+                target,
+                on_disk_version,
+                minimum_version,
+            } => write!(
+                f,
+                "failed to open SQLite database {}: schema version {} is too old to upgrade (the oldest supported version is {}); the database is a rebuildable cache, so delete the file and run `orgfdb rebuild`",
+                target, on_disk_version, minimum_version
+            ),
             Self::OutdatedSchemaVersion {
                 target,
                 on_disk_version,
@@ -360,6 +385,7 @@ impl Error for DbError {
             | Self::Initialize { source, .. }
             | Self::Inspect { source, .. } => Some(source),
             Self::UnsupportedFutureSchemaVersion { .. }
+            | Self::UnsupportedLegacySchemaVersion { .. }
             | Self::OutdatedSchemaVersion { .. }
             | Self::UnsupportedBackendFeature { .. } => None,
         }
@@ -369,32 +395,13 @@ impl Error for DbError {
 #[cfg(test)]
 mod tests {
     use super::{
-        initialize_database, open_database, open_existing_database_read_only,
-        open_in_memory_database, open_in_memory_database_with_schema, read_schema_version,
-        sqlite_supports_fts5, DbError, DbReader, SchemaDefinition, CURRENT_SCHEMA_VERSION,
+        open_database, open_existing_database_read_only, open_in_memory_database,
+        open_in_memory_database_with_schema, read_schema_version, sqlite_supports_fts5, DbError,
+        DbReader, SchemaDefinition, CURRENT_SCHEMA_VERSION, MIN_SUPPORTED_SCHEMA_VERSION,
     };
     use crate::test_support::TestDir;
-    use rusqlite::{params, Connection, OptionalExtension};
+    use rusqlite::{params, Connection};
 
-    type MigratedLegacyRepeaterRow = (
-        Option<String>,
-        Option<i64>,
-        Option<String>,
-        Option<String>,
-        Option<i64>,
-        Option<String>,
-    );
-    type MigratedExplicitRepeaterRow = (
-        i64,
-        Option<String>,
-        Option<i64>,
-        Option<String>,
-        Option<i64>,
-        Option<String>,
-        Option<String>,
-        Option<i64>,
-        Option<String>,
-    );
     fn count_rows(connection: &Connection, sql: &str) -> i64 {
         connection
             .query_row(sql, [], |row| row.get(0))
@@ -643,40 +650,6 @@ mod tests {
     }
 
     #[test]
-    fn migrates_version_8_index_set_to_current_schema() {
-        let test_dir = TestDir::new("version-8-index-set");
-        let db_path = test_dir.path().join("db.sqlite");
-
-        {
-            let connection = open_database(&db_path).expect("database should initialize");
-            connection
-                .execute_batch(
-                    r#"
-DROP INDEX idx_files_path_lower;
-DROP INDEX idx_headings_title_lower;
-CREATE INDEX idx_tags_heading ON tags(heading_id);
-CREATE INDEX idx_keywords_heading ON keywords(heading_id);
-CREATE INDEX idx_timestamp_repeaters_timestamp_id
-    ON timestamp_repeaters(timestamp_id);
-PRAGMA user_version = 8;
-"#,
-                )
-                .expect("version-8 index set should seed");
-        }
-
-        let connection = open_database(&db_path).expect("version-8 database should migrate");
-        let version = read_schema_version(&connection).expect("schema version should load");
-
-        assert_eq!(version, CURRENT_SCHEMA_VERSION);
-        assert_eq!(CURRENT_SCHEMA_VERSION, 13);
-        assert_eq!(
-            explicit_index_names(&connection),
-            expected_current_explicit_indexes()
-        );
-        assert!(foreign_key_check_rows(&connection).is_empty());
-    }
-
-    #[test]
     fn migrates_version_12_database_to_metadata_predicate_indexes() {
         let test_dir = TestDir::new("version-12-metadata-predicate-indexes");
         let db_path = test_dir.path().join("db.sqlite");
@@ -799,144 +772,6 @@ PRAGMA user_version = 12;
     }
 
     #[test]
-    fn opens_legacy_database_and_migrates_it_to_current_schema_version() {
-        let test_dir = TestDir::new("legacy-schema-version");
-        let db_path = test_dir.path().join("db.sqlite");
-
-        let connection = Connection::open(&db_path).expect("legacy database should open");
-        connection
-            .execute_batch(
-                r#"
-PRAGMA user_version = 0;
-
-CREATE TABLE files (
-    id              INTEGER PRIMARY KEY,
-    path            TEXT NOT NULL UNIQUE,
-    mtime_ns        INTEGER NOT NULL,
-    size            INTEGER NOT NULL,
-    content_hash    TEXT,
-    indexed_at      INTEGER
-);
-
-CREATE TABLE todo_keywords (
-    file_id         INTEGER NOT NULL,
-    keyword         TEXT NOT NULL,
-    state_type      TEXT NOT NULL CHECK (state_type IN ('open', 'closed')),
-    shortcut        TEXT CHECK (shortcut IS NULL OR length(shortcut) = 1),
-    sequence_no     INTEGER NOT NULL,
-    FOREIGN KEY (file_id)
-        REFERENCES files(id)
-        ON DELETE CASCADE,
-    PRIMARY KEY (file_id, keyword)
-);
-
-INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/project.org', 1, 1);
-INSERT INTO todo_keywords (file_id, keyword, state_type, shortcut, sequence_no)
-VALUES (1, 'PLAN', 'open', 'p', 0);
-"#,
-            )
-            .expect("legacy schema should seed");
-        drop(connection);
-
-        let opened = open_database(&db_path).expect("legacy database should migrate");
-        let version = read_schema_version(&opened).expect("schema version should load");
-        assert_eq!(version, CURRENT_SCHEMA_VERSION);
-
-        let metadata_table_exists: i64 = opened
-            .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'db_metadata'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("db_metadata table existence should load");
-        assert_eq!(metadata_table_exists, 1);
-
-        let provenance: (String, Option<String>, Option<i64>) = opened
-            .query_row(
-                "SELECT source_kind, source_keyword, source_line_number
-                 FROM todo_keywords
-                 WHERE file_id = 1 AND keyword = 'PLAN'",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .expect("migrated todo keyword provenance should remain queryable");
-        assert_eq!(provenance, ("config_default".to_string(), None, None));
-    }
-
-    #[test]
-    fn migrating_legacy_database_does_not_enable_body_text_capability_before_rebuild() {
-        let test_dir = TestDir::new("legacy-body-text-capability");
-        let db_path = test_dir.path().join("db.sqlite");
-
-        let connection = Connection::open(&db_path).expect("legacy database should open");
-        connection
-            .execute_batch(
-                r#"
-PRAGMA user_version = 0;
-
-CREATE TABLE files (
-    id              INTEGER PRIMARY KEY,
-    path            TEXT NOT NULL UNIQUE,
-    mtime_ns        INTEGER NOT NULL,
-    size            INTEGER NOT NULL,
-    content_hash    TEXT,
-    indexed_at      INTEGER
-);
-
-CREATE TABLE headings (
-    id                  INTEGER PRIMARY KEY,
-    file_id             INTEGER NOT NULL,
-    parent_id           INTEGER,
-    level               INTEGER NOT NULL,
-    line_number         INTEGER,
-    byte_start          INTEGER NOT NULL,
-    byte_end            INTEGER NOT NULL,
-    title               TEXT NOT NULL,
-    title_raw           TEXT,
-    todo_keyword        TEXT,
-    todo_type           TEXT,
-    priority            TEXT,
-    scheduled_raw       TEXT,
-    scheduled_ts        INTEGER,
-    deadline_raw        TEXT,
-    deadline_ts         INTEGER,
-    closed_raw          TEXT,
-    closed_ts           INTEGER,
-    archivedp           INTEGER NOT NULL DEFAULT 0,
-    footnote_section_p  INTEGER NOT NULL DEFAULT 0,
-    all_tags_json       TEXT NOT NULL DEFAULT '[]'
-);
-
-CREATE TABLE heading_bodies (
-    heading_id          INTEGER PRIMARY KEY,
-    body_text           TEXT NOT NULL,
-    body_byte_start     INTEGER,
-    body_byte_end       INTEGER
-);
-
-INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/project.org', 1, 1);
-INSERT INTO headings (id, file_id, parent_id, level, byte_start, byte_end, title, title_raw)
-VALUES (1, 1, NULL, 0, 0, 10, '/tmp/project.org', '/tmp/project.org');
-INSERT INTO heading_bodies (heading_id, body_text, body_byte_start, body_byte_end)
-VALUES (1, 'legacy body text', 0, 10);
-"#,
-            )
-            .expect("legacy schema should seed");
-        drop(connection);
-
-        let opened = open_database(&db_path).expect("legacy database should migrate");
-        let capability_value: Option<String> = opened
-            .query_row(
-                "SELECT value FROM db_metadata WHERE key = ?1",
-                [crate::db::DB_METADATA_BODY_TEXT_AVAILABLE_KEY],
-                |row| row.get(0),
-            )
-            .optional()
-            .expect("body-text capability should query cleanly");
-        assert_eq!(capability_value, None);
-    }
-
-    #[test]
     fn rejects_databases_with_future_schema_versions() {
         let test_dir = TestDir::new("future-schema-version");
         let db_path = test_dir.path().join("db.sqlite");
@@ -958,6 +793,69 @@ VALUES (1, 'legacy body text', 0, 10);
                 assert_eq!(supported_version, CURRENT_SCHEMA_VERSION);
             }
             other => panic!("expected UnsupportedFutureSchemaVersion, got {other}"),
+        }
+    }
+
+    #[test]
+    fn rejects_pre_minimum_schema_versions_without_modifying_the_database() {
+        for version in [1_u32, MIN_SUPPORTED_SCHEMA_VERSION - 1] {
+            let test_dir = TestDir::new("legacy-schema-version");
+            let db_path = test_dir.path().join("db.sqlite");
+
+            let connection = Connection::open(&db_path).expect("legacy database should open");
+            connection
+                .execute_batch("CREATE TABLE marker (id INTEGER PRIMARY KEY);")
+                .expect("marker table should seed");
+            connection
+                .pragma_update(None, "user_version", i64::from(version))
+                .expect("legacy user_version should seed");
+            drop(connection);
+
+            for read_only in [false, true] {
+                let error = if read_only {
+                    open_existing_database_read_only(&db_path)
+                } else {
+                    open_database(&db_path)
+                }
+                .map(|_| ())
+                .expect_err("pre-minimum schema version should fail closed");
+                match &error {
+                    DbError::UnsupportedLegacySchemaVersion {
+                        on_disk_version,
+                        minimum_version,
+                        ..
+                    } => {
+                        assert_eq!(*on_disk_version, version);
+                        assert_eq!(*minimum_version, MIN_SUPPORTED_SCHEMA_VERSION);
+                    }
+                    other => panic!("expected UnsupportedLegacySchemaVersion, got {other}"),
+                }
+                let message = error.to_string();
+                assert!(
+                    message.contains("delete the file") && message.contains("orgfdb rebuild"),
+                    "error should explain how to recover: {message}"
+                );
+            }
+
+            let reopened = Connection::open(&db_path).expect("legacy database should reopen");
+            assert_eq!(
+                read_schema_version(&reopened).expect("schema version should load"),
+                version
+            );
+            assert_eq!(
+                count_rows(
+                    &reopened,
+                    "SELECT COUNT(*) FROM sqlite_master WHERE name = 'marker'"
+                ),
+                1
+            );
+            assert_eq!(
+                count_rows(
+                    &reopened,
+                    "SELECT COUNT(*) FROM sqlite_master WHERE name = 'files'"
+                ),
+                0
+            );
         }
     }
 
@@ -991,88 +889,6 @@ VALUES (1, 'legacy body text', 0, 10);
             read_schema_version(&reopened).expect("outdated schema version should remain readable");
         assert_eq!(version_after, CURRENT_SCHEMA_VERSION - 1);
         drop(reopened);
-    }
-
-    #[test]
-    fn migrates_version_9_properties_to_effective_projection() {
-        let test_dir = TestDir::new("effective-properties-v9");
-        let db_path = test_dir.path().join("db.sqlite");
-
-        {
-            let connection = Connection::open(&db_path).expect("seed database should open");
-            SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false)
-                .apply(&connection)
-                .expect("current schema should seed");
-            connection
-                .execute_batch(
-                    "DROP TABLE effective_properties;
-                     PRAGMA user_version = 9;
-                     INSERT INTO files (id, path, mtime_ns, size)
-                     VALUES (1, '/tmp/properties.org', 1, 1);
-                     INSERT INTO headings
-                         (id, file_id, parent_id, level, byte_start, byte_end, title)
-                     VALUES
-                         (10, 1, NULL, 0, -1, 100, 'Properties'),
-                         (11, 1, 10, 1, 0, 50, 'Parent'),
-                         (12, 1, 11, 2, 51, 100, 'Child');
-                     INSERT INTO properties
-                         (id, heading_id, key, value, source, append, line_number)
-                     VALUES
-                         (1, 10, 'CATEGORY', 'work', 'category_keyword', 0, 1),
-                         (2, 10, 'OWNER', 'Alice', 'property_keyword', 0, 2),
-                         (3, 11, 'AREA', 'infra', 'property_drawer', 0, 3),
-                         (4, 12, 'AREA', 'ops', 'property_drawer', 1, 4),
-                         (5, 12, 'EMPTY', '', 'property_drawer', 0, 5);
-                     INSERT INTO keywords (heading_id, keyword, value, line_number)
-                     VALUES (10, 'AUTHOR', 'Alice', 6);",
-                )
-                .expect("version-9 property fixture should seed");
-        }
-
-        let opened = open_database(&db_path).expect("version-9 database should migrate");
-        assert_eq!(
-            read_schema_version(&opened).expect("schema version should load"),
-            CURRENT_SCHEMA_VERSION
-        );
-
-        let category: (Option<String>, String) = opened
-            .query_row(
-                "SELECT local_value, effective_value
-                 FROM effective_properties
-                 WHERE heading_id = 12 AND key = 'CATEGORY'",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .expect("inherited category should load");
-        assert_eq!(category, (None, "work".to_string()));
-
-        let area: (Option<String>, String) = opened
-            .query_row(
-                "SELECT local_value, effective_value
-                 FROM effective_properties
-                 WHERE heading_id = 12 AND key = 'AREA'",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .expect("inherited append should load");
-        assert_eq!(area, (Some("ops".to_string()), "infra ops".to_string()));
-
-        let empty: (Option<String>, String) = opened
-            .query_row(
-                "SELECT local_value, effective_value
-                 FROM effective_properties
-                 WHERE heading_id = 12 AND key = 'EMPTY'",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .expect("explicit empty property should load");
-        assert_eq!(empty, (Some(String::new()), String::new()));
-
-        let author_property_count = count_rows(
-            &opened,
-            "SELECT COUNT(*) FROM effective_properties WHERE key = 'AUTHOR'",
-        );
-        assert_eq!(author_property_count, 0);
     }
 
     #[test]
@@ -1221,188 +1037,6 @@ VALUES (1, 'legacy body text', 0, 10);
             second_error.to_string().contains("invalid all_tags_json"),
             "unexpected repeated migration error: {second_error}"
         );
-    }
-
-    #[test]
-    fn effective_properties_migration_rolls_back_schema_and_backfill_together() {
-        let test_dir = TestDir::new("effective-properties-rollback");
-        let db_path = test_dir.path().join("db.sqlite");
-
-        {
-            let connection = Connection::open(&db_path).expect("seed database should open");
-            SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false)
-                .apply(&connection)
-                .expect("current schema should seed");
-            connection
-                .execute_batch(
-                    "DROP TABLE effective_properties;
-                     PRAGMA user_version = 9;
-                     INSERT INTO files (id, path, mtime_ns, size)
-                     VALUES
-                         (1, '/tmp/one.org', 1, 1),
-                         (2, '/tmp/two.org', 1, 1);
-                     INSERT INTO headings
-                         (id, file_id, parent_id, level, byte_start, byte_end, title)
-                     VALUES
-                         (10, 1, NULL, 0, -1, 1, 'One'),
-                         (20, 2, NULL, 0, -1, 1, 'Two'),
-                         (11, 1, 20, 1, 0, 1, 'Cross-file child');",
-                )
-                .expect("version-9 fixture should seed");
-        }
-
-        let first_error = open_database(&db_path)
-            .expect_err("cross-file parent should fail effective-properties migration");
-        assert!(
-            first_error.to_string().contains("belongs to file 2"),
-            "unexpected migration error: {first_error}"
-        );
-
-        {
-            let connection = Connection::open(&db_path).expect("database should reopen raw");
-            let version = read_schema_version(&connection).expect("schema version should load");
-            assert_eq!(version, 9);
-            let effective_table_count: i64 = connection
-                .query_row(
-                    "SELECT COUNT(*) FROM sqlite_master
-                     WHERE type = 'table' AND name = 'effective_properties'",
-                    [],
-                    |row| row.get(0),
-                )
-                .expect("effective table existence should load");
-            assert_eq!(effective_table_count, 0);
-            let stored_parent: i64 = connection
-                .query_row("SELECT parent_id FROM headings WHERE id = 11", [], |row| {
-                    row.get(0)
-                })
-                .expect("original heading should remain");
-            assert_eq!(stored_parent, 20);
-        }
-
-        let second_error = open_database(&db_path)
-            .expect_err("reopening must retry and reject the same migration");
-        assert!(
-            second_error.to_string().contains("belongs to file 2"),
-            "unexpected repeated migration error: {second_error}"
-        );
-    }
-
-    #[test]
-    fn does_not_advance_schema_version_when_initialization_fails() {
-        let mut connection =
-            Connection::open_in_memory().expect("broken legacy database should open");
-        connection
-            .execute_batch(
-                r#"
-PRAGMA user_version = 0;
-
-CREATE TABLE todo_keywords (
-    file_id         INTEGER NOT NULL,
-    keyword         TEXT NOT NULL,
-    state_type      TEXT NOT NULL CHECK (state_type IN ('open', 'closed'))
-);
-"#,
-            )
-            .expect("broken legacy schema should seed");
-
-        let error = initialize_database(
-            &mut connection,
-            ":memory:",
-            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
-        )
-        .expect_err("broken legacy schema should fail initialization");
-        assert!(
-            matches!(error, DbError::Initialize { .. }),
-            "expected initialize error, got {error}"
-        );
-
-        let user_version = read_schema_version(&connection).expect("schema version should load");
-        assert_eq!(user_version, 0);
-
-        let todo_keywords_exists: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'todo_keywords'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("todo_keywords existence should load");
-        let legacy_todo_keywords_exists: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'todo_keywords_legacy'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("legacy todo_keywords existence should load");
-        assert_eq!(todo_keywords_exists, 1);
-        assert_eq!(legacy_todo_keywords_exists, 0);
-    }
-
-    #[test]
-    fn migrates_legacy_todo_keywords_table_to_store_provenance() {
-        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
-        let connection = Connection::open_in_memory().expect("legacy database should open");
-        connection
-            .execute_batch(
-                r#"
-CREATE TABLE files (
-    id              INTEGER PRIMARY KEY,
-    path            TEXT NOT NULL UNIQUE,
-    mtime_ns        INTEGER NOT NULL,
-    size            INTEGER NOT NULL,
-    content_hash    TEXT,
-    indexed_at      INTEGER
-);
-
-CREATE TABLE todo_keywords (
-    file_id         INTEGER NOT NULL,
-    keyword         TEXT NOT NULL,
-    state_type      TEXT NOT NULL CHECK (state_type IN ('open', 'closed')),
-    shortcut        TEXT CHECK (shortcut IS NULL OR length(shortcut) = 1),
-    sequence_no     INTEGER NOT NULL,
-    FOREIGN KEY (file_id)
-        REFERENCES files(id)
-        ON DELETE CASCADE,
-    PRIMARY KEY (file_id, keyword)
-);
-
-INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/project.org', 1, 1);
-INSERT INTO todo_keywords (file_id, keyword, state_type, shortcut, sequence_no)
-VALUES (1, 'PLAN', 'open', 'p', 0);
-"#,
-            )
-            .expect("legacy schema should seed");
-
-        schema
-            .apply(&connection)
-            .expect("schema migration should succeed");
-
-        let columns: Vec<String> = {
-            let mut statement = connection
-                .prepare("PRAGMA table_info(todo_keywords)")
-                .expect("todo_keywords pragma should prepare");
-            statement
-                .query_map([], |row| row.get(1))
-                .expect("todo_keywords pragma should query")
-                .collect::<Result<Vec<_>, _>>()
-                .expect("todo_keywords columns should collect")
-        };
-        assert!(columns.iter().any(|column| column == "source_kind"));
-        assert!(columns.iter().any(|column| column == "source_keyword"));
-        assert!(columns.iter().any(|column| column == "source_line_number"));
-
-        let provenance: (String, Option<String>, Option<i64>) = connection
-            .query_row(
-                "SELECT source_kind, source_keyword, source_line_number
-                 FROM todo_keywords
-                 WHERE file_id = 1 AND keyword = 'PLAN'",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .expect("todo keyword provenance should be queryable");
-
-        assert_eq!(provenance.0, "config_default");
-        assert_eq!(provenance.1, None);
-        assert_eq!(provenance.2, None);
     }
 
     #[test]
@@ -2118,1076 +1752,6 @@ VALUES (1, 'PLAN', 'open', 'p', 0);
     }
 
     #[test]
-    fn open_database_upgrades_legacy_timestamp_repeaters_table() {
-        let test_dir = TestDir::new("legacy-repeaters");
-        let database_path = test_dir.path().join("org-files-db.sqlite");
-
-        open_database(&database_path).expect("database should initialize");
-
-        {
-            let legacy = Connection::open(&database_path).expect("legacy database should open");
-            legacy
-                .execute_batch(
-                    r#"
-INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/example.org', 10, 20);
-INSERT INTO headings
-    (id, file_id, parent_id, level, byte_start, byte_end, title, title_raw)
-VALUES
-    (1, 1, NULL, 0, -1, 20, '/tmp/example.org', '/tmp/example.org');
-INSERT INTO timestamps
-    (id, heading_id, role, raw_value, byte_start, byte_end)
-VALUES
-    (1, 1, 'scheduled', '<2024-11-20 Wed +1w/2d>', 0, 22);
-
-DROP TABLE timestamp_repeaters;
-
-CREATE TABLE timestamp_repeaters (
-    id INTEGER PRIMARY KEY,
-    timestamp_id INTEGER NOT NULL,
-    type TEXT,
-    value INTEGER,
-    unit TEXT,
-    deadline_value INTEGER,
-    deadline_unit TEXT
-);
-
-INSERT INTO timestamp_repeaters
-    (id, timestamp_id, type, value, unit, deadline_value, deadline_unit)
-VALUES
-    (1, 1, 'cumulate', 1, 'week', 2, 'day');
-"#,
-                )
-                .expect("legacy schema should initialize");
-        }
-
-        let connection = open_database(&database_path).expect("database should upgrade");
-
-        let columns: Vec<String> = {
-            let mut statement = connection
-                .prepare("PRAGMA table_info(timestamp_repeaters)")
-                .expect("timestamp_repeaters pragma should prepare");
-            statement
-                .query_map([], |row| row.get(1))
-                .expect("timestamp_repeaters pragma should query")
-                .collect::<Result<Vec<_>, _>>()
-                .expect("timestamp_repeaters columns should collect")
-        };
-        assert!(columns.iter().any(|column| column == "repeater_type"));
-        assert!(columns
-            .iter()
-            .any(|column| column == "repeater_deadline_value"));
-        assert!(columns
-            .iter()
-            .any(|column| column == "repeater_deadline_unit"));
-        assert!(columns.iter().any(|column| column == "warning_type"));
-
-        let migrated_row: MigratedLegacyRepeaterRow = connection
-            .query_row(
-                "SELECT repeater_type, repeater_deadline_value, repeater_deadline_unit,
-                        warning_type, warning_value, warning_unit
-                 FROM timestamp_repeaters
-                 WHERE id = 1",
-                [],
-                |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                        row.get(5)?,
-                    ))
-                },
-            )
-            .expect("migrated row should be queryable");
-        assert_eq!(
-            migrated_row,
-            (
-                Some("cumulate".to_string()),
-                Some(2_i64),
-                Some("day".to_string()),
-                None,
-                None,
-                None,
-            )
-        );
-    }
-
-    #[test]
-    fn open_database_upgrades_generic_modifier_rows_to_explicit_timestamp_row() {
-        let test_dir = TestDir::new("generic-repeaters");
-        let database_path = test_dir.path().join("org-files-db.sqlite");
-
-        open_database(&database_path).expect("database should initialize");
-
-        {
-            let legacy = Connection::open(&database_path).expect("legacy database should open");
-            legacy
-                .execute_batch(
-                    r#"
-INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/example.org', 10, 20);
-INSERT INTO headings
-    (id, file_id, parent_id, level, byte_start, byte_end, title, title_raw)
-VALUES
-    (1, 1, NULL, 0, -1, 20, '/tmp/example.org', '/tmp/example.org');
-INSERT INTO timestamps
-    (id, heading_id, role, raw_value, byte_start, byte_end)
-VALUES
-    (1, 1, 'scheduled', '<2024-11-20 Wed ++1m/2d -5d>', 0, 28);
-
-DROP TABLE timestamp_repeaters;
-
-CREATE TABLE timestamp_repeaters (
-    id INTEGER PRIMARY KEY,
-    timestamp_id INTEGER NOT NULL,
-    kind TEXT NOT NULL,
-    type TEXT NOT NULL,
-    value INTEGER NOT NULL,
-    unit TEXT NOT NULL,
-    repeater_deadline_value INTEGER,
-    repeater_deadline_unit TEXT
-);
-
-INSERT INTO timestamp_repeaters
-    (id, timestamp_id, kind, type, value, unit, repeater_deadline_value, repeater_deadline_unit)
-VALUES
-    (1, 1, 'repeater', 'catch_up', 1, 'month', 2, 'day'),
-    (2, 1, 'warning', 'all', 5, 'day', NULL, NULL);
-"#,
-                )
-                .expect("generic schema should initialize");
-        }
-
-        let connection = open_database(&database_path).expect("database should upgrade");
-
-        let migrated_rows: Vec<MigratedExplicitRepeaterRow> = {
-            let mut statement = connection
-                .prepare(
-                    "SELECT timestamp_id, repeater_type, repeater_value, repeater_unit,
-                            repeater_deadline_value, repeater_deadline_unit,
-                            warning_type, warning_value, warning_unit
-                     FROM timestamp_repeaters",
-                )
-                .expect("query should prepare");
-            statement
-                .query_map([], |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                        row.get(5)?,
-                        row.get(6)?,
-                        row.get(7)?,
-                        row.get(8)?,
-                    ))
-                })
-                .expect("query should run")
-                .collect::<Result<Vec<_>, _>>()
-                .expect("rows should collect")
-        };
-
-        assert_eq!(
-            migrated_rows,
-            vec![(
-                1_i64,
-                Some("catch_up".to_string()),
-                Some(1_i64),
-                Some("month".to_string()),
-                Some(2_i64),
-                Some("day".to_string()),
-                Some("all".to_string()),
-                Some(5_i64),
-                Some("day".to_string()),
-            )]
-        );
-    }
-
-    #[test]
-    fn open_database_upgrades_legacy_properties_table() {
-        let test_dir = TestDir::new("legacy-properties");
-        let database_path = test_dir.path().join("org-files-db.sqlite");
-
-        open_database(&database_path).expect("database should initialize");
-
-        {
-            let legacy = Connection::open(&database_path).expect("legacy database should open");
-            legacy
-                .execute_batch(
-                    r#"
-INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/example.org', 10, 20);
-INSERT INTO headings
-    (id, file_id, parent_id, level, byte_start, byte_end, title, title_raw)
-VALUES
-    (1, 1, NULL, 0, -1, 20, '/tmp/example.org', '/tmp/example.org');
-
-DROP TABLE properties;
-
-CREATE TABLE properties (
-    id              INTEGER PRIMARY KEY,
-    heading_id      INTEGER NOT NULL,
-    key             TEXT NOT NULL,
-    value           TEXT,
-    source          TEXT NOT NULL CHECK (
-                        source IN ('property_keyword', 'property_drawer', 'category_keyword')
-                    ),
-    inherited       INTEGER NOT NULL DEFAULT 0 CHECK (inherited IN (0, 1)),
-    line_number     INTEGER,
-    FOREIGN KEY (heading_id)
-        REFERENCES headings(id)
-        ON DELETE CASCADE,
-    UNIQUE (heading_id, key, source, inherited)
-);
-
-INSERT INTO properties (id, heading_id, key, value, source, inherited, line_number)
-VALUES
-    (1, 1, 'CUSTOM_ID', 'legacy-id', 'property_drawer', 0, 2);
-"#,
-                )
-                .expect("legacy properties schema should initialize");
-        }
-
-        let connection = open_database(&database_path).expect("database should upgrade");
-
-        let columns: Vec<String> = {
-            let mut statement = connection
-                .prepare("PRAGMA table_info(properties)")
-                .expect("properties pragma should prepare");
-            statement
-                .query_map([], |row| row.get(1))
-                .expect("properties pragma should query")
-                .collect::<Result<Vec<_>, _>>()
-                .expect("properties columns should collect")
-        };
-        assert!(columns.iter().any(|column| column == "append"));
-        assert!(!columns.iter().any(|column| column == "inherited"));
-
-        let migrated_row: (String, Option<String>, String, i64, Option<i64>) = connection
-            .query_row(
-                "SELECT key, value, source, append, line_number
-                 FROM properties",
-                [],
-                |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                    ))
-                },
-            )
-            .expect("migrated row should be queryable");
-        assert_eq!(
-            migrated_row,
-            (
-                "CUSTOM_ID".to_string(),
-                Some("legacy-id".to_string()),
-                "property_drawer".to_string(),
-                0,
-                Some(2),
-            )
-        );
-    }
-
-    #[test]
-    fn open_database_upgrades_legacy_tags_table() {
-        let test_dir = TestDir::new("legacy-tags");
-        let database_path = test_dir.path().join("org-files-db.sqlite");
-
-        open_database(&database_path).expect("database should initialize");
-
-        {
-            let legacy = Connection::open(&database_path).expect("legacy database should open");
-            legacy
-                .execute_batch(
-                    r#"
-INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/example.org', 10, 20);
-INSERT INTO headings
-    (id, file_id, parent_id, level, byte_start, byte_end, title, title_raw)
-VALUES
-    (1, 1, NULL, 0, -1, 20, '/tmp/example.org', '/tmp/example.org');
-
-DROP TABLE tags;
-
-CREATE TABLE tags (
-    heading_id      INTEGER NOT NULL,
-    tag             TEXT NOT NULL,
-    inherited       INTEGER NOT NULL DEFAULT 0 CHECK (inherited IN (0, 1)),
-    FOREIGN KEY (heading_id)
-        REFERENCES headings(id)
-        ON DELETE CASCADE,
-    PRIMARY KEY (heading_id, tag, inherited)
-);
-
-INSERT INTO tags (heading_id, tag, inherited)
-VALUES
-    (1, 'alpha', 0),
-    (1, 'alpha', 1),
-    (1, 'beta', 0);
-"#,
-                )
-                .expect("legacy tags schema should initialize");
-        }
-
-        let connection = open_database(&database_path).expect("database should upgrade");
-
-        let columns: Vec<String> = {
-            let mut statement = connection
-                .prepare("PRAGMA table_info(tags)")
-                .expect("tags pragma should prepare");
-            statement
-                .query_map([], |row| row.get(1))
-                .expect("tags pragma should query")
-                .collect::<Result<Vec<_>, _>>()
-                .expect("tags columns should collect")
-        };
-        assert!(columns.iter().any(|column| column == "heading_id"));
-        assert!(columns.iter().any(|column| column == "tag"));
-        assert!(!columns.iter().any(|column| column == "inherited"));
-
-        let tag_count: i64 = connection
-            .query_row("SELECT COUNT(*) FROM tags", [], |row| row.get(0))
-            .expect("tags count should be queryable");
-        assert_eq!(tag_count, 2);
-
-        let tag_rows: Vec<(i64, String)> = {
-            let mut statement = connection
-                .prepare("SELECT heading_id, tag FROM tags ORDER BY heading_id, tag")
-                .expect("tags select should prepare");
-            statement
-                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-                .expect("tags select should query")
-                .collect::<Result<Vec<_>, _>>()
-                .expect("migrated tags should collect")
-        };
-        assert_eq!(
-            tag_rows,
-            vec![(1_i64, "alpha".to_string()), (1_i64, "beta".to_string())]
-        );
-
-        let effective_tag_rows: Vec<(String, i64)> = {
-            let mut statement = connection
-                .prepare(
-                    "SELECT tag, position
-                     FROM effective_tags
-                     WHERE heading_id = 1
-                     ORDER BY position",
-                )
-                .expect("effective tags select should prepare");
-            statement
-                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-                .expect("effective tags select should query")
-                .collect::<Result<Vec<_>, _>>()
-                .expect("migrated effective tags should collect")
-        };
-        assert_eq!(
-            effective_tag_rows,
-            vec![("alpha".to_string(), 0), ("beta".to_string(), 1)]
-        );
-    }
-
-    #[test]
-    fn open_database_upgrades_legacy_links_table() {
-        let test_dir = TestDir::new("legacy-links");
-        let database_path = test_dir.path().join("org-files-db.sqlite");
-
-        open_database(&database_path).expect("database should initialize");
-
-        {
-            let legacy = Connection::open(&database_path).expect("legacy database should open");
-            legacy
-                .execute_batch(
-                    r#"
-INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/example.org', 10, 20);
-INSERT INTO headings
-    (id, file_id, parent_id, level, byte_start, byte_end, title, title_raw)
-VALUES
-    (1, 1, NULL, 0, -1, 20, '/tmp/example.org', '/tmp/example.org');
-
-DROP TABLE links;
-
-CREATE TABLE links (
-    id                  INTEGER PRIMARY KEY,
-    file_id             INTEGER NOT NULL,
-    heading_id          INTEGER NOT NULL,
-    byte_start          INTEGER NOT NULL,
-    byte_end            INTEGER NOT NULL,
-    line_number         INTEGER,
-    link_type           TEXT,
-    target              TEXT NOT NULL,
-    target_absolute     TEXT,
-    raw_link            TEXT NOT NULL,
-    description         TEXT,
-    format              TEXT,
-    search_option       TEXT,
-    relation            TEXT,
-    resolved_file_id    INTEGER,
-    resolved_heading_id INTEGER,
-    resolved            INTEGER NOT NULL DEFAULT 0,
-    broken              INTEGER NOT NULL DEFAULT 0,
-    diagnostic          TEXT
-);
-
-CREATE INDEX idx_links_heading ON links(heading_id);
-CREATE INDEX idx_links_target ON links(target);
-CREATE INDEX idx_links_resolved_file ON links(resolved_file_id);
-CREATE INDEX idx_links_resolved_heading ON links(resolved_heading_id);
-
-INSERT INTO links
-    (id, file_id, heading_id, byte_start, byte_end, line_number, link_type, target,
-     target_absolute, raw_link, description, format, search_option,
-     resolved_file_id, resolved_heading_id, resolved, diagnostic)
-VALUES
-    (1, 1, 1, 4, 24, 3, 'file', 'notes.org', '/tmp/notes.org',
-     '[[file:notes.org::42][Notes]]', 'Notes', 'bracket', '42', NULL, NULL, 1, 'legacy resolved');
-
-PRAGMA user_version = 1;
-"#,
-                )
-                .expect("legacy links schema should initialize");
-        }
-
-        let connection = open_database(&database_path).expect("database should upgrade");
-        let schema_version = read_schema_version(&connection).expect("schema version should load");
-        assert_eq!(schema_version, CURRENT_SCHEMA_VERSION);
-
-        let columns: Vec<String> = {
-            let mut statement = connection
-                .prepare("PRAGMA table_info(links)")
-                .expect("links pragma should prepare");
-            statement
-                .query_map([], |row| row.get(1))
-                .expect("links pragma should query")
-                .collect::<Result<Vec<_>, _>>()
-                .expect("links columns should collect")
-        };
-        assert!(columns.iter().any(|column| column == "line"));
-        assert!(columns.iter().any(|column| column == "source_context"));
-        assert!(columns.iter().any(|column| column == "raw"));
-        assert!(columns.iter().any(|column| column == "raw_target"));
-        assert!(columns.iter().any(|column| column == "raw_description"));
-        assert!(columns.iter().any(|column| column == "path"));
-        assert!(columns.iter().any(|column| column == "path_absolute"));
-        assert!(columns.iter().any(|column| column == "target_file_id"));
-        assert!(columns.iter().any(|column| column == "target_heading_id"));
-        assert!(columns.iter().any(|column| column == "resolution_status"));
-        assert!(columns
-            .iter()
-            .any(|column| column == "resolution_diagnostic"));
-        assert!(!columns.iter().any(|column| column == "line_number"));
-        assert!(!columns.iter().any(|column| column == "raw_link"));
-        assert!(!columns.iter().any(|column| column == "resolved_file_id"));
-        assert!(columns.iter().any(|column| column == "link_type"));
-
-        let migrated_row = connection
-            .query_row(
-                "SELECT line, source_context, format, raw, raw_target, raw_description,
-                        link_type, path, search_option, path_absolute, target_file_id,
-                        target_heading_id, target_custom_id, target_id,
-                        resolution_status, resolution_diagnostic
-                 FROM links
-                 WHERE id = 1",
-                [],
-                |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, String>(4)?,
-                        row.get::<_, Option<String>>(5)?,
-                        row.get::<_, String>(6)?,
-                        row.get::<_, String>(7)?,
-                        row.get::<_, Option<String>>(8)?,
-                        row.get::<_, Option<String>>(9)?,
-                        row.get::<_, Option<i64>>(10)?,
-                        row.get::<_, Option<i64>>(11)?,
-                        row.get::<_, Option<String>>(12)?,
-                        row.get::<_, Option<String>>(13)?,
-                        row.get::<_, Option<String>>(14)?,
-                        row.get::<_, Option<String>>(15)?,
-                    ))
-                },
-            )
-            .expect("migrated link row should be queryable");
-        let (
-            line,
-            source_context,
-            format,
-            raw,
-            raw_target,
-            raw_description,
-            link_type,
-            path,
-            search_option,
-            path_absolute,
-            target_file_id,
-            target_heading_id,
-            target_custom_id,
-            target_id,
-            resolution_status,
-            resolution_diagnostic,
-        ) = migrated_row;
-        assert_eq!(line, 3);
-        assert_eq!(source_context, "normal");
-        assert_eq!(format, "bracket");
-        assert_eq!(raw, "[[file:notes.org::42][Notes]]");
-        // Legacy migration reconstructs raw_target on a best-effort basis for typed links.
-        assert_eq!(raw_target, "file:notes.org::42");
-        assert_eq!(raw_description, Some("Notes".to_string()));
-        assert_eq!(link_type, "file".to_string());
-        assert_eq!(path, "notes.org");
-        assert_eq!(search_option, Some("42".to_string()));
-        assert_eq!(path_absolute, Some("/tmp/notes.org".to_string()));
-        assert_eq!(target_file_id, None);
-        assert_eq!(target_heading_id, None);
-        assert_eq!(target_custom_id, None);
-        assert_eq!(target_id, None);
-        assert_eq!(resolution_status, Some("resolved".to_string()));
-        assert_eq!(resolution_diagnostic, Some("legacy resolved".to_string()));
-
-        let migrated_index_names: Vec<String> = {
-            let mut statement = connection
-                .prepare(
-                    "SELECT name
-                     FROM sqlite_master
-                     WHERE type = 'index' AND tbl_name = 'links'
-                     ORDER BY name",
-                )
-                .expect("links indexes query should prepare");
-            statement
-                .query_map([], |row| row.get(0))
-                .expect("links indexes query should run")
-                .collect::<Result<Vec<_>, _>>()
-                .expect("links indexes should collect")
-        };
-        assert!(migrated_index_names.contains(&"idx_links_heading".to_string()));
-        assert!(migrated_index_names.contains(&"idx_links_path".to_string()));
-        assert!(migrated_index_names.contains(&"idx_links_target_file".to_string()));
-        assert!(migrated_index_names.contains(&"idx_links_target_heading".to_string()));
-    }
-
-    #[test]
-    fn open_database_upgrades_phase3_links_table_to_resolution_state_contract() {
-        let test_dir = TestDir::new("phase3-links");
-        let database_path = test_dir.path().join("org-files-db.sqlite");
-
-        open_database(&database_path).expect("database should initialize");
-
-        {
-            let legacy = Connection::open(&database_path).expect("legacy database should open");
-            legacy
-                .execute_batch(
-                    r#"
-INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/example.org', 10, 20);
-INSERT INTO headings
-    (id, file_id, parent_id, level, byte_start, byte_end, title, title_raw)
-VALUES
-    (1, 1, NULL, 0, -1, 20, '/tmp/example.org', '/tmp/example.org');
-
-DROP TABLE links;
-
-CREATE TABLE links (
-    id                  INTEGER PRIMARY KEY,
-    file_id             INTEGER NOT NULL,
-    heading_id          INTEGER NOT NULL,
-    byte_start          INTEGER NOT NULL CHECK (byte_start >= 0),
-    byte_end            INTEGER NOT NULL CHECK (byte_end >= byte_start),
-    line                INTEGER NOT NULL CHECK (line > 0),
-    source_context      TEXT NOT NULL,
-    format              TEXT NOT NULL,
-    raw                 TEXT NOT NULL,
-    raw_target          TEXT NOT NULL,
-    raw_description     TEXT,
-    link_type           TEXT NOT NULL,
-    path                TEXT NOT NULL,
-    search_option       TEXT,
-    path_absolute       TEXT,
-    target_file_id      INTEGER,
-    target_heading_id   INTEGER,
-    target_custom_id    TEXT,
-    target_id           TEXT
-);
-
-INSERT INTO links
-    (id, file_id, heading_id, byte_start, byte_end, line, source_context, format, raw,
-     raw_target, raw_description, link_type, path, search_option, path_absolute,
-     target_file_id, target_heading_id, target_custom_id, target_id)
-VALUES
-    (1, 1, 1, 0, 18, 1, 'normal', 'bracket', '[[id:abc123]]',
-     'id:abc123', NULL, 'id', 'abc123', NULL, NULL, NULL, NULL, NULL, NULL);
-
-PRAGMA user_version = 2;
-"#,
-                )
-                .expect("phase3 links schema should initialize");
-        }
-
-        let connection = open_database(&database_path).expect("database should upgrade");
-
-        let migrated_row: (Option<String>, Option<String>, String, String) = connection
-            .query_row(
-                "SELECT resolution_status, resolution_diagnostic, raw, raw_target
-                 FROM links
-                 WHERE id = 1",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-            )
-            .expect("migrated phase3 link row should be queryable");
-        assert_eq!(
-            migrated_row,
-            (
-                None,
-                None,
-                "[[id:abc123]]".to_string(),
-                "id:abc123".to_string(),
-            )
-        );
-    }
-
-    #[test]
-    fn open_database_upgrades_v4_timestamp_tables_with_explicit_time_columns() {
-        let test_dir = TestDir::new("explicit-time-columns");
-        let database_path = test_dir.path().join("org-files-db.sqlite");
-
-        open_database(&database_path).expect("database should initialize");
-
-        {
-            let legacy = Connection::open(&database_path).expect("legacy database should open");
-            legacy
-                .execute_batch(
-                    r#"
-DROP TABLE timestamps;
-DROP TABLE headings;
-
-CREATE TABLE headings (
-    id                  INTEGER PRIMARY KEY,
-    file_id             INTEGER NOT NULL,
-    parent_id           INTEGER,
-    level               INTEGER NOT NULL CHECK (level >= 0),
-    line_number         INTEGER,
-    byte_start          INTEGER NOT NULL,
-    byte_end            INTEGER NOT NULL CHECK (byte_end >= byte_start),
-    title               TEXT NOT NULL,
-    title_raw           TEXT,
-    todo_keyword        TEXT,
-    todo_type           TEXT CHECK (todo_type IN ('open', 'closed') OR todo_type IS NULL),
-    priority            TEXT CHECK (priority IS NULL OR length(priority) = 1),
-    scheduled_raw       TEXT,
-    scheduled_ts        INTEGER,
-    deadline_raw        TEXT,
-    deadline_ts         INTEGER,
-    closed_raw          TEXT,
-    closed_ts           INTEGER,
-    archivedp           INTEGER NOT NULL DEFAULT 0 CHECK (archivedp IN (0, 1)),
-    footnote_section_p  INTEGER NOT NULL DEFAULT 0 CHECK (footnote_section_p IN (0, 1)),
-    all_tags_json       TEXT NOT NULL DEFAULT '[]',
-    CHECK (
-        (level = 0 AND parent_id IS NULL)
-        OR
-        (level > 0 AND parent_id IS NOT NULL)
-    )
-);
-
-CREATE TABLE timestamps (
-    id              INTEGER PRIMARY KEY,
-    heading_id      INTEGER NOT NULL,
-    role            TEXT,
-    start_ts        INTEGER,
-    end_ts          INTEGER,
-    type            TEXT,
-    range_type      TEXT,
-    raw_value       TEXT NOT NULL,
-    byte_start      INTEGER NOT NULL,
-    byte_end        INTEGER NOT NULL CHECK (byte_end >= byte_start),
-    line_number     INTEGER
-);
-
-INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/example.org', 10, 20);
-INSERT INTO headings
-    (id, file_id, parent_id, level, byte_start, byte_end, title, title_raw,
-     scheduled_raw, scheduled_ts, all_tags_json)
-VALUES
-    (1, 1, NULL, 0, -1, 20, '/tmp/example.org', NULL, NULL, NULL, '[]'),
-    (2, 1, 1, 1, 21, 60, 'Timed task', 'Timed task',
-     '<2026-01-03 Fri 00:00>', 1767398400, '[]');
-
-INSERT INTO timestamps
-    (id, heading_id, role, start_ts, end_ts, type, range_type, raw_value, byte_start, byte_end, line_number)
-VALUES
-    (1, 2, 'scheduled', 1767398400, NULL, 'active', 'none', '<2026-01-03 Fri 00:00>', 21, 43, 2);
-
-PRAGMA user_version = 4;
-"#,
-                )
-                .expect("legacy explicit-time schema should initialize");
-        }
-
-        let connection = open_database(&database_path).expect("database should upgrade");
-        let schema_version = read_schema_version(&connection).expect("schema version should load");
-        assert_eq!(schema_version, CURRENT_SCHEMA_VERSION);
-
-        let heading_columns: Vec<String> = {
-            let mut statement = connection
-                .prepare("PRAGMA table_info(headings)")
-                .expect("headings pragma should prepare");
-            statement
-                .query_map([], |row| row.get(1))
-                .expect("headings pragma should query")
-                .collect::<Result<Vec<_>, _>>()
-                .expect("headings columns should collect")
-        };
-        assert!(heading_columns
-            .iter()
-            .any(|column| column == "scheduled_has_time"));
-        assert!(heading_columns
-            .iter()
-            .any(|column| column == "deadline_has_time"));
-        assert!(heading_columns
-            .iter()
-            .any(|column| column == "closed_has_time"));
-
-        let timestamp_columns: Vec<String> = {
-            let mut statement = connection
-                .prepare("PRAGMA table_info(timestamps)")
-                .expect("timestamps pragma should prepare");
-            statement
-                .query_map([], |row| row.get(1))
-                .expect("timestamps pragma should query")
-                .collect::<Result<Vec<_>, _>>()
-                .expect("timestamps columns should collect")
-        };
-        assert!(timestamp_columns.iter().any(|column| column == "has_time"));
-
-        let migrated_heading: (Option<i64>, Option<i64>) = connection
-            .query_row(
-                "SELECT scheduled_ts, scheduled_has_time
-                 FROM headings
-                 WHERE id = 2",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .expect("migrated heading should load");
-        assert_eq!(migrated_heading, (Some(1_767_398_400), None));
-
-        let migrated_timestamp: (Option<i64>, Option<i64>) = connection
-            .query_row(
-                "SELECT start_ts, has_time
-                 FROM timestamps
-                 WHERE id = 1",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .expect("migrated timestamp should load");
-        assert_eq!(migrated_timestamp, (Some(1_767_398_400), None));
-    }
-
-    #[test]
-    fn open_database_preserves_headings_dependents_during_headings_migration() {
-        let test_dir = TestDir::new("headings-dependent-repair");
-        let database_path = test_dir.path().join("org-files-db.sqlite");
-
-        open_database(&database_path).expect("database should initialize");
-
-        {
-            let legacy = Connection::open(&database_path).expect("legacy database should open");
-            legacy
-                .execute_batch(
-                    r#"
-DROP TABLE outline_path;
-DROP TABLE heading_bodies;
-DROP TABLE timestamp_repeaters;
-DROP TABLE timestamps;
-DROP TABLE links;
-DROP TABLE tags;
-DROP TABLE properties;
-DROP TABLE keywords;
-DROP TABLE headings;
-
-CREATE TABLE headings (
-    id                  INTEGER PRIMARY KEY,
-    file_id             INTEGER NOT NULL,
-    parent_id           INTEGER,
-    level               INTEGER NOT NULL CHECK (level >= 0),
-    line_number         INTEGER,
-    byte_start          INTEGER NOT NULL,
-    byte_end            INTEGER NOT NULL CHECK (byte_end >= byte_start),
-    title               TEXT NOT NULL,
-    title_raw           TEXT,
-    todo_keyword        TEXT,
-    todo_type           TEXT CHECK (todo_type IN ('open', 'closed') OR todo_type IS NULL),
-    priority            TEXT CHECK (priority IS NULL OR length(priority) = 1),
-    scheduled_raw       TEXT,
-    scheduled_ts        INTEGER,
-    deadline_raw        TEXT,
-    deadline_ts         INTEGER,
-    closed_raw          TEXT,
-    closed_ts           INTEGER,
-    archivedp           INTEGER NOT NULL DEFAULT 0 CHECK (archivedp IN (0, 1)),
-    footnote_section_p  INTEGER NOT NULL DEFAULT 0 CHECK (footnote_section_p IN (0, 1)),
-    all_tags_json       TEXT NOT NULL DEFAULT '[]',
-    CHECK (
-        (level = 0 AND parent_id IS NULL)
-        OR
-        (level > 0 AND parent_id IS NOT NULL)
-    )
-);
-
-CREATE TABLE keywords (
-    id              INTEGER PRIMARY KEY,
-    heading_id      INTEGER NOT NULL,
-    keyword         TEXT NOT NULL,
-    value           TEXT,
-    line_number     INTEGER,
-    FOREIGN KEY (heading_id)
-        REFERENCES headings(id)
-        ON DELETE CASCADE,
-    UNIQUE (heading_id, keyword, line_number)
-);
-
-CREATE TABLE properties (
-    id              INTEGER PRIMARY KEY,
-    heading_id      INTEGER NOT NULL,
-    key             TEXT NOT NULL,
-    value           TEXT,
-    source          TEXT NOT NULL CHECK (
-                        source IN ('property_keyword', 'property_drawer', 'category_keyword')
-                    ),
-    append          INTEGER NOT NULL DEFAULT 0 CHECK (append IN (0, 1)),
-    line_number     INTEGER,
-    FOREIGN KEY (heading_id)
-        REFERENCES headings(id)
-        ON DELETE CASCADE
-);
-
-CREATE TABLE tags (
-    heading_id      INTEGER NOT NULL,
-    tag             TEXT NOT NULL,
-    FOREIGN KEY (heading_id)
-        REFERENCES headings(id)
-        ON DELETE CASCADE,
-    PRIMARY KEY (heading_id, tag)
-);
-
-CREATE TABLE timestamps (
-    id              INTEGER PRIMARY KEY,
-    heading_id      INTEGER NOT NULL,
-    role            TEXT,
-    start_ts        INTEGER,
-    end_ts          INTEGER,
-    type            TEXT,
-    range_type      TEXT,
-    raw_value       TEXT NOT NULL,
-    byte_start      INTEGER NOT NULL,
-    byte_end        INTEGER NOT NULL CHECK (byte_end >= byte_start),
-    line_number     INTEGER,
-    FOREIGN KEY (heading_id)
-        REFERENCES headings(id)
-        ON DELETE CASCADE
-);
-
-CREATE TABLE timestamp_repeaters (
-    id                          INTEGER PRIMARY KEY,
-    timestamp_id                INTEGER NOT NULL UNIQUE,
-    repeater_type               TEXT,
-    repeater_value              INTEGER,
-    repeater_unit               TEXT,
-    repeater_deadline_value     INTEGER,
-    repeater_deadline_unit      TEXT,
-    warning_type                TEXT,
-    warning_value               INTEGER,
-    warning_unit                TEXT,
-    FOREIGN KEY (timestamp_id)
-        REFERENCES timestamps(id)
-        ON DELETE CASCADE
-);
-
-CREATE TABLE links (
-    id                  INTEGER PRIMARY KEY,
-    file_id             INTEGER NOT NULL,
-    heading_id          INTEGER NOT NULL,
-    byte_start          INTEGER NOT NULL CHECK (byte_start >= 0),
-    byte_end            INTEGER NOT NULL CHECK (byte_end >= byte_start),
-    line                INTEGER NOT NULL CHECK (line > 0),
-    source_context      TEXT NOT NULL,
-    format              TEXT NOT NULL,
-    raw                 TEXT NOT NULL,
-    raw_target          TEXT NOT NULL,
-    raw_description     TEXT,
-    link_type           TEXT NOT NULL,
-    path                TEXT NOT NULL,
-    search_option       TEXT,
-    path_absolute       TEXT,
-    target_file_id      INTEGER,
-    target_heading_id   INTEGER,
-    target_custom_id    TEXT,
-    target_id           TEXT,
-    resolution_status   TEXT,
-    resolution_diagnostic TEXT,
-    FOREIGN KEY (file_id)
-        REFERENCES files(id)
-        ON DELETE CASCADE,
-    FOREIGN KEY (heading_id)
-        REFERENCES headings(id)
-        ON DELETE CASCADE,
-    FOREIGN KEY (target_file_id)
-        REFERENCES files(id)
-        ON DELETE SET NULL,
-    FOREIGN KEY (target_heading_id)
-        REFERENCES headings(id)
-        ON DELETE SET NULL,
-    UNIQUE (file_id, byte_start)
-);
-
-CREATE TABLE heading_bodies (
-    heading_id          INTEGER PRIMARY KEY,
-    body_text           TEXT NOT NULL,
-    body_byte_start     INTEGER,
-    body_byte_end       INTEGER,
-    FOREIGN KEY (heading_id)
-        REFERENCES headings(id)
-        ON DELETE CASCADE
-);
-
-CREATE TABLE outline_path (
-    heading_id          INTEGER PRIMARY KEY,
-    file_id             INTEGER NOT NULL,
-    parent_id           INTEGER,
-    depth               INTEGER NOT NULL CHECK (depth >= 0),
-    materialized_path   TEXT NOT NULL,
-    breadcrumbs_json    TEXT NOT NULL,
-    FOREIGN KEY (heading_id)
-        REFERENCES headings(id)
-        ON DELETE CASCADE,
-    FOREIGN KEY (file_id)
-        REFERENCES files(id)
-        ON DELETE CASCADE,
-    FOREIGN KEY (parent_id)
-        REFERENCES headings(id)
-        ON DELETE SET NULL
-);
-
-INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/migrate.org', 10, 90);
-INSERT INTO headings
-    (id, file_id, parent_id, level, line_number, byte_start, byte_end, title, title_raw,
-     scheduled_raw, scheduled_ts, all_tags_json)
-VALUES
-    (1, 1, NULL, 0, 1, -1, 90, 'Migrate Index', 'Migrate Index', NULL, NULL, '[]'),
-    (2, 1, 1, 1, 3, 20, 80, 'Migrated Task', 'Migrated Task',
-     '<2026-01-03 Fri 00:00>', 1767398400, '["project"]');
-
-INSERT INTO keywords (id, heading_id, keyword, value, line_number)
-VALUES (1, 1, 'TITLE', 'Migrate Index', 1);
-INSERT INTO properties (id, heading_id, key, value, source, append, line_number)
-VALUES (1, 2, 'CUSTOM_ID', 'migrated-task', 'property_drawer', 0, 4);
-INSERT INTO tags (heading_id, tag) VALUES (2, 'project');
-INSERT INTO timestamps
-    (id, heading_id, role, start_ts, end_ts, type, range_type, raw_value, byte_start, byte_end, line_number)
-VALUES
-    (1, 2, 'scheduled', 1767398400, NULL, 'active', 'none', '<2026-01-03 Fri 00:00>', 25, 47, 3);
-INSERT INTO timestamp_repeaters
-    (id, timestamp_id, repeater_type, repeater_value, repeater_unit, repeater_deadline_value,
-     repeater_deadline_unit, warning_type, warning_value, warning_unit)
-VALUES
-    (1, 1, 'restart', 1, 'week', NULL, NULL, NULL, NULL, NULL);
-INSERT INTO links
-    (id, file_id, heading_id, byte_start, byte_end, line, source_context, format, raw, raw_target,
-     raw_description, link_type, path, search_option, path_absolute, target_file_id, target_heading_id,
-     target_custom_id, target_id, resolution_status, resolution_diagnostic)
-VALUES
-    (1, 1, 2, 50, 70, 5, 'normal', 'bracket', '[[file:target.org][Target]]', 'file:target.org',
-     'Target', 'file', 'target.org', NULL, '/tmp/target.org', NULL, NULL, NULL, NULL, 'resolved', NULL);
-INSERT INTO heading_bodies (heading_id, body_text, body_byte_start, body_byte_end)
-VALUES (2, 'Migrated body', 48, 79);
-INSERT INTO outline_path
-    (heading_id, file_id, parent_id, depth, materialized_path, breadcrumbs_json)
-VALUES
-    (1, 1, NULL, 0, '0000', '["Migrate Index"]'),
-    (2, 1, 1, 1, '0000.0001', '["Migrate Index","Migrated Task"]');
-
-PRAGMA user_version = 4;
-"#,
-                )
-                .expect("legacy headings schema should initialize");
-        }
-
-        let connection = open_database(&database_path).expect("database should upgrade");
-
-        connection
-            .execute("UPDATE headings SET priority = '10' WHERE id = 2", [])
-            .expect("migrated headings schema should preserve multi-digit priorities");
-        let priority: Option<String> = connection
-            .query_row("SELECT priority FROM headings WHERE id = 2", [], |row| {
-                row.get(0)
-            })
-            .expect("migrated priority should load");
-        assert_eq!(priority.as_deref(), Some("10"));
-
-        for table_name in [
-            "keywords",
-            "properties",
-            "tags",
-            "timestamps",
-            "heading_bodies",
-            "links",
-            "outline_path",
-        ] {
-            assert!(
-                !foreign_key_targets(&connection, table_name)
-                    .iter()
-                    .any(|target| target == "headings_legacy"),
-                "{table_name} should not retain headings_legacy foreign keys"
-            );
-        }
-        assert!(
-            foreign_key_check_rows(&connection).is_empty(),
-            "foreign_key_check should be empty after repair"
-        );
-
-        assert_eq!(count_rows(&connection, "SELECT COUNT(*) FROM keywords"), 1);
-        assert_eq!(
-            count_rows(&connection, "SELECT COUNT(*) FROM properties"),
-            1
-        );
-        assert_eq!(count_rows(&connection, "SELECT COUNT(*) FROM tags"), 1);
-        assert_eq!(
-            count_rows(&connection, "SELECT COUNT(*) FROM timestamps"),
-            1
-        );
-        assert_eq!(
-            count_rows(&connection, "SELECT COUNT(*) FROM timestamp_repeaters"),
-            1
-        );
-        assert_eq!(
-            count_rows(&connection, "SELECT COUNT(*) FROM heading_bodies"),
-            1
-        );
-        assert_eq!(count_rows(&connection, "SELECT COUNT(*) FROM links"), 1);
-        assert_eq!(
-            count_rows(&connection, "SELECT COUNT(*) FROM outline_path"),
-            2
-        );
-
-        let child_outline: (i64, String) = connection
-            .query_row(
-                "SELECT depth, breadcrumbs_json
-                 FROM outline_path
-                 WHERE heading_id = 2",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .expect("rebuilt outline path should load");
-        assert_eq!(child_outline.0, 1);
-        assert_eq!(child_outline.1, "[\"Migrate Index\",\"Migrated Task\"]");
-
-        let links = DbReader::list_links(&connection).expect("links should remain queryable");
-        assert_eq!(links.len(), 1);
-        assert_eq!(links[0].heading_id, 2);
-    }
-
-    #[test]
     fn open_database_repairs_tables_still_referencing_headings_legacy() {
         let test_dir = TestDir::new("repair-headings-legacy-fks");
         let database_path = test_dir.path().join("org-files-db.sqlite");
@@ -3198,7 +1762,7 @@ PRAGMA user_version = 4;
                 .execute_batch(
                     r#"
 PRAGMA foreign_keys = OFF;
-PRAGMA user_version = 7;
+PRAGMA user_version = 10;
 
 CREATE TABLE files (
     id              INTEGER PRIMARY KEY,
@@ -3206,7 +1770,8 @@ CREATE TABLE files (
     mtime_ns        INTEGER NOT NULL,
     size            INTEGER NOT NULL,
     content_hash    TEXT,
-    indexed_at      INTEGER
+    indexed_at      INTEGER,
+    identity        BLOB
 );
 
 CREATE TABLE db_metadata (
@@ -3514,132 +2079,6 @@ PRAGMA foreign_keys = ON;
         assert_eq!(
             links[0].heading_breadcrumbs_json,
             "[\"Repair Index\",\"Repair Heading\"]"
-        );
-    }
-
-    #[test]
-    fn open_database_preserves_existing_explicit_time_values_during_table_rebuilds() {
-        let test_dir = TestDir::new("preserve-explicit-time-values");
-        let database_path = test_dir.path().join("org-files-db.sqlite");
-
-        open_database(&database_path).expect("database should initialize");
-
-        {
-            let legacy = Connection::open(&database_path).expect("legacy database should open");
-            legacy
-                .execute_batch(
-                    r#"
-DROP TABLE timestamps;
-DROP TABLE headings;
-
-CREATE TABLE headings (
-    id                  INTEGER PRIMARY KEY,
-    file_id             INTEGER NOT NULL,
-    parent_id           INTEGER,
-    level               INTEGER NOT NULL CHECK (level >= 0),
-    line_number         INTEGER,
-    byte_start          INTEGER NOT NULL,
-    byte_end            INTEGER NOT NULL CHECK (byte_end >= byte_start),
-    title               TEXT NOT NULL,
-    title_raw           TEXT NOT NULL,
-    todo_keyword        TEXT,
-    todo_type           TEXT CHECK (todo_type IN ('open', 'closed') OR todo_type IS NULL),
-    priority            TEXT CHECK (priority IS NULL OR length(priority) = 1),
-    scheduled_raw       TEXT,
-    scheduled_ts        INTEGER,
-    scheduled_has_time  INTEGER CHECK (scheduled_has_time IN (0, 1) OR scheduled_has_time IS NULL),
-    deadline_raw        TEXT,
-    deadline_ts         INTEGER,
-    deadline_has_time   INTEGER CHECK (deadline_has_time IN (0, 1) OR deadline_has_time IS NULL),
-    closed_raw          TEXT,
-    closed_ts           INTEGER,
-    closed_has_time     INTEGER CHECK (closed_has_time IN (0, 1) OR closed_has_time IS NULL),
-    archivedp           INTEGER NOT NULL DEFAULT 0 CHECK (archivedp IN (0, 1)),
-    footnote_section_p  INTEGER NOT NULL DEFAULT 0 CHECK (footnote_section_p IN (0, 1)),
-    all_tags_json       TEXT NOT NULL DEFAULT '[]',
-    CHECK (
-        (level = 0 AND parent_id IS NULL)
-        OR
-        (level > 0 AND parent_id IS NOT NULL)
-    )
-);
-
-CREATE TABLE timestamps (
-    id              INTEGER PRIMARY KEY,
-    heading_id      INTEGER NOT NULL,
-    role            TEXT,
-    has_time        INTEGER CHECK (has_time IN (0, 1) OR has_time IS NULL),
-    start_ts        INTEGER,
-    end_ts          INTEGER,
-    type            TEXT,
-    range_type      TEXT,
-    raw_value       TEXT NOT NULL,
-    byte_start      INTEGER NOT NULL,
-    byte_end        INTEGER NOT NULL CHECK (byte_end >= byte_start),
-    line_number     INTEGER,
-    has_repeater    INTEGER
-);
-
-INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/example.org', 10, 20);
-INSERT INTO headings
-    (id, file_id, parent_id, level, byte_start, byte_end, title, title_raw,
-     scheduled_raw, scheduled_ts, scheduled_has_time,
-     deadline_raw, deadline_ts, deadline_has_time,
-     closed_raw, closed_ts, closed_has_time, all_tags_json)
-VALUES
-    (1, 1, NULL, 0, -1, 20, '/tmp/example.org', '/tmp/example.org',
-     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '[]'),
-    (2, 1, 1, 1, 21, 60, 'Timed task', 'Timed task',
-     '<2026-01-03 Fri 00:00>', 1767398400, 1,
-     '<2026-01-04 Sat>', 1767484800, 0,
-     '[2026-01-05 Sun 09:30]', 1767605400, 1, '[]');
-
-INSERT INTO timestamps
-    (id, heading_id, role, has_time, start_ts, end_ts, type, range_type, raw_value, byte_start, byte_end, line_number, has_repeater)
-VALUES
-    (1, 2, 'scheduled', 1, 1767398400, NULL, 'active', 'none', '<2026-01-03 Fri 00:00>', 21, 43, 2, 0),
-    (2, 2, 'deadline', 0, 1767484800, NULL, 'active', 'none', '<2026-01-04 Sat>', 44, 60, 2, 0);
-
-PRAGMA user_version = 4;
-"#,
-                )
-                .expect("legacy explicit-time preservation schema should initialize");
-        }
-
-        let connection = open_database(&database_path).expect("database should upgrade");
-
-        let migrated_heading: (Option<i64>, Option<i64>, Option<i64>) = connection
-            .query_row(
-                "SELECT scheduled_has_time, deadline_has_time, closed_has_time
-                 FROM headings
-                 WHERE id = 2",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .expect("migrated heading should load");
-        assert_eq!(migrated_heading, (Some(1), Some(0), Some(1)));
-
-        let migrated_timestamps: Vec<(String, Option<i64>)> = {
-            let mut statement = connection
-                .prepare(
-                    "SELECT role, has_time
-                     FROM timestamps
-                     WHERE heading_id = 2
-                     ORDER BY id",
-                )
-                .expect("timestamps query should prepare");
-            statement
-                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-                .expect("timestamps query should run")
-                .collect::<Result<Vec<_>, _>>()
-                .expect("timestamps should collect")
-        };
-        assert_eq!(
-            migrated_timestamps,
-            vec![
-                ("scheduled".to_string(), Some(1)),
-                ("deadline".to_string(), Some(0)),
-            ]
         );
     }
 

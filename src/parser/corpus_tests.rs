@@ -56,8 +56,8 @@ fn corpus() -> Vec<(String, String)> {
     inputs
 }
 
-/// Deterministic random line soup from a vocabulary of structural lines, to reach
-/// combinations the hand-written cases miss.
+/// Deterministic random documents from a vocabulary of structural lines, headlines of varied
+/// depth and inline fragments, to reach combinations the hand-written cases miss.
 fn generated() -> Vec<(String, String)> {
     const LINES: &[&str] = &[
         "* H",
@@ -107,27 +107,100 @@ fn generated() -> Vec<(String, String)> {
         "#+TITLE: t",
         "#+k: v",
     ];
-    let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
-    let mut next = move |bound: usize| {
-        state = state
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        ((state >> 33) as usize) % bound
-    };
-    let cases = std::env::var("ADAPTER_CORPUS_CASES")
+    // Text pieces glued into body and title lines: links, timestamps, markup, multibyte
+    // text and odd control characters.
+    const FRAGMENTS: &[&str] = &[
+        "word",
+        " ",
+        "  ",
+        "\t",
+        "[[https://example.org/a][d]]",
+        "[[file:x.org::*H]]",
+        "[[id:abc]]",
+        "[[",
+        "]]",
+        "[[a][",
+        "<https://example.org>",
+        "<2024-01-01 Mon>",
+        "[2024-01-01 Mon 10:00-11:00]",
+        "<2024-01-01 Mon +1w -2d>",
+        "<2024-01-01 Mon>--<2024-01-02 Tue>",
+        "<2024",
+        "*b*",
+        "/i/",
+        "_u_",
+        "=v=",
+        "~c~",
+        "+s+",
+        "src_rust{x}",
+        "@@html:x@@",
+        "\u{e4}\u{f6}\u{fc}",
+        "\u{65e5}\u{672c}\u{8a9e}",
+        "\u{1f600}",
+        "\u{a0}",
+        "\u{200b}",
+        "\u{0}",
+        "\u{1b}",
+        "\u{7f}",
+        "\r",
+        ":tag:",
+        "::",
+        "[#A]",
+        "TODO",
+    ];
+    // Xorshift64, seeded with fixed values so every run sees the same documents.
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self, bound: usize) -> usize {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            ((self.0 >> 11) as usize) % bound
+        }
+    }
+    const SEEDS: [u64; 4] = [
+        0x9E37_79B9_7F4A_7C15,
+        0xD1B5_4A32_D192_ED03,
+        0x2545_F491_4F6C_DD1D,
+        0xBF58_476D_1CE4_E5B9,
+    ];
+    let cases: usize = std::env::var("ADAPTER_CORPUS_CASES")
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(1500);
-    (0..cases)
-        .map(|case| {
-            let count = 1 + next(14);
+    let mut out = Vec::new();
+    for (seed_index, seed) in SEEDS.iter().enumerate() {
+        let mut rng = Rng(*seed);
+        for case in 0..cases {
+            let count = 1 + rng.next(24);
             let newline = if case % 4 == 3 { "\r\n" } else { "\n" };
             let content: String = (0..count)
-                .map(|_| format!("{}{newline}", LINES[next(LINES.len())]))
+                .map(|_| {
+                    let line = match rng.next(10) {
+                        0..=4 => LINES[rng.next(LINES.len())].to_string(),
+                        5..=6 => {
+                            // Headlines of varied depth, also above 255 (no depth limit).
+                            let level = match rng.next(4) {
+                                0 => 1 + rng.next(300),
+                                _ => 1 + rng.next(4),
+                            };
+                            let mut line = format!("{} ", "*".repeat(level));
+                            for _ in 0..rng.next(4) {
+                                line.push_str(FRAGMENTS[rng.next(FRAGMENTS.len())]);
+                            }
+                            line
+                        }
+                        _ => (0..1 + rng.next(5))
+                            .map(|_| FRAGMENTS[rng.next(FRAGMENTS.len())])
+                            .collect(),
+                    };
+                    format!("{line}{newline}")
+                })
                 .collect();
-            (format!("generated: {case}"), content)
-        })
-        .collect()
+            out.push((format!("generated: seed {seed_index} case {case}"), content));
+        }
+    }
+    out
 }
 
 /// Small inputs for placement, nesting and termination rules. Names show up in reports.
@@ -372,7 +445,14 @@ fn parsed_documents_keep_their_ranges_on_the_source() {
         for (index, heading) in document.headings.iter().enumerate() {
             let at = format!("[{name}] heading {index}");
             check_range(&content, &at, heading.byte_start, heading.byte_end);
+            if index > 0 {
+                assert!(
+                    document.headings[index - 1].byte_start <= heading.byte_start,
+                    "{at} starts before the previous heading"
+                );
+            }
             if let Some(parent) = heading.parent_index {
+                assert!(parent < index, "{at} precedes its parent {parent}");
                 let parent = &document.headings[parent];
                 assert!(
                     parent.byte_start <= heading.byte_start && heading.byte_end <= parent.byte_end,

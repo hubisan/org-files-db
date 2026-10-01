@@ -107,7 +107,7 @@ The indexer also creates the synthetic level-0 file roots described in [[*Synthe
 
 SQLite ~PRAGMA user_version~ stores the persistent schema version. ~CURRENT_SCHEMA_VERSION~ in ~src/db/schema.rs~ is the code source of truth.
 
-Indexing commands can initialize or migrate a database. Read-only commands require the current schema and do not migrate it.
+Indexing commands can initialize a database or upgrade one at schema version 10 or later (~MIN_SUPPORTED_SCHEMA_VERSION~ in ~src/db/schema.rs~). A database with an older non-zero version is never migrated or wiped: opening it fails with an error that tells you to delete the file and run ~orgfdb rebuild~, since the database is a rebuildable cache. Read-only commands require the current schema and do not migrate it.
 
 Canonical relational tables store the query-visible facts. Optional FTS data is derived from canonical heading and body data.
 
