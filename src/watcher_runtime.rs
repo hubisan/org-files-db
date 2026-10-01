@@ -563,6 +563,7 @@ mod tests {
             todo: Default::default(),
             search: search_config(),
             query: Default::default(),
+            index: Default::default(),
         }
     }
 
@@ -582,6 +583,7 @@ mod tests {
             todo: Default::default(),
             search: search_config(),
             query: Default::default(),
+            index: Default::default(),
         }
     }
 

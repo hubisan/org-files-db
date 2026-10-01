@@ -29,6 +29,7 @@ pub struct Config {
     pub todo: TodoConfig,
     pub search: SearchConfig,
     pub query: QueryConfig,
+    pub index: IndexConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,6 +83,7 @@ impl Config {
             todo,
             search,
             query,
+            index,
         } = raw;
         let base_dir = absolute_base_dir(path.parent().unwrap_or_else(|| Path::new(".")));
         let db_path = resolve_path(&base_dir, raw_db_path, home_dir)?;
@@ -111,6 +113,17 @@ impl Config {
             index_body_text: None,
         });
         let query = query.unwrap_or(RawQueryConfig { timezone: None });
+        let journal_retention_generations =
+            match index.and_then(|index| index.journal_retention_generations) {
+                Some(value) if value < 1 => {
+                    return Err(ConfigError::InvalidJournalRetention {
+                        path: path.to_path_buf(),
+                        value,
+                    })
+                }
+                Some(value) => value,
+                None => DEFAULT_JOURNAL_RETENTION_GENERATIONS,
+            };
         let query_timezone = match query.timezone {
             Some(timezone) => {
                 validate_query_timezone(path, &timezone)?;
@@ -141,6 +154,9 @@ impl Config {
             },
             query: QueryConfig {
                 timezone: query_timezone,
+            },
+            index: IndexConfig {
+                journal_retention_generations,
             },
         })
     }
@@ -190,6 +206,23 @@ pub struct QueryConfig {
     pub timezone: Option<String>,
 }
 
+/// Default number of committed generations that the generation journal keeps.
+pub const DEFAULT_JOURNAL_RETENTION_GENERATIONS: i64 = 1000;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexConfig {
+    /// Number of newest generations whose affected-file journal is kept. At least 1.
+    pub journal_retention_generations: i64,
+}
+
+impl Default for IndexConfig {
+    fn default() -> Self {
+        Self {
+            journal_retention_generations: DEFAULT_JOURNAL_RETENTION_GENERATIONS,
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -201,6 +234,7 @@ impl Default for Config {
             todo: TodoConfig::default(),
             search: SearchConfig::default(),
             query: QueryConfig::default(),
+            index: IndexConfig::default(),
         }
     }
 }
@@ -267,6 +301,10 @@ pub enum ConfigError {
         value: String,
         message: &'static str,
     },
+    InvalidJournalRetention {
+        path: PathBuf,
+        value: i64,
+    },
     InvalidExclusionPattern {
         path: PathBuf,
         field: &'static str,
@@ -324,6 +362,11 @@ impl fmt::Display for ConfigError {
                 value,
                 path.display()
             ),
+            Self::InvalidJournalRetention { path, value } => write!(
+                f,
+                "invalid index.journal_retention_generations `{value}` in config {}: expected an integer of at least 1",
+                path.display()
+            ),
             Self::InvalidExclusionPattern {
                 path,
                 field,
@@ -348,6 +391,7 @@ impl Error for ConfigError {
             | Self::MissingDirectory { .. }
             | Self::MissingHomeDirectory { .. }
             | Self::InvalidTimezone { .. }
+            | Self::InvalidJournalRetention { .. }
             | Self::InvalidTodoKeyword { .. }
             | Self::InvalidExclusionPattern { .. } => None,
         }
@@ -369,6 +413,7 @@ struct RawConfig {
     todo: Option<RawTodoConfig>,
     search: Option<RawSearchConfig>,
     query: Option<RawQueryConfig>,
+    index: Option<RawIndexConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -406,6 +451,12 @@ struct RawSearchConfig {
 #[serde(deny_unknown_fields)]
 struct RawQueryConfig {
     timezone: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawIndexConfig {
+    journal_retention_generations: Option<i64>,
 }
 
 fn default_db_path() -> PathBuf {
@@ -1205,6 +1256,57 @@ index_body_text = true
     }
 
     #[test]
+    fn journal_retention_defaults_and_loads() {
+        let test_dir = TestDir::new("journal-retention");
+        let config_path = test_dir.path().join("config.toml");
+
+        write_file(&config_path, "db_path = \"db.sqlite\"\n");
+        let config = Config::load_from_file(&config_path).expect("config should load");
+        assert_eq!(config.index.journal_retention_generations, 1000);
+
+        write_file(&config_path, "[index]\njournal_retention_generations = 5\n");
+        let config = Config::load_from_file(&config_path).expect("config should load");
+        assert_eq!(config.index.journal_retention_generations, 5);
+    }
+
+    #[test]
+    fn journal_retention_rejects_values_below_one() {
+        let test_dir = TestDir::new("journal-retention-invalid");
+        let config_path = test_dir.path().join("config.toml");
+
+        for value in ["0", "-3"] {
+            write_file(
+                &config_path,
+                &format!("[index]\njournal_retention_generations = {value}\n"),
+            );
+            match Config::load_from_file(&config_path).expect_err("config should fail") {
+                ConfigError::InvalidJournalRetention { value: got, .. } => {
+                    assert_eq!(got.to_string(), value);
+                }
+                other => panic!("unexpected error: {other}"),
+            }
+        }
+    }
+
+    #[test]
+    fn journal_retention_rejects_non_integer_and_unknown_keys() {
+        let test_dir = TestDir::new("journal-retention-types");
+        let config_path = test_dir.path().join("config.toml");
+
+        for body in [
+            "[index]\njournal_retention_generations = \"many\"\n",
+            "[index]\njournal_retention_generations = 1.5\n",
+            "[index]\nunknown = 1\n",
+        ] {
+            write_file(&config_path, body);
+            assert!(matches!(
+                Config::load_from_file(&config_path),
+                Err(ConfigError::ParseToml { .. })
+            ));
+        }
+    }
+
+    #[test]
     fn loads_query_timezone() {
         let test_dir = TestDir::new("query-timezone");
         let config_path = test_dir.path().join("config.toml");
@@ -1676,6 +1778,7 @@ exclude = ["archive/**"]
                 index_body_text: None,
             }),
             query: Some(RawQueryConfig { timezone: None }),
+            index: None,
             files_exclude: Vec::new(),
         }
     }

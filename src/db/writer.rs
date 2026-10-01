@@ -197,6 +197,7 @@ impl DbWriter {
             &IndexGenerationChange::from_files(vec![AffectedFile::upsert(display_path(
                 &file.path,
             ))]),
+            crate::config::DEFAULT_JOURNAL_RETENTION_GENERATIONS,
         )?;
         tx.commit()
             .map_err(|source| DbWriteError::Transaction { source })?;
