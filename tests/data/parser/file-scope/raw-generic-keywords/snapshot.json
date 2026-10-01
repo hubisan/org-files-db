@@ -1,0 +1,120 @@
+{
+  "file_path": "file-scope/raw-generic-keywords/fixture.org",
+  "metadata": {
+    "title": "First title Later title",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "First title",
+        "line_number": 1
+      },
+      {
+        "key": "STARTUP",
+        "value": "showall",
+        "line_number": 2
+      },
+      {
+        "key": "AUTHOR",
+        "value": "Jane Doe",
+        "line_number": 7
+      },
+      {
+        "key": "OPTIONS",
+        "value": "toc:nil num:t",
+        "line_number": 8
+      },
+      {
+        "key": "TITLE",
+        "value": "Later title",
+        "line_number": 13
+      },
+      {
+        "key": "EXPORT_FILE_NAME",
+        "value": "export-name",
+        "line_number": 14
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "file-scope/raw-generic-keywords/fixture.org",
+      "level": 0,
+      "title": "First title Later title",
+      "title_raw": "First title Later title",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 201,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "file-scope/raw-generic-keywords/fixture.org",
+      "level": 1,
+      "title": "First heading",
+      "title_raw": "First heading",
+      "body_text": "Body text.",
+      "body_byte_start": 57,
+      "body_byte_end": 67,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 4,
+      "byte_start": 41,
+      "byte_end": 201,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "file-scope/raw-generic-keywords/fixture.org",
+      "level": 2,
+      "title": "Child heading",
+      "title_raw": "Child heading",
+      "body_text": "More body text.",
+      "body_byte_start": 131,
+      "body_byte_end": 146,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 10,
+      "byte_start": 114,
+      "byte_end": 201,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}

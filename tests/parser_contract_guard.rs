@@ -3,10 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use org_files_db::{
-    parser::{OrgParser, OrgizeAdapter, ParseOptions},
-    PARSER_INDEXER_CONTRACT_VERSION,
-};
+use org_files_db::PARSER_INDEXER_CONTRACT_VERSION;
 use sha2::{Digest, Sha256};
 
 const MESSAGE: &str = "parser output changed: bump PARSER_INDEXER_CONTRACT_VERSION in src/indexing_context.rs and update tests/data/parser/CONTRACT";
@@ -20,30 +17,27 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
         let path = entry.expect("entry should load").path();
         if path.is_dir() {
             collect(&path, out);
-        } else if path.file_name().is_some_and(|n| n == "fixture.org") {
+        } else if path.file_name().is_some_and(|n| n == "snapshot.json") {
             out.push(path);
         }
     }
 }
 
+/// Hash of every committed parser snapshot (`tests/parser_snapshots.rs` keeps them equal to
+/// the real parser output), so a changed snapshot requires a contract version bump.
 fn output_hash() -> String {
     let root = fixture_root();
     let mut files = Vec::new();
     collect(&root, &mut files);
     files.sort();
-    assert!(!files.is_empty(), "no parser fixtures found");
-    let parser = OrgizeAdapter::new();
+    assert!(!files.is_empty(), "no parser snapshots found");
     let mut hasher = Sha256::new();
     for file in files {
-        let content = fs::read_to_string(&file).expect("fixture should be readable");
-        let relative = file.strip_prefix(&root).expect("fixture under root");
-        let document = parser
-            .parse_document(relative, &content, &ParseOptions::default())
-            .unwrap_or_else(|err| panic!("fixture {} should parse: {err:?}", file.display()));
-        let json = serde_json::to_string(&document).expect("document should serialize");
+        let content = fs::read_to_string(&file).expect("snapshot should be readable");
+        let relative = file.strip_prefix(&root).expect("snapshot under root");
         hasher.update(relative.to_string_lossy().as_bytes());
         hasher.update(b"\n");
-        hasher.update(json.as_bytes());
+        hasher.update(content.as_bytes());
         hasher.update(b"\n");
     }
     hasher

@@ -1,0 +1,224 @@
+{
+  "file_path": "planning/planning-entries-anywhere-in-the-line/fixture.org",
+  "metadata": {
+    "title": "Planning Entries",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Planning Entries",
+        "line_number": 1
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "planning/planning-entries-anywhere-in-the-line/fixture.org",
+      "level": 0,
+      "title": "Planning Entries",
+      "title_raw": "Planning Entries",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 472,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "planning/planning-entries-anywhere-in-the-line/fixture.org",
+      "level": 1,
+      "title": "Entries after other text",
+      "title_raw": "Entries after other text",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": {
+          "role": "Scheduled",
+          "raw_value": "<2024-01-01 Mon>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1704067200,
+          "end_ts": null,
+          "byte_start": 64,
+          "byte_end": 80,
+          "line_number": 3,
+          "modifiers": []
+        },
+        "deadline": {
+          "role": "Deadline",
+          "raw_value": "<2024-01-03 Wed>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1704240000,
+          "end_ts": null,
+          "byte_start": 96,
+          "byte_end": 112,
+          "line_number": 3,
+          "modifiers": []
+        },
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Scheduled",
+          "raw_value": "<2024-01-01 Mon>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1704067200,
+          "end_ts": null,
+          "byte_start": 64,
+          "byte_end": 80,
+          "line_number": 3,
+          "modifiers": []
+        },
+        {
+          "role": "Deadline",
+          "raw_value": "<2024-01-03 Wed>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1704240000,
+          "end_ts": null,
+          "byte_start": 96,
+          "byte_end": 112,
+          "line_number": 3,
+          "modifiers": []
+        }
+      ],
+      "line_number": 2,
+      "byte_start": 26,
+      "byte_end": 113,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "planning/planning-entries-anywhere-in-the-line/fixture.org",
+      "level": 1,
+      "title": "Date range",
+      "title_raw": "Date range",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": {
+          "role": "Scheduled",
+          "raw_value": "<2024-01-01 Mon>--<2024-01-03 Wed>",
+          "timestamp_type": "Active",
+          "range_type": "DateRange",
+          "has_time": false,
+          "start_ts": 1704067200,
+          "end_ts": 1704240000,
+          "byte_start": 137,
+          "byte_end": 171,
+          "line_number": 5,
+          "modifiers": []
+        },
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Scheduled",
+          "raw_value": "<2024-01-01 Mon>--<2024-01-03 Wed>",
+          "timestamp_type": "Active",
+          "range_type": "DateRange",
+          "has_time": false,
+          "start_ts": 1704067200,
+          "end_ts": 1704240000,
+          "byte_start": 137,
+          "byte_end": 171,
+          "line_number": 5,
+          "modifiers": []
+        }
+      ],
+      "line_number": 4,
+      "byte_start": 113,
+      "byte_end": 172,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "planning/planning-entries-anywhere-in-the-line/fixture.org",
+      "level": 1,
+      "title": "Timestamp must follow the keyword",
+      "title_raw": "Timestamp must follow the keyword",
+      "body_text": "Body four.",
+      "body_byte_start": 240,
+      "body_byte_end": 250,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 6,
+      "byte_start": 172,
+      "byte_end": 251,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "planning/planning-entries-anywhere-in-the-line/fixture.org",
+      "level": 1,
+      "title": "Last",
+      "title_raw": "Last",
+      "body_text": "# classification: org-special-case\n# note: Org searches the planning line for every keyword, a timestamp has to follow its keyword directly, and a range is one timestamp. A planning line holds no other timestamps.",
+      "body_byte_start": 258,
+      "body_byte_end": 471,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 9,
+      "byte_start": 251,
+      "byte_end": 472,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}

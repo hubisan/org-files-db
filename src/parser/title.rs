@@ -1,4 +1,4 @@
-//! Orgize-free headline title helpers working on raw source lines.
+//! Headline title helpers working on raw source lines.
 
 use std::ops::Range;
 
@@ -7,22 +7,6 @@ use super::model::{ParsedLink, TodoKeywordConfig, TodoType};
 /// Org's title separators (`[ \t]`); other Unicode whitespace such as NBSP is title text.
 fn is_org_blank(character: char) -> bool {
     matches!(character, ' ' | '\t')
-}
-
-pub(super) fn placeholder_title_after_todo_prefix<'a>(
-    source_title: &str,
-    placeholder_title: &'a str,
-    stripped_source_title: &str,
-) -> Option<&'a str> {
-    let prefix_len = source_title
-        .len()
-        .checked_sub(stripped_source_title.len())?;
-    let source_prefix = source_title.get(..prefix_len)?;
-    let placeholder_prefix = placeholder_title.get(..prefix_len)?;
-    if placeholder_prefix != source_prefix {
-        return None;
-    }
-    placeholder_title.get(prefix_len..)
 }
 
 /// Facts read from the raw title of a headline line (stars and tags already removed).
@@ -133,15 +117,6 @@ pub(super) fn source_title_from_content_line(content: &str, start: usize) -> Sou
     }
 }
 
-pub(super) fn links_in_range<'a>(
-    links: &'a [ParsedLink],
-    range: &Range<usize>,
-) -> &'a [ParsedLink] {
-    let first = links.partition_point(|link| link.byte_end <= range.start);
-    let last = first + links[first..].partition_point(|link| link.byte_start < range.end);
-    &links[first..last]
-}
-
 pub(super) fn link_contains_range(links: &[ParsedLink], range: &Range<usize>) -> bool {
     let index = links.partition_point(|link| link.byte_start <= range.start);
     index
@@ -152,18 +127,8 @@ pub(super) fn link_contains_range(links: &[ParsedLink], range: &Range<usize>) ->
         })
 }
 
-pub(super) fn restore_title_link_placeholders(
-    mut title: String,
-    placeholders: &[(String, String)],
-) -> String {
-    for (token, visible) in placeholders {
-        title = title.replace(token, visible);
-    }
-    title
-}
-
 /// Non-empty tags of the last tag block on the headline line at `start`. Org reads only that
-/// block (`* T :a: :b:` has the tag `b`); Orgize would also report the earlier `:a:`.
+/// block (`* T :a: :b:` has the tag `b`).
 pub(super) fn source_title_tags(content: &str, start: usize) -> Vec<String> {
     let without_stars = headline_line(content, start)
         .1
@@ -206,7 +171,7 @@ fn is_org_tag_block(value: &str) -> bool {
 
 #[cfg(test)]
 mod range_tests {
-    use super::{link_contains_range, links_in_range};
+    use super::link_contains_range;
     use crate::parser::{ParsedLink, ParsedLinkSourceContext};
 
     fn link(start: usize, end: usize, format: &str) -> ParsedLink {
@@ -231,18 +196,12 @@ mod range_tests {
     }
 
     #[test]
-    fn source_ordered_range_helpers_respect_boundaries_and_link_formats() {
+    fn link_contains_range_respects_boundaries_and_link_formats() {
         let links = vec![
             link(10, 20, "bracket"),
             link(20, 30, "angle"),
             link(30, 40, "bracket"),
         ];
-        assert!(links_in_range(&[], &(0..1)).is_empty());
-        assert!(links_in_range(&links, &(0..10)).is_empty());
-        assert!(links_in_range(&links, &(40..50)).is_empty());
-        assert_eq!(links_in_range(&links, &(10..20)).len(), 1);
-        assert_eq!(links_in_range(&links, &(20..30))[0].format, "angle");
-        assert_eq!(links_in_range(&links, &(19..31)).len(), 3);
         assert!(link_contains_range(&links, &(10..20)));
         assert!(link_contains_range(&links, &(11..19)));
         assert!(!link_contains_range(&links, &(20..30)));
@@ -284,26 +243,6 @@ mod tests {
 
     fn assert_boundary(s: &str, i: usize) {
         assert!(s.is_char_boundary(i), "offset {i} splits {s:?}");
-    }
-
-    #[test]
-    fn placeholder_title_after_todo_prefix_slices_by_prefix_len() {
-        let rows = [
-            ("TODO x", "TODO y", "x", Some("y")),
-            ("TODO x", "TODO ", "x", Some("")),
-            ("TODO x", "TODO", "x", None),
-            ("TODO x", "DONE y", "x", None),
-            ("é x", "é y", "x", Some("y")),
-            ("é x", "e\u{301} y", "x", None),
-            ("é x", "ab y", "x", None),
-            ("x", "x", "longer than source", None),
-            ("", "", "", Some("")),
-            ("TODO x", "", "x", None),
-        ];
-        for (source, placeholder, stripped, want) in rows {
-            let got = placeholder_title_after_todo_prefix(source, placeholder, stripped);
-            assert_eq!(got, want, "{source:?} {placeholder:?}");
-        }
     }
 
     #[test]
@@ -392,17 +331,6 @@ mod tests {
             assert_boundary(s, split_headline_title(s, &cfg).text_start);
             let tail = strip_trailing_org_tags(s);
             assert!(s.contains(tail));
-            for (i, _) in s.char_indices().chain([(s.len(), ' ')]) {
-                for other in ADVERSARIAL {
-                    if let Some(rest) = placeholder_title_after_todo_prefix(s, other, &s[i..]) {
-                        assert_boundary(other, other.len() - rest.len());
-                    }
-                }
-            }
-            // Non-boundary-aligned lengths must yield None rather than panic.
-            for stripped in ADVERSARIAL {
-                let _ = placeholder_title_after_todo_prefix(s, s, stripped);
-            }
         }
     }
 }

@@ -1,10 +1,11 @@
 pub mod diagnostics;
+pub(crate) mod inline_entities;
+pub(crate) mod inline_scanner;
 pub(crate) mod line_index;
 pub mod line_lexer;
 pub mod link_scanner;
 pub mod model;
 pub mod orgize_adapter;
-pub(crate) mod orgize_inline;
 pub(crate) mod properties;
 pub mod structure_scanner;
 pub(crate) mod timestamp_raw;
@@ -26,3 +27,5 @@ pub use orgize_adapter::OrgizeAdapter;
 
 #[cfg(test)]
 mod corpus_tests;
+#[cfg(test)]
+mod inline_scanner_tests;

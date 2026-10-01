@@ -1,0 +1,1 @@
+# classification: body excludes structured metadata but keeps normal paragraph text

@@ -1,0 +1,69 @@
+{
+  "file_path": "headings/basic-heading/fixture.org",
+  "metadata": {
+    "title": "Basic Heading Fixture",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Basic Heading Fixture",
+        "line_number": 1
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "headings/basic-heading/fixture.org",
+      "level": 0,
+      "title": "Basic Heading Fixture",
+      "title_raw": "Basic Heading Fixture",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 39,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "headings/basic-heading/fixture.org",
+      "level": 1,
+      "title": "Inbox",
+      "title_raw": "Inbox",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 2,
+      "byte_start": 31,
+      "byte_end": 39,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}

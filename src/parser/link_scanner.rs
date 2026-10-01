@@ -121,6 +121,43 @@ pub fn scan_links(
     LinkScanner::new().scan(content, config, context)
 }
 
+/// Where a link that starts at a given offset ends, for callers that read running text
+/// and must step over links (`inline_scanner`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct LinkExtent {
+    pub(super) end: usize,
+    pub(super) target: Range<usize>,
+    /// The target with its escapes resolved.
+    pub(super) logical_target: String,
+    pub(super) description: Option<Range<usize>>,
+}
+
+/// The plain link protocols of `config`, lowercased, as `plain_link_at` wants them.
+pub(super) fn plain_link_protocol_set(config: &LinkScannerConfig) -> HashSet<String> {
+    normalized_protocols(&config.plain_link_protocols)
+}
+
+fn extent_of(link: ParsedLink) -> LinkExtent {
+    LinkExtent {
+        end: link.byte_end,
+        target: link.target_byte_start..link.target_byte_end,
+        logical_target: link.logical_target,
+        description: link
+            .description_byte_start
+            .zip(link.description_byte_end)
+            .map(|(start, end)| start..end),
+    }
+}
+
+/// The bracket link `[[target][description]]` that starts at `offset`.
+pub(super) fn bracket_link_at(
+    content: &str,
+    offset: usize,
+    enabled_protocols: &HashSet<String>,
+) -> Option<LinkExtent> {
+    try_parse_bracket_link(content, offset, 0, enabled_protocols).map(extent_of)
+}
+
 fn try_parse_bracket_link(
     content: &str,
     offset: usize,

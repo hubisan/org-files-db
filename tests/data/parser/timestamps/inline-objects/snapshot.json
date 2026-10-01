@@ -1,0 +1,350 @@
+{
+  "file_path": "timestamps/inline-objects/fixture.org",
+  "metadata": {
+    "title": "Inline objects Fixture",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Inline objects Fixture",
+        "line_number": 1
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "timestamps/inline-objects/fixture.org",
+      "level": 0,
+      "title": "Inline objects Fixture",
+      "title_raw": "Inline objects Fixture",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 689,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "timestamps/inline-objects/fixture.org",
+      "level": 1,
+      "title": "Range and time",
+      "title_raw": "Range and time",
+      "body_text": "[2024-11-20 Wed]--[2024-11-21 Thu 10:00] and <2024-11-22 Fri 9:00>",
+      "body_byte_start": 50,
+      "body_byte_end": 116,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Body",
+          "raw_value": "[2024-11-20 Wed]--[2024-11-21 Thu 10:00]",
+          "timestamp_type": "Inactive",
+          "range_type": "DateTimeRange",
+          "has_time": true,
+          "start_ts": 1732060800,
+          "end_ts": 1732183200,
+          "byte_start": 50,
+          "byte_end": 90,
+          "line_number": 4,
+          "modifiers": []
+        },
+        {
+          "role": "Body",
+          "raw_value": "<2024-11-22 Fri 9:00>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": true,
+          "start_ts": 1732266000,
+          "end_ts": null,
+          "byte_start": 95,
+          "byte_end": 116,
+          "line_number": 4,
+          "modifiers": []
+        }
+      ],
+      "line_number": 3,
+      "byte_start": 33,
+      "byte_end": 118,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/inline-objects/fixture.org",
+      "level": 1,
+      "title": "Repeater with a deadline part",
+      "title_raw": "Repeater with a deadline part",
+      "body_text": "<2024-11-20 Wed .+1m/2m>",
+      "body_byte_start": 150,
+      "body_byte_end": 174,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Body",
+          "raw_value": "<2024-11-20 Wed .+1m/2m>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 150,
+          "byte_end": 174,
+          "line_number": 7,
+          "modifiers": [
+            {
+              "kind": "Repeater",
+              "modifier_type": "Restart",
+              "value": 1,
+              "unit": "Month",
+              "repeater_deadline_value": 2,
+              "repeater_deadline_unit": "Month"
+            }
+          ]
+        }
+      ],
+      "line_number": 6,
+      "byte_start": 118,
+      "byte_end": 176,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/inline-objects/fixture.org",
+      "level": 1,
+      "title": "Hidden by code, verbatim, inline source and snippet",
+      "title_raw": "Hidden by code, verbatim, inline source and snippet",
+      "body_text": "=verbatim <2024-11-20 Wed>= and ~code <2024-11-21 Thu>~ and src_sh{<2024-11-22 Fri>} and @@html:<2024-11-23 Sat>@@",
+      "body_byte_start": 230,
+      "body_byte_end": 344,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 9,
+      "byte_start": 176,
+      "byte_end": 346,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/inline-objects/fixture.org",
+      "level": 1,
+      "title": "Shown inside emphasis, footnotes, tables and lists",
+      "title_raw": "Shown inside emphasis, footnotes, tables and lists",
+      "body_text": "*bold <2024-11-24 Sun>* and [fn:1:<2024-11-25 Mon>]\n| cell <2024-11-26 Tue> | =code <2024-11-27 Wed>= |\n- <2024-11-28 Thu> :: <2024-11-29 Fri>",
+      "body_byte_start": 399,
+      "body_byte_end": 541,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Body",
+          "raw_value": "<2024-11-24 Sun>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732406400,
+          "end_ts": null,
+          "byte_start": 405,
+          "byte_end": 421,
+          "line_number": 13,
+          "modifiers": []
+        },
+        {
+          "role": "Body",
+          "raw_value": "<2024-11-25 Mon>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732492800,
+          "end_ts": null,
+          "byte_start": 433,
+          "byte_end": 449,
+          "line_number": 13,
+          "modifiers": []
+        },
+        {
+          "role": "Body",
+          "raw_value": "<2024-11-26 Tue>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732579200,
+          "end_ts": null,
+          "byte_start": 458,
+          "byte_end": 474,
+          "line_number": 14,
+          "modifiers": []
+        },
+        {
+          "role": "Body",
+          "raw_value": "<2024-11-28 Thu>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732752000,
+          "end_ts": null,
+          "byte_start": 505,
+          "byte_end": 521,
+          "line_number": 15,
+          "modifiers": []
+        },
+        {
+          "role": "Body",
+          "raw_value": "<2024-11-29 Fri>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732838400,
+          "end_ts": null,
+          "byte_start": 525,
+          "byte_end": 541,
+          "line_number": 15,
+          "modifiers": []
+        }
+      ],
+      "line_number": 12,
+      "byte_start": 346,
+      "byte_end": 543,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/inline-objects/fixture.org",
+      "level": 1,
+      "title": "Hidden by what is not a timestamp",
+      "title_raw": "Hidden by what is not a timestamp",
+      "body_text": "[[a][<2024-12-01 Sun>]]\n+---+\n| <2024-12-02 Mon> |\n+---+",
+      "body_byte_start": 579,
+      "body_byte_end": 635,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 17,
+      "byte_start": 543,
+      "byte_end": 637,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/inline-objects/fixture.org",
+      "level": 1,
+      "title": "Title <2024-12-03 Tue> x <2024-12-04 Wed>",
+      "title_raw": "Title <2024-12-03 Tue> =x <2024-12-04 Wed>=",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [
+        "tag"
+      ],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Body",
+          "raw_value": "<2024-12-03 Tue>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1733184000,
+          "end_ts": null,
+          "byte_start": 645,
+          "byte_end": 661,
+          "line_number": 23,
+          "modifiers": []
+        }
+      ],
+      "line_number": 23,
+      "byte_start": 637,
+      "byte_end": 689,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [
+    {
+      "source_context": "normal",
+      "format": "bracket",
+      "raw": "[[a][<2024-12-01 Sun>]]",
+      "raw_target": "a",
+      "logical_target": "a",
+      "raw_description": "<2024-12-01 Sun>",
+      "link_type": "fuzzy",
+      "path": "a",
+      "search_option": null,
+      "byte_start": 579,
+      "byte_end": 602,
+      "target_byte_start": 581,
+      "target_byte_end": 582,
+      "description_byte_start": 584,
+      "description_byte_end": 600,
+      "line": 18
+    }
+  ],
+  "diagnostics": []
+}

@@ -1,0 +1,95 @@
+{
+  "file_path": "body/section-ownership/fixture.org",
+  "metadata": {
+    "title": "Body Fixture",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Body Fixture",
+        "line_number": 1
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "body/section-ownership/fixture.org",
+      "level": 0,
+      "title": "Body Fixture",
+      "title_raw": "Body Fixture",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 102,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "body/section-ownership/fixture.org",
+      "level": 1,
+      "title": "Parent",
+      "title_raw": "Parent",
+      "body_text": "Parent paragraph one.\n\nParent paragraph two.",
+      "body_byte_start": 31,
+      "body_byte_end": 75,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 2,
+      "byte_start": 22,
+      "byte_end": 102,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "body/section-ownership/fixture.org",
+      "level": 2,
+      "title": "Child",
+      "title_raw": "Child",
+      "body_text": "Child paragraph.",
+      "body_byte_start": 85,
+      "body_byte_end": 101,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 6,
+      "byte_start": 76,
+      "byte_end": 102,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}

@@ -1,17 +1,18 @@
 //! Regression corpus for the production parse path (#103). It replaces the differential test
 //! of the scanner stage (#101): the adapter is the scanner now, so the corpus is checked
-//! against invariants instead of against Orgize. Every input, hand-written adversarial
-//! cases, random line soup over the structural vocabulary, the parser fixtures and the docs,
-//! must parse without a panic (this runs in a debug build, where Orgize asserts on an empty
-//! quote block), keep every range on the source, and never hand Orgize any structure.
+//! against invariants instead of against the former Orgize backend. Every input,
+//! hand-written adversarial cases, random line soup over the structural vocabulary, the
+//! parser fixtures and the docs, must parse without a panic (in a debug build, where the
+//! former backend asserted on an empty quote block), keep every range on the source, and
+//! leave no structure in the text the inline scanner reads (#105).
 //! Facts that Emacs decides are checked against Emacs in `scripts/emacs-oracle.py`.
 //! Set `ADAPTER_CORPUS_CASES` for more random inputs.
 
 use std::{fs, path::Path};
 
+use super::inline_scanner::blanked_body_text;
 use super::line_lexer::{classify_line, lines, LineClass};
 use super::model::{OrgParser, ParsedOrgDocument};
-use super::orgize_inline::blanked_body_text;
 use super::structure_scanner::scan_structure;
 use super::{OrgizeAdapter, ParseOptions};
 
@@ -321,9 +322,9 @@ fn adversarial() -> Vec<(String, String)> {
         ),
         ("level skip", "* A\n*** C\n** B\n**** D\n* E\n".into()),
         ("deep", deep),
-        ("too deep", format!("{} x\n", "*".repeat(101))),
+        ("over 100 levels", format!("{} x\n", "*".repeat(101))),
         (
-            "too deep in src",
+            "over 100 levels in src",
             format!("#+begin_src\n{} x\n#+end_src\n", "*".repeat(101)),
         ),
         (
@@ -417,13 +418,11 @@ fn parsed_documents_keep_their_ranges_on_the_source() {
     }
 }
 
-/// Orgize only ever sees text in which every structural line is blanked or defused.
+/// The inline scanner only reads text in which every structural line is blanked or defused.
 #[test]
-fn orgize_never_sees_structure() {
+fn blanked_body_holds_no_structure() {
     for (name, content) in corpus() {
-        let Ok(structure) = scan_structure(&content) else {
-            continue;
-        };
+        let structure = scan_structure(&content);
         let blanked = blanked_body_text(&content, &structure);
         assert_eq!(blanked.len(), content.len(), "[{name}]");
         assert_eq!(lines(&blanked).count(), lines(&content).count(), "[{name}]");
@@ -443,11 +442,11 @@ fn orgize_never_sees_structure() {
                 ),
                 "[{name}] {text:?} is structure"
             );
-            // Orgize also takes `*` and a tab for a headline.
+            // The former backend also took `*` and a tab for a headline.
             let stars = text.bytes().take_while(|byte| *byte == b'*').count();
             assert!(
                 stars == 0 || !matches!(text.as_bytes().get(stars), None | Some(b'\t' | b' ')),
-                "[{name}] {text:?} is a headline for Orgize"
+                "[{name}] {text:?} looks like a headline"
             );
         }
     }

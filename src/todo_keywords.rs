@@ -75,10 +75,7 @@ pub fn resolve_todo_keywords_with_default_source(
     if !may_contain_todo_keyword_line(content) {
         return resolved_from_default_keywords(default_keywords, default_source_kind);
     }
-    // A document the scanner rejects (heading too deep) fails to parse anyway.
-    let keywords = scan_structure(content)
-        .map(|structure| parsed_keywords(content, &structure))
-        .unwrap_or_default();
+    let keywords = parsed_keywords(content, &scan_structure(content));
     resolve_todo_keywords_from_keywords(&keywords)
         .unwrap_or_else(|| resolved_from_default_keywords(default_keywords, default_source_kind))
 }

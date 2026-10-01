@@ -1,0 +1,2 @@
+# classification: org-special-case
+# note: Positive nested heading fixture with per-line planning data.

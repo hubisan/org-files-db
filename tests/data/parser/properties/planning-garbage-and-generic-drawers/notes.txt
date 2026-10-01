@@ -1,0 +1,2 @@
+# classification: org-special-case
+# note: Emacs 29.3 / Org 9.6.15 (org-entry-get, org-element-parse-buffer).

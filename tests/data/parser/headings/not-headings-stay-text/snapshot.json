@@ -1,0 +1,95 @@
+{
+  "file_path": "headings/not-headings-stay-text/fixture.org",
+  "metadata": {
+    "title": "Text Edge Cases",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Text Edge Cases",
+        "line_number": 1
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "headings/not-headings-stay-text/fixture.org",
+      "level": 0,
+      "title": "Text Edge Cases",
+      "title_raw": "Text Edge Cases",
+      "body_text": "*not a heading\n * indented star",
+      "body_byte_start": 25,
+      "body_byte_end": 56,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 117,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "headings/not-headings-stay-text/fixture.org",
+      "level": 1,
+      "title": "TODOX not a keyword",
+      "title_raw": "TODOX not a keyword",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 4,
+      "byte_start": 57,
+      "byte_end": 117,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "headings/not-headings-stay-text/fixture.org",
+      "level": 2,
+      "title": "todo lowercase is title",
+      "title_raw": "todo lowercase is title",
+      "body_text": "Body line.",
+      "body_byte_start": 106,
+      "body_byte_end": 116,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 5,
+      "byte_start": 79,
+      "byte_end": 117,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}

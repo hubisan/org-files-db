@@ -1,0 +1,99 @@
+{
+  "file_path": "file-scope/affiliated-and-dynamic-keywords/fixture.org",
+  "metadata": {
+    "title": "Affiliated and Dynamic Keywords",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Affiliated and Dynamic Keywords",
+        "line_number": 1
+      },
+      {
+        "key": "AUTHOR",
+        "value": "Ann",
+        "line_number": 3
+      },
+      {
+        "key": "K1",
+        "value": "inside a dynamic block",
+        "line_number": 5
+      },
+      {
+        "key": "K2",
+        "value": "after an unclosed begin line",
+        "line_number": 8
+      },
+      {
+        "key": "NAME",
+        "value": "lonely",
+        "line_number": 9
+      },
+      {
+        "key": "K3",
+        "value": "inside a drawer",
+        "line_number": 13
+      },
+      {
+        "key": "K5",
+        "value": "visible",
+        "line_number": 19
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "file-scope/affiliated-and-dynamic-keywords/fixture.org",
+      "level": 0,
+      "title": "Affiliated and Dynamic Keywords",
+      "title_raw": "Affiliated and Dynamic Keywords",
+      "body_text": "#+BEGIN: clocktable :scope file\n#+K1: inside a dynamic block\n#+END:\n#+BEGIN: unclosed\n:LOG:\n#+K3: inside a drawer\n:END:",
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 615,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "file-scope/affiliated-and-dynamic-keywords/fixture.org",
+      "level": 1,
+      "title": "Heading",
+      "title_raw": "Heading",
+      "body_text": "#+begin_SRC\n#+K4: hidden in a block\n#+End_src\n# classification: org-special-case\n# note: Affiliated keywords belong to the next element and are no document keywords, except when nothing follows them. A dynamic block ends at #+END: or #+END; its begin line without an end is text. A block name matches in any case.",
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 15,
+      "byte_start": 277,
+      "byte_end": 615,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}

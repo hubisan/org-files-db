@@ -1,0 +1,115 @@
+{
+  "file_path": "file-scope/multiple-title-keywords/fixture.org",
+  "metadata": {
+    "title": "Title can span multiple lines, even here",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Title can span",
+        "line_number": 1
+      },
+      {
+        "key": "TITLE",
+        "value": "multiple lines,",
+        "line_number": 2
+      },
+      {
+        "key": "AUTHOR",
+        "value": "Hubisan",
+        "line_number": 3
+      },
+      {
+        "key": "TITLE",
+        "value": "even here",
+        "line_number": 7
+      },
+      {
+        "key": "TITLE",
+        "value": null,
+        "line_number": 8
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "file-scope/multiple-title-keywords/fixture.org",
+      "level": 0,
+      "title": "Title can span multiple lines, even here",
+      "title_raw": "Title can span multiple lines, even here",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 141,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "file-scope/multiple-title-keywords/fixture.org",
+      "level": 1,
+      "title": "Unfortunately Everywhere",
+      "title_raw": "Unfortunately Everywhere",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 5,
+      "byte_start": 68,
+      "byte_end": 125,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "file-scope/multiple-title-keywords/fixture.org",
+      "level": 1,
+      "title": "Plain Heading",
+      "title_raw": "Plain Heading",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 10,
+      "byte_start": 125,
+      "byte_end": 141,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}
