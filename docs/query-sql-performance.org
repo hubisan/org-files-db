@@ -973,7 +973,7 @@ Do not subtract its phase sum from the latency median.
 Build the release benchmark binary.
 
 #+begin_src sh
-cargo build --release --bin orgfdb-query-sql-benchmark
+cargo build --release --features bench --bin orgfdb-query-sql-benchmark
 #+end_src
 
 The SQL benchmark reuses compatible corpus databases when they exist.
@@ -1161,7 +1161,7 @@ The implementation now selects ~rusqlite 0.40.2~ with ~libsqlite3-sys 0.38.2~.
 
 The ~rusqlite~ dependency disables default features.
 
-It enables only ~bundled~, ~functions~, ~limits~, and ~trace~.
+It enables only ~bundled~, ~functions~, and ~limits~; the ~bench~ feature adds ~trace~.
 
 This keeps the existing orgfdb feature set and avoids unrelated default dependencies.
 

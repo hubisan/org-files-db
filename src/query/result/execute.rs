@@ -16,6 +16,7 @@ pub fn execute_and_shape_query(
     )
 }
 
+#[cfg(any(test, feature = "bench"))]
 pub(crate) fn execute_and_shape_query_with_path_strategy(
     connection: &Connection,
     query: &ValidatedQuery,
@@ -33,6 +34,7 @@ pub(crate) fn execute_and_shape_query_with_path_strategy(
     )
 }
 
+#[cfg(feature = "bench")]
 pub(crate) fn execute_and_shape_query_with_metadata_strategy(
     connection: &Connection,
     query: &ValidatedQuery,
@@ -50,6 +52,7 @@ pub(crate) fn execute_and_shape_query_with_metadata_strategy(
     )
 }
 
+#[cfg(any(test, feature = "bench"))]
 pub(crate) fn execute_and_shape_query_with_relation_reuse_strategy(
     connection: &Connection,
     query: &ValidatedQuery,
@@ -67,6 +70,7 @@ pub(crate) fn execute_and_shape_query_with_relation_reuse_strategy(
     )
 }
 
+#[cfg(any(test, feature = "bench"))]
 pub(crate) fn execute_and_shape_query_with_direct_flat_shaping_strategy(
     connection: &Connection,
     query: &ValidatedQuery,

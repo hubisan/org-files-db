@@ -13,10 +13,10 @@ These projections avoid repeated query-time reconstruction of inherited metadata
 
 * Run
 
-Use an optimized release build. Use new, untracked paths for the work directory and JSON output.
+All benchmark modules and binaries sit behind the ~bench~ Cargo feature and are not part of the default build or ~cargo install~. Pass ~--features bench~ to build them. Use an optimized release build. Use new, untracked paths for the work directory and JSON output.
 
 #+begin_src sh
-cargo run --release --bin orgfdb-benchmark -- \
+cargo run --release --features bench --bin orgfdb-benchmark -- \
   --files 1000 --seed 1 --warmups 5 --iterations 30 \
   --work-dir /tmp/orgfdb-benchmark-work \
   --output /tmp/orgfdb-benchmark.json
@@ -126,7 +126,7 @@ The profile run does not use ~ANALYZE~, ~VACUUM~, or benchmark-only pragmas.
 The index decision used this command:
 
 #+begin_src sh
-cargo run --release --bin orgfdb-benchmark -- \
+cargo run --release --features bench --bin orgfdb-benchmark -- \
   --output .tmp/orgfdb-index-profiles-1000-fixed.json \
   --work-dir .tmp/orgfdb-index-profiles-1000-fixed-work \
   --files 1000 \

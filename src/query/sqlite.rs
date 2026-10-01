@@ -38,13 +38,13 @@ pub(crate) use self::compile::{
     compile_sqlite_query_with_file_restriction, compile_sqlite_query_with_metadata_strategy,
     MetadataPredicateSqlStrategy, PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
 };
+#[cfg(any(test, feature = "bench"))]
+pub(crate) use self::execute::execute_sqlite_query_with_relation;
 #[cfg(test)]
 pub(crate) use self::execute::execute_sqlite_query_with_relation_and_metadata_strategy;
+pub(crate) use self::execute::execute_sqlite_query_with_relation_and_strategies;
 pub use self::execute::{
     execute_sqlite_query, execute_sqlite_query_with_options, sqlite_query_validation_options,
-};
-pub(crate) use self::execute::{
-    execute_sqlite_query_with_relation, execute_sqlite_query_with_relation_and_strategies,
 };
 use self::predicates::*;
 use self::relation::*;

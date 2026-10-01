@@ -108,7 +108,7 @@ It also protects representative expanded-row and wide-layout workloads.
 Build the production CLI and timing benchmark.
 
 #+begin_src sh
-cargo build --release --bin orgfdb --bin orgfdb-presentation-benchmark
+cargo build --release --features bench --bin orgfdb --bin orgfdb-presentation-benchmark
 #+end_src
 
 Run a short smoke benchmark first.
@@ -269,7 +269,7 @@ Build the production CLI and the feature-gated diagnostic benchmark.
 
 #+begin_src sh
 cargo build --release \
-  --features presentation-cache-benchmark \
+  --features bench \
   --bin orgfdb \
   --bin orgfdb-presentation-cache-benchmark
 #+end_src
