@@ -1,0 +1,2 @@
+# classification: org-special-case
+# note: Positive baseline for simple headline extraction.

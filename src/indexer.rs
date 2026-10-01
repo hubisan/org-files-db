@@ -322,13 +322,16 @@ where
                 }
                 continue;
             }
+            let failed_path = discovered.path.clone();
+            let failed_identity = discovered.identity.clone();
             match self.plan_discovered_file(discovered, persisted, config, options, reparse_all) {
                 Ok(PlannedCurrentFile::Unchanged(file)) => plan.unchanged.push(file),
                 Ok(PlannedCurrentFile::MetadataOnly(file)) => plan.metadata_only.push(file),
                 Ok(PlannedCurrentFile::Created(file)) => plan.created.push(file),
                 Ok(PlannedCurrentFile::Modified(file)) => plan.modified.push(file),
                 Err(error) => plan.failed.push(FailedChange {
-                    path: error_path(&error),
+                    path: failed_path,
+                    identity: failed_identity,
                     error,
                 }),
             }
@@ -386,11 +389,6 @@ where
     {
         let ActionableChangePlan { plan } = actionable;
         let should_optimize_planner_statistics = plan.has_index_changes();
-        if !plan.failed.is_empty() {
-            return Ok(ChangeApplicationResult::Rejected(
-                ChangeApplicationRejection::FailedSources,
-            ));
-        }
         if let Some(expected) = plan.source_root_evidence.as_ref() {
             let current = SourceRootEvidenceSet::capture(config)
                 .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
@@ -563,7 +561,12 @@ where
         let generation_change =
             generation_change_for_plan(&plan, &resolution_report.changed_source_paths);
         if !generation_change.is_empty() {
-            advance_index_generation(&tx, &generation_change).map_err(IndexerError::Write)?;
+            advance_index_generation(
+                &tx,
+                &generation_change,
+                config.index.journal_retention_generations,
+            )
+            .map_err(IndexerError::Write)?;
         }
         tx.commit()
             .map_err(|source| IndexerError::Write(DbWriteError::Transaction { source }))?;
@@ -726,9 +729,20 @@ where
         }
 
         let mut pending = Vec::with_capacity(discovery.files.len());
+        let mut skipped_diagnostics = Vec::new();
         let _missing_explicit_files = discovery.missing_explicit_files;
         for discovered in discovery.files {
-            pending.push(self.prepare_discovered_file(discovered, config)?);
+            let path = discovered.path.clone();
+            match self.prepare_discovered_file(discovered, config) {
+                Ok(prepared) => pending.push(prepared),
+                Err(error) => skipped_diagnostics.push(IndexDiagnostic {
+                    severity: DiagnosticSeverity::Warning,
+                    message: format!("skipped: {}", skip_cause(&error)),
+                    file_path: Some(path),
+                    line_number: None,
+                    byte_range: None,
+                }),
+            }
         }
         source_root_evidence
             .ensure_unchanged(
@@ -748,7 +762,10 @@ where
         )
         .map_err(IndexerError::Write)?;
 
-        let mut report = RebuildReport::default();
+        let mut report = RebuildReport {
+            diagnostics: skipped_diagnostics,
+            ..RebuildReport::default()
+        };
         for pending_file in pending {
             debug_assert_eq!(
                 pending_file.file_record.identity.as_deref(),
@@ -805,8 +822,12 @@ where
         source_root_evidence
             .persist(&tx)
             .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
-        advance_index_generation(&tx, &IndexGenerationChange::full_invalidation())
-            .map_err(IndexerError::Write)?;
+        advance_index_generation(
+            &tx,
+            &IndexGenerationChange::full_invalidation(),
+            config.index.journal_retention_generations,
+        )
+        .map_err(IndexerError::Write)?;
 
         tx.commit()
             .map_err(|source| IndexerError::Write(DbWriteError::Transaction { source }))?;
@@ -1084,6 +1105,46 @@ impl fmt::Display for IndexerError {
             Self::SourceRootEvidence(source) => write!(f, "{source}"),
             Self::Write(source) => write!(f, "{source}"),
         }
+    }
+}
+
+impl IndexerError {
+    /// A single-source failure that a retry can plausibly resolve without the
+    /// file content changing: unstable snapshot, or a file that vanished or
+    /// was interrupted while being read.
+    pub(crate) fn is_transient_source_failure(&self) -> bool {
+        match self {
+            Self::UnstableFileSnapshot { .. } => true,
+            Self::ReadFile { source, .. } => matches!(
+                source.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::Interrupted
+            ),
+            _ => false,
+        }
+    }
+
+    /// True for failures of a batch that a retry with backoff can resolve:
+    /// SQLite BUSY/LOCKED and transient source failures. Discovery, source-root
+    /// and every other error stay fatal.
+    pub(crate) fn is_transient(&self) -> bool {
+        if self.is_transient_source_failure() {
+            return true;
+        }
+        let mut current: Option<&(dyn Error + 'static)> = self.source();
+        while let Some(error) = current {
+            if let Some(rusqlite::Error::SqliteFailure(failure, _)) =
+                error.downcast_ref::<rusqlite::Error>()
+            {
+                if matches!(
+                    failure.code,
+                    rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+                ) {
+                    return true;
+                }
+            }
+            current = error.source();
+        }
+        false
     }
 }
 

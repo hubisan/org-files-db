@@ -1,0 +1,267 @@
+{
+  "file_path": "properties/late-file-keywords/fixture.org",
+  "metadata": {
+    "title": "Keyword and Property Normalization Fixture Later Title",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Keyword and Property Normalization Fixture",
+        "line_number": 1
+      },
+      {
+        "key": "STARTUP",
+        "value": "showall",
+        "line_number": 2
+      },
+      {
+        "key": "PROPERTY",
+        "value": "before_prop before-value",
+        "line_number": 3
+      },
+      {
+        "key": "CATEGORY",
+        "value": "before-category",
+        "line_number": 4
+      },
+      {
+        "key": "AUTHOR",
+        "value": "Later Author",
+        "line_number": 9
+      },
+      {
+        "key": "OPTIONS",
+        "value": "toc:nil num:t",
+        "line_number": 10
+      },
+      {
+        "key": "PROPERTY",
+        "value": "after_prop after-value",
+        "line_number": 11
+      },
+      {
+        "key": "PROPERTY",
+        "value": "repeated_prop first",
+        "line_number": 12
+      },
+      {
+        "key": "PROPERTY",
+        "value": "repeated_prop second",
+        "line_number": 13
+      },
+      {
+        "key": "PROPERTY",
+        "value": "appended_prop base",
+        "line_number": 14
+      },
+      {
+        "key": "PROPERTY",
+        "value": "appended_prop+ extra",
+        "line_number": 15
+      },
+      {
+        "key": "CATEGORY",
+        "value": "after-category",
+        "line_number": 16
+      },
+      {
+        "key": "TITLE",
+        "value": "Later Title",
+        "line_number": 21
+      },
+      {
+        "key": "EXPORT_FILE_NAME",
+        "value": "later-export-name",
+        "line_number": 22
+      },
+      {
+        "key": "PROPERTY",
+        "value": "second_after_heading works",
+        "line_number": 27
+      },
+      {
+        "key": "CATEGORY",
+        "value": "second-category",
+        "line_number": 28
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "properties/late-file-keywords/fixture.org",
+      "level": 0,
+      "title": "Keyword and Property Normalization Fixture Later Title",
+      "title_raw": "Keyword and Property Normalization Fixture Later Title",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [
+        {
+          "key": "BEFORE_PROP",
+          "value": "before-value",
+          "source": "property_keyword",
+          "append": false,
+          "line_number": 3
+        },
+        {
+          "key": "CATEGORY",
+          "value": "before-category",
+          "source": "category_keyword",
+          "append": false,
+          "line_number": 4
+        },
+        {
+          "key": "AFTER_PROP",
+          "value": "after-value",
+          "source": "property_keyword",
+          "append": false,
+          "line_number": 11
+        },
+        {
+          "key": "REPEATED_PROP",
+          "value": "first",
+          "source": "property_keyword",
+          "append": false,
+          "line_number": 12
+        },
+        {
+          "key": "REPEATED_PROP",
+          "value": "second",
+          "source": "property_keyword",
+          "append": false,
+          "line_number": 13
+        },
+        {
+          "key": "APPENDED_PROP",
+          "value": "base",
+          "source": "property_keyword",
+          "append": false,
+          "line_number": 14
+        },
+        {
+          "key": "APPENDED_PROP",
+          "value": "extra",
+          "source": "property_keyword",
+          "append": true,
+          "line_number": 15
+        },
+        {
+          "key": "CATEGORY",
+          "value": "after-category",
+          "source": "category_keyword",
+          "append": false,
+          "line_number": 16
+        },
+        {
+          "key": "SECOND_AFTER_HEADING",
+          "value": "works",
+          "source": "property_keyword",
+          "append": false,
+          "line_number": 27
+        },
+        {
+          "key": "CATEGORY",
+          "value": "second-category",
+          "source": "category_keyword",
+          "append": false,
+          "line_number": 28
+        }
+      ],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 754,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "properties/late-file-keywords/fixture.org",
+      "level": 1,
+      "title": "First heading",
+      "title_raw": "First heading",
+      "body_text": "This heading has body text before later keywords.",
+      "body_byte_start": 153,
+      "body_byte_end": 202,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 6,
+      "byte_start": 137,
+      "byte_end": 626,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "properties/late-file-keywords/fixture.org",
+      "level": 2,
+      "title": "Child heading",
+      "title_raw": "Child heading",
+      "body_text": "This child should not directly receive keyword or property rows created from later file-level keywords.",
+      "body_byte_start": 461,
+      "body_byte_end": 564,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 18,
+      "byte_start": 444,
+      "byte_end": 626,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "properties/late-file-keywords/fixture.org",
+      "level": 1,
+      "title": "Second heading",
+      "title_raw": "Second heading",
+      "body_text": "This heading appears after later keywords.",
+      "body_byte_start": 643,
+      "body_byte_end": 685,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 24,
+      "byte_start": 626,
+      "byte_end": 754,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}

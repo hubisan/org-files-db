@@ -227,6 +227,9 @@ where
         if report.execution_status == WatcherExecutionStatus::Executed {
             view_rebuild.request_refresh();
         }
+        for notice in runtime.take_retry_notices() {
+            writeln!(stderr, "{notice}").map_err(WatcherCommandError::Io)?;
+        }
 
         if shutdown_started && runtime.is_shutdown_complete() {
             writeln!(stderr, "watcher stopped").map_err(WatcherCommandError::Io)?;
@@ -466,6 +469,7 @@ mod tests {
             todo: Default::default(),
             search: Default::default(),
             query: Default::default(),
+            index: Default::default(),
         }
     }
 

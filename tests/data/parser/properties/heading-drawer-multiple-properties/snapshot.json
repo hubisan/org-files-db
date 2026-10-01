@@ -1,0 +1,98 @@
+{
+  "file_path": "properties/heading-drawer-multiple-properties/fixture.org",
+  "metadata": {
+    "title": "Heading Property Drawer",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Heading Property Drawer",
+        "line_number": 1
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "properties/heading-drawer-multiple-properties/fixture.org",
+      "level": 0,
+      "title": "Heading Property Drawer",
+      "title_raw": "Heading Property Drawer",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 123,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "properties/heading-drawer-multiple-properties/fixture.org",
+      "level": 1,
+      "title": "Task",
+      "title_raw": "Task",
+      "body_text": "Body text",
+      "body_byte_start": 113,
+      "body_byte_end": 122,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [
+        {
+          "key": "ID",
+          "value": "abc",
+          "source": "property_drawer",
+          "append": false,
+          "line_number": 4
+        },
+        {
+          "key": "CUSTOM_ID",
+          "value": "task",
+          "source": "property_drawer",
+          "append": false,
+          "line_number": 5
+        },
+        {
+          "key": "EFFORT",
+          "value": "0:30",
+          "source": "property_drawer",
+          "append": false,
+          "line_number": 6
+        },
+        {
+          "key": "OWNER",
+          "value": "Alice",
+          "source": "property_drawer",
+          "append": false,
+          "line_number": 7
+        }
+      ],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 2,
+      "byte_start": 33,
+      "byte_end": 123,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}

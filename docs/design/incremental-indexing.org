@@ -72,7 +72,7 @@ Preparation reads one byte sequence. It computes SHA-256 and parses that same by
 
 The indexer compares modification time and size before and after the read. A mismatch causes one complete retry.
 
-A second mismatch stops preparation. No write transaction starts for that failed preparation.
+A second mismatch fails the preparation of that one file (see "Failed sources").
 
 The prepared snapshot keeps:
 
@@ -104,7 +104,7 @@ The derived search part includes FTS policy, body indexing, and SQLite FTS5 capa
 
 Incremental planning compares the stored context with the current context. An incompatible context can require wider reconciliation or a full rebuild.
 
-The semantic fingerprint includes ~PARSER_INDEXER_CONTRACT_VERSION~ (~src/indexing_context.rs~). Any change to parser or indexer output for unchanged input must bump it, so existing databases reparse all files on the next incremental or watch run. The guard test ~tests/parser_contract_guard.rs~ hashes the parsed output of every fixture under ~tests/data/parser~ and compares it, together with the version, against ~tests/data/parser/CONTRACT~. When it fails, bump the version and update that file.
+The semantic fingerprint includes ~PARSER_INDEXER_CONTRACT_VERSION~ (~src/indexing_context.rs~). Any change to parser or indexer output for unchanged input must bump it, so existing databases reparse all files on the next incremental or watch run. The guard test ~tests/parser_contract_guard.rs~ hashes the ~snapshot.json~ of every fixture under ~tests/data/parser~ (kept equal to the parsed output by ~tests/parser_snapshots.rs~) and compares it, together with the version, against ~tests/data/parser/CONTRACT~. When it fails, bump the version and update that file.
 
 ~query.timezone~ is query-only configuration. It does not invalidate indexed source facts.
 
@@ -128,6 +128,17 @@ The normal unchanged path compares ~mtime_ns~ and file size. Other cases can cap
 Deletion requires successful discovery of the relevant source universe. A failed current source does not become a deletion by accident.
 
 Existing plan entries keep the expected database row identity. Transactional application rechecks that identity before mutation.
+
+** Failed sources
+
+One unreadable or unparsable source file must not fail the whole rebuild or stop the watcher. A file whose preparation fails is skipped. Failures are a read error, invalid UTF-8, an unstable snapshot, or a parse error.
+
+- Invalid UTF-8 is never decoded lossily, because byte offsets must match the file. The file is skipped.
+- A rebuild does not index a skipped file. The rebuild commits all other files.
+- Incremental and watcher application leaves the last good rows of a skipped file untouched. It does not delete them and does not record the new hash or modification time, so the next run retries the file.
+- A skipped file still counts as a current source for the stale-plan identity check. It is not a deletion candidate.
+- Each skipped file prints ~warning: <path>: skipped: <cause>~ to stderr. The commands still exit with code ~0~; see ~docs/cli.org~.
+- A failure that a retry can resolve without the file changing (unstable snapshot, file vanished or interrupted read) is marked transient. The watcher applies the rest of the batch, then requeues the whole batch with backoff (see "Watcher execution").
 
 * Transactional application
 
@@ -171,7 +182,17 @@ The controller stores bounded normalized work, not an unbounded raw event queue.
 
 Only one reconciliation runs at a time. Events that arrive during execution remain pending for the next run.
 
-A failed execution remains eligible for a later retry through the controller state. The runtime itself does not hide failures in an uncontrolled loop.
+A failed execution remains eligible for a later retry through the controller state.
+
+The runtime classifies execution errors. Transient errors requeue the batch and the watcher keeps running:
+
+- SQLite ~BUSY~ and ~LOCKED~
+- an IO ~NotFound~ or ~Interrupted~ failure for a file that vanished or was interrupted while it was indexed
+- an unstable file snapshot
+
+Retries use exponential backoff: 1 s, doubling, capped at 30 s, without a retry limit. New input merges into the pending batch but does not shorten the backoff. Each retry writes the attempt, the delay and the cause to stderr. A successful execution resets the backoff. During shutdown the pending batch is attempted once without waiting; a transient failure then ends the watcher.
+
+All other errors stay fatal. This includes an unavailable or replaced watch root, discovery and source-root errors, stale or rejected plans, and all other database and parse-setup errors. The runtime terminates before any deletion caused by an unavailable root.
 
 Shutdown stops new event intake and flushes work that the controller already accepted.
 

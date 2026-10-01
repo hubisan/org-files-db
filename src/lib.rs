@@ -1,6 +1,7 @@
 #[cfg(not(unix))]
 compile_error!("org-files-db supports Unix-like platforms only; Windows is unsupported");
 
+#[cfg(feature = "bench")]
 pub mod benchmark;
 pub mod cli;
 pub mod config;
@@ -19,14 +20,16 @@ mod link_resolver;
 pub(crate) mod notify_source;
 pub mod parser;
 pub mod presentation;
+#[cfg(feature = "bench")]
 pub mod presentation_benchmark;
-#[cfg(feature = "presentation-cache-benchmark")]
+#[cfg(feature = "bench")]
 pub mod presentation_cache_benchmark;
 pub(crate) mod presentation_view;
 pub(crate) mod presentation_view_cache;
 pub(crate) mod presentation_view_rebuild;
 pub(crate) mod property;
 pub mod query;
+#[cfg(feature = "bench")]
 pub mod query_sql_benchmark;
 mod source_root_evidence;
 pub(crate) mod tag;

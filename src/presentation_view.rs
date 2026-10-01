@@ -667,7 +667,7 @@ pub(crate) fn show_presentation_view(
     }
 }
 
-#[cfg(feature = "presentation-cache-benchmark")]
+#[cfg(feature = "bench")]
 pub(crate) fn wait_for_presentation_view(
     config: &Config,
     name: String,

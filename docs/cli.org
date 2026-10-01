@@ -70,6 +70,18 @@ orgfdb rebuild --config PATH [--allow-empty] [--accept-source-root-changes]
 
 The two safety options are independent. ~--accept-source-root-changes~ does not imply ~--allow-empty~.
 
+** Unreadable or unparsable files
+
+One bad source file does not fail the rebuild. A file that cannot be read, is not valid UTF-8, changes while it is read, or cannot be parsed is not indexed. ~rebuild~ commits all other files. Invalid UTF-8 is never decoded lossily.
+
+Each skipped file prints a diagnostic to stderr:
+
+#+begin_example
+warning: /path/to/file.org: skipped: file is not valid UTF-8
+#+end_example
+
+The command still exits with code ~0~. The exit codes below have no class for a partial success, so callers must read stderr to detect skipped files. Because ~rebuild~ replaces all indexed rows, a file that was indexed earlier and is skipped now disappears from the index. ~watch~ keeps its last good rows instead.
+
 ** Source-root identity
 
 The index stores identity evidence for configured directory roots. This protects automatic reconciliation from an unexpected directory replacement.
@@ -127,6 +139,20 @@ to stderr.
 A missing configured directory stops startup. A changed configured-root identity also stops automatic reconciliation.
 
 Use a verified manual ~rebuild --accept-source-root-changes~ when a root replacement is intentional.
+
+** Skipped files
+
+An unreadable, non-UTF-8 or unparsable source file does not stop the watcher. The rest of the batch is applied, the file keeps its last good rows, and stderr shows ~warning: <path>: skipped: <cause>~. The file is retried when it changes or on the next reconciliation. The same applies to the startup reconciliation.
+
+** Failures that retry and failures that stop the watcher
+
+These failures are transient. The watcher keeps running and requeues the batch with exponential backoff (1 s, doubling, at most 30 s, no retry limit). Each retry prints a line such as ~watcher batch failed transiently (attempt 2); retrying in 2s: <cause>~ to stderr:
+
+- SQLite ~BUSY~ or ~LOCKED~ (another process holds the database)
+- a file that vanished or whose read was interrupted while it was indexed
+- a file that kept changing while it was read
+
+Every other failure stops the watcher with exit code ~1~. This includes an unavailable or replaced watch root (it stops before any deletion), a watch backend or source failure, a stale or rejected indexing plan, a required full rebuild, a source-root identity change and other database errors. Pending work is flushed once on shutdown; a transient failure at that point also ends the watcher.
 
 ** Shutdown
 
@@ -453,6 +479,8 @@ Stable rebuild reasons are:
 - ~database-id-changed~
 - ~history-unavailable~
 - ~full-invalidation~
+
+~history-unavailable~ means that ~--since-generation~ is older than ~oldest_available_generation~. The index keeps only the newest ~index.journal_retention_generations~ generations of journal history (default ~1000~), so a client that stays away longer must rebuild its view.
 
 A generation newer than the current generation is an error.
 
