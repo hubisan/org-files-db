@@ -1,0 +1,1256 @@
+{
+  "file_path": "timestamps/planning-timestamp/fixture.org",
+  "metadata": {
+    "title": "Planning timestamp Fixture",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Planning timestamp Fixture",
+        "line_number": 1
+      },
+      {
+        "key": "STARTUP",
+        "value": "showall",
+        "line_number": 2
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 0,
+      "title": "Planning timestamp Fixture",
+      "title_raw": "Planning timestamp Fixture",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 1382,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 1,
+      "title": "Planning",
+      "title_raw": "Planning",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 4,
+      "byte_start": 56,
+      "byte_end": 1258,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 2,
+      "title": "Simple scheduled",
+      "title_raw": "Simple scheduled",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": {
+          "role": "Scheduled",
+          "raw_value": "<2024-11-20 Wed>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 99,
+          "byte_end": 115,
+          "line_number": 7,
+          "modifiers": []
+        },
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Scheduled",
+          "raw_value": "<2024-11-20 Wed>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 99,
+          "byte_end": 115,
+          "line_number": 7,
+          "modifiers": []
+        }
+      ],
+      "line_number": 6,
+      "byte_start": 68,
+      "byte_end": 117,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 2,
+      "title": "Simple deadline",
+      "title_raw": "Simple deadline",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": {
+          "role": "Deadline",
+          "raw_value": "<2024-12-01 Sun>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1733011200,
+          "end_ts": null,
+          "byte_start": 146,
+          "byte_end": 162,
+          "line_number": 10,
+          "modifiers": []
+        },
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Deadline",
+          "raw_value": "<2024-12-01 Sun>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1733011200,
+          "end_ts": null,
+          "byte_start": 146,
+          "byte_end": 162,
+          "line_number": 10,
+          "modifiers": []
+        }
+      ],
+      "line_number": 9,
+      "byte_start": 117,
+      "byte_end": 164,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 2,
+      "title": "Simple closed",
+      "title_raw": "Simple closed",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": {
+          "role": "Closed",
+          "raw_value": "[2024-11-21 Thu]",
+          "timestamp_type": "Inactive",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732147200,
+          "end_ts": null,
+          "byte_start": 189,
+          "byte_end": 205,
+          "line_number": 13,
+          "modifiers": []
+        }
+      },
+      "timestamps": [
+        {
+          "role": "Closed",
+          "raw_value": "[2024-11-21 Thu]",
+          "timestamp_type": "Inactive",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732147200,
+          "end_ts": null,
+          "byte_start": 189,
+          "byte_end": 205,
+          "line_number": 13,
+          "modifiers": []
+        }
+      ],
+      "line_number": 12,
+      "byte_start": 164,
+      "byte_end": 207,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 2,
+      "title": "All on one planning line",
+      "title_raw": "All on one planning line",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": {
+          "role": "Scheduled",
+          "raw_value": "<2024-11-20 Wed>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 273,
+          "byte_end": 289,
+          "line_number": 16,
+          "modifiers": []
+        },
+        "deadline": {
+          "role": "Deadline",
+          "raw_value": "<2024-12-01 Sun>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1733011200,
+          "end_ts": null,
+          "byte_start": 245,
+          "byte_end": 261,
+          "line_number": 16,
+          "modifiers": []
+        },
+        "closed": {
+          "role": "Closed",
+          "raw_value": "[2024-11-21 Thu]",
+          "timestamp_type": "Inactive",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732147200,
+          "end_ts": null,
+          "byte_start": 298,
+          "byte_end": 314,
+          "line_number": 16,
+          "modifiers": []
+        }
+      },
+      "timestamps": [
+        {
+          "role": "Deadline",
+          "raw_value": "<2024-12-01 Sun>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1733011200,
+          "end_ts": null,
+          "byte_start": 245,
+          "byte_end": 261,
+          "line_number": 16,
+          "modifiers": []
+        },
+        {
+          "role": "Scheduled",
+          "raw_value": "<2024-11-20 Wed>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 273,
+          "byte_end": 289,
+          "line_number": 16,
+          "modifiers": []
+        },
+        {
+          "role": "Closed",
+          "raw_value": "[2024-11-21 Thu]",
+          "timestamp_type": "Inactive",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732147200,
+          "end_ts": null,
+          "byte_start": 298,
+          "byte_end": 314,
+          "line_number": 16,
+          "modifiers": []
+        }
+      ],
+      "line_number": 15,
+      "byte_start": 207,
+      "byte_end": 316,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 2,
+      "title": "With time",
+      "title_raw": "With time",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": {
+          "role": "Scheduled",
+          "raw_value": "<2024-11-20 Wed 09:30>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": true,
+          "start_ts": 1732095000,
+          "end_ts": null,
+          "byte_start": 340,
+          "byte_end": 362,
+          "line_number": 19,
+          "modifiers": []
+        },
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Scheduled",
+          "raw_value": "<2024-11-20 Wed 09:30>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": true,
+          "start_ts": 1732095000,
+          "end_ts": null,
+          "byte_start": 340,
+          "byte_end": 362,
+          "line_number": 19,
+          "modifiers": []
+        }
+      ],
+      "line_number": 18,
+      "byte_start": 316,
+      "byte_end": 364,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 2,
+      "title": "Time range same day",
+      "title_raw": "Time range same day",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": {
+          "role": "Scheduled",
+          "raw_value": "<2024-11-20 Wed 09:30-11:00>",
+          "timestamp_type": "Active",
+          "range_type": "TimeRange",
+          "has_time": true,
+          "start_ts": 1732095000,
+          "end_ts": 1732100400,
+          "byte_start": 398,
+          "byte_end": 426,
+          "line_number": 22,
+          "modifiers": []
+        },
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Scheduled",
+          "raw_value": "<2024-11-20 Wed 09:30-11:00>",
+          "timestamp_type": "Active",
+          "range_type": "TimeRange",
+          "has_time": true,
+          "start_ts": 1732095000,
+          "end_ts": 1732100400,
+          "byte_start": 398,
+          "byte_end": 426,
+          "line_number": 22,
+          "modifiers": []
+        }
+      ],
+      "line_number": 21,
+      "byte_start": 364,
+      "byte_end": 428,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 2,
+      "title": "Date range",
+      "title_raw": "Date range",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": {
+          "role": "Deadline",
+          "raw_value": "<2024-12-01 Sun>--<2024-12-03 Tue>",
+          "timestamp_type": "Active",
+          "range_type": "DateRange",
+          "has_time": false,
+          "start_ts": 1733011200,
+          "end_ts": 1733184000,
+          "byte_start": 452,
+          "byte_end": 486,
+          "line_number": 25,
+          "modifiers": []
+        },
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Deadline",
+          "raw_value": "<2024-12-01 Sun>--<2024-12-03 Tue>",
+          "timestamp_type": "Active",
+          "range_type": "DateRange",
+          "has_time": false,
+          "start_ts": 1733011200,
+          "end_ts": 1733184000,
+          "byte_start": 452,
+          "byte_end": 486,
+          "line_number": 25,
+          "modifiers": []
+        }
+      ],
+      "line_number": 24,
+      "byte_start": 428,
+      "byte_end": 488,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 2,
+      "title": "Repeater",
+      "title_raw": "Repeater",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": {
+          "role": "Scheduled",
+          "raw_value": "<2024-11-20 Wed +1w>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 511,
+          "byte_end": 531,
+          "line_number": 28,
+          "modifiers": [
+            {
+              "kind": "Repeater",
+              "modifier_type": "Cumulate",
+              "value": 1,
+              "unit": "Week",
+              "repeater_deadline_value": null,
+              "repeater_deadline_unit": null
+            }
+          ]
+        },
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Scheduled",
+          "raw_value": "<2024-11-20 Wed +1w>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 511,
+          "byte_end": 531,
+          "line_number": 28,
+          "modifiers": [
+            {
+              "kind": "Repeater",
+              "modifier_type": "Cumulate",
+              "value": 1,
+              "unit": "Week",
+              "repeater_deadline_value": null,
+              "repeater_deadline_unit": null
+            }
+          ]
+        }
+      ],
+      "line_number": 27,
+      "byte_start": 488,
+      "byte_end": 533,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 2,
+      "title": "Repeater with deadline and warning",
+      "title_raw": "Repeater with deadline and warning",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": {
+          "role": "Scheduled",
+          "raw_value": "<2024-11-20 Wed ++1m/2d -5d>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 582,
+          "byte_end": 610,
+          "line_number": 31,
+          "modifiers": [
+            {
+              "kind": "Repeater",
+              "modifier_type": "CatchUp",
+              "value": 1,
+              "unit": "Month",
+              "repeater_deadline_value": 2,
+              "repeater_deadline_unit": "Day"
+            },
+            {
+              "kind": "Warning",
+              "modifier_type": "All",
+              "value": 5,
+              "unit": "Day",
+              "repeater_deadline_value": null,
+              "repeater_deadline_unit": null
+            }
+          ]
+        },
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Scheduled",
+          "raw_value": "<2024-11-20 Wed ++1m/2d -5d>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 582,
+          "byte_end": 610,
+          "line_number": 31,
+          "modifiers": [
+            {
+              "kind": "Repeater",
+              "modifier_type": "CatchUp",
+              "value": 1,
+              "unit": "Month",
+              "repeater_deadline_value": 2,
+              "repeater_deadline_unit": "Day"
+            },
+            {
+              "kind": "Warning",
+              "modifier_type": "All",
+              "value": 5,
+              "unit": "Day",
+              "repeater_deadline_value": null,
+              "repeater_deadline_unit": null
+            }
+          ]
+        }
+      ],
+      "line_number": 30,
+      "byte_start": 533,
+      "byte_end": 612,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 2,
+      "title": "Warning only all",
+      "title_raw": "Warning only all",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": {
+          "role": "Deadline",
+          "raw_value": "<2024-11-20 Wed -5d>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 642,
+          "byte_end": 662,
+          "line_number": 34,
+          "modifiers": [
+            {
+              "kind": "Warning",
+              "modifier_type": "All",
+              "value": 5,
+              "unit": "Day",
+              "repeater_deadline_value": null,
+              "repeater_deadline_unit": null
+            }
+          ]
+        },
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Deadline",
+          "raw_value": "<2024-11-20 Wed -5d>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 642,
+          "byte_end": 662,
+          "line_number": 34,
+          "modifiers": [
+            {
+              "kind": "Warning",
+              "modifier_type": "All",
+              "value": 5,
+              "unit": "Day",
+              "repeater_deadline_value": null,
+              "repeater_deadline_unit": null
+            }
+          ]
+        }
+      ],
+      "line_number": 33,
+      "byte_start": 612,
+      "byte_end": 664,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 2,
+      "title": "Warning only first",
+      "title_raw": "Warning only first",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": {
+          "role": "Deadline",
+          "raw_value": "<2024-11-20 Wed --2w>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 696,
+          "byte_end": 717,
+          "line_number": 37,
+          "modifiers": [
+            {
+              "kind": "Warning",
+              "modifier_type": "First",
+              "value": 2,
+              "unit": "Week",
+              "repeater_deadline_value": null,
+              "repeater_deadline_unit": null
+            }
+          ]
+        },
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Deadline",
+          "raw_value": "<2024-11-20 Wed --2w>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 696,
+          "byte_end": 717,
+          "line_number": 37,
+          "modifiers": [
+            {
+              "kind": "Warning",
+              "modifier_type": "First",
+              "value": 2,
+              "unit": "Week",
+              "repeater_deadline_value": null,
+              "repeater_deadline_unit": null
+            }
+          ]
+        }
+      ],
+      "line_number": 36,
+      "byte_start": 664,
+      "byte_end": 719,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 2,
+      "title": "Diary expression",
+      "title_raw": "Diary expression",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": {
+          "role": "Scheduled",
+          "raw_value": "<%%(diary-float t 42)>",
+          "timestamp_type": "Diary",
+          "range_type": "None",
+          "has_time": null,
+          "start_ts": null,
+          "end_ts": null,
+          "byte_start": 750,
+          "byte_end": 772,
+          "line_number": 40,
+          "modifiers": []
+        },
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Scheduled",
+          "raw_value": "<%%(diary-float t 42)>",
+          "timestamp_type": "Diary",
+          "range_type": "None",
+          "has_time": null,
+          "start_ts": null,
+          "end_ts": null,
+          "byte_start": 750,
+          "byte_end": 772,
+          "line_number": 40,
+          "modifiers": []
+        }
+      ],
+      "line_number": 39,
+      "byte_start": 719,
+      "byte_end": 774,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 2,
+      "title": "Not valid",
+      "title_raw": "Not valid",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 42,
+      "byte_start": 774,
+      "byte_end": 1258,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 3,
+      "title": "Multiple planning lines",
+      "title_raw": "Multiple planning lines",
+      "body_text": "DEADLINE: <2024-12-01 Sun>\nCLOSED: [2024-11-21 Thu]",
+      "body_byte_start": 844,
+      "body_byte_end": 895,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": {
+          "role": "Scheduled",
+          "raw_value": "<2024-11-20 Wed>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 827,
+          "byte_end": 843,
+          "line_number": 45,
+          "modifiers": []
+        },
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Scheduled",
+          "raw_value": "<2024-11-20 Wed>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 827,
+          "byte_end": 843,
+          "line_number": 45,
+          "modifiers": []
+        },
+        {
+          "role": "Body",
+          "raw_value": "<2024-12-01 Sun>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1733011200,
+          "end_ts": null,
+          "byte_start": 854,
+          "byte_end": 870,
+          "line_number": 46,
+          "modifiers": []
+        },
+        {
+          "role": "Body",
+          "raw_value": "[2024-11-21 Thu]",
+          "timestamp_type": "Inactive",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732147200,
+          "end_ts": null,
+          "byte_start": 879,
+          "byte_end": 895,
+          "line_number": 47,
+          "modifiers": []
+        }
+      ],
+      "line_number": 44,
+      "byte_start": 788,
+      "byte_end": 897,
+      "parent_index": 14,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 3,
+      "title": "Planning not immediately after headline",
+      "title_raw": "Planning not immediately after headline",
+      "body_text": "Some body text first.\nSCHEDULED: <2024-11-20 Wed>",
+      "body_byte_start": 941,
+      "body_byte_end": 990,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Body",
+          "raw_value": "<2024-11-20 Wed>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 974,
+          "byte_end": 990,
+          "line_number": 51,
+          "modifiers": []
+        }
+      ],
+      "line_number": 49,
+      "byte_start": 897,
+      "byte_end": 992,
+      "parent_index": 14,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 3,
+      "title": "Looks like planning in body",
+      "title_raw": "Looks like planning in body",
+      "body_text": "This mentions DEADLINE: <2024-12-01 Sun> inside text.",
+      "body_byte_start": 1024,
+      "body_byte_end": 1077,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Body",
+          "raw_value": "<2024-12-01 Sun>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1733011200,
+          "end_ts": null,
+          "byte_start": 1048,
+          "byte_end": 1064,
+          "line_number": 54,
+          "modifiers": []
+        }
+      ],
+      "line_number": 53,
+      "byte_start": 992,
+      "byte_end": 1079,
+      "parent_index": 14,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 3,
+      "title": "Lowercase keyword is planning (Org matches case-insensitively)",
+      "title_raw": "Lowercase keyword is planning (Org matches case-insensitively)",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": {
+          "role": "Scheduled",
+          "raw_value": "<2024-11-20 Wed>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 1157,
+          "byte_end": 1173,
+          "line_number": 57,
+          "modifiers": []
+        },
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Scheduled",
+          "raw_value": "<2024-11-20 Wed>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 1157,
+          "byte_end": 1173,
+          "line_number": 57,
+          "modifiers": []
+        }
+      ],
+      "line_number": 56,
+      "byte_start": 1079,
+      "byte_end": 1175,
+      "parent_index": 14,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 3,
+      "title": "Multiple same keyword",
+      "title_raw": "Multiple same keyword",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": {
+          "role": "Scheduled",
+          "raw_value": "<2024-11-21 Thu>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732147200,
+          "end_ts": null,
+          "byte_start": 1240,
+          "byte_end": 1256,
+          "line_number": 60,
+          "modifiers": []
+        },
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Scheduled",
+          "raw_value": "<2024-11-20 Wed>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 1212,
+          "byte_end": 1228,
+          "line_number": 60,
+          "modifiers": []
+        },
+        {
+          "role": "Scheduled",
+          "raw_value": "<2024-11-21 Thu>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732147200,
+          "end_ts": null,
+          "byte_start": 1240,
+          "byte_end": 1256,
+          "line_number": 60,
+          "modifiers": []
+        }
+      ],
+      "line_number": 59,
+      "byte_start": 1175,
+      "byte_end": 1258,
+      "parent_index": 14,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 1,
+      "title": "Body timestamps",
+      "title_raw": "Body timestamps",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 62,
+      "byte_start": 1258,
+      "byte_end": 1382,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 2,
+      "title": "Task",
+      "title_raw": "Task",
+      "body_text": "<2026-06-23 Tue>",
+      "body_byte_start": 1285,
+      "body_byte_end": 1301,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Body",
+          "raw_value": "<2026-06-23 Tue>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1782172800,
+          "end_ts": null,
+          "byte_start": 1285,
+          "byte_end": 1301,
+          "line_number": 65,
+          "modifiers": []
+        }
+      ],
+      "line_number": 64,
+      "byte_start": 1277,
+      "byte_end": 1303,
+      "parent_index": 20,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "timestamps/planning-timestamp/fixture.org",
+      "level": 2,
+      "title": "Another Task",
+      "title_raw": "Another Task",
+      "body_text": "Some Text.\n<2026-06-23 Tue>\n\nSome more Text:\n<2026-06-24 Wed>",
+      "body_byte_start": 1320,
+      "body_byte_end": 1381,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Body",
+          "raw_value": "<2026-06-23 Tue>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1782172800,
+          "end_ts": null,
+          "byte_start": 1331,
+          "byte_end": 1347,
+          "line_number": 70,
+          "modifiers": []
+        },
+        {
+          "role": "Body",
+          "raw_value": "<2026-06-24 Wed>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1782259200,
+          "end_ts": null,
+          "byte_start": 1365,
+          "byte_end": 1381,
+          "line_number": 73,
+          "modifiers": []
+        }
+      ],
+      "line_number": 67,
+      "byte_start": 1303,
+      "byte_end": 1382,
+      "parent_index": 20,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}

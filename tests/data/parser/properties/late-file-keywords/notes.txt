@@ -1,0 +1,2 @@
+# classification: file-scope-properties
+# note: Late file-level property and category keywords normalize onto the synthetic level 0 heading.

@@ -1,0 +1,100 @@
+{
+  "file_path": "priorities/todo-priority-tags/fixture.org",
+  "metadata": {
+    "title": "Orgize Priority Fixture",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Orgize Priority Fixture",
+        "line_number": 1
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "priorities/todo-priority-tags/fixture.org",
+      "level": 0,
+      "title": "Orgize Priority Fixture",
+      "title_raw": "Orgize Priority Fixture",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 92,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "priorities/todo-priority-tags/fixture.org",
+      "level": 1,
+      "title": "Inbox",
+      "title_raw": "TODO [#A] Inbox",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": "TODO",
+      "todo_type": "Open",
+      "priority": "A",
+      "tags": [
+        "rust",
+        "parser"
+      ],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 2,
+      "byte_start": 33,
+      "byte_end": 92,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "priorities/todo-priority-tags/fixture.org",
+      "level": 2,
+      "title": "Child",
+      "title_raw": "DONE [#B] Child",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": "DONE",
+      "todo_type": "Closed",
+      "priority": "B",
+      "tags": [
+        "child"
+      ],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 3,
+      "byte_start": 65,
+      "byte_end": 92,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}

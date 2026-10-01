@@ -37,6 +37,7 @@ use query::{
     query_response_with_restriction, read_restricted_file_paths,
 };
 use search::{cli_search_scope, search_json_rows};
+#[cfg(feature = "bench")]
 pub(crate) use search::{
     production_search_result_count_with_connection,
     production_search_stable_results_with_connection, CliSearchScope,

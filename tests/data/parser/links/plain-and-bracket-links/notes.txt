@@ -1,0 +1,2 @@
+# classification: link-scanner-input
+# note: Link extraction is not asserted by the fixture harness; links are extracted by the project link scanner (src/parser/link_scanner.rs, register R1) and covered by its unit tests. This fixture keeps the heading and CUSTOM_ID structure stable.

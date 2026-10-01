@@ -1,0 +1,194 @@
+{
+  "file_path": "body/structured-metadata-exclusion/fixture.org",
+  "metadata": {
+    "title": "Body Metadata Fixture",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Body Metadata Fixture",
+        "line_number": 4
+      },
+      {
+        "key": "AUTHOR",
+        "value": "Jane Doe",
+        "line_number": 14
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "body/structured-metadata-exclusion/fixture.org",
+      "level": 0,
+      "title": "Body Metadata Fixture",
+      "title_raw": "Body Metadata Fixture",
+      "body_text": "Intro before heading.",
+      "body_byte_start": 87,
+      "body_byte_end": 108,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [
+        {
+          "key": "CATEGORY",
+          "value": "Level 0 Category Property",
+          "source": "property_drawer",
+          "append": false,
+          "line_number": 2
+        }
+      ],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 328,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "body/structured-metadata-exclusion/fixture.org",
+      "level": 1,
+      "title": "Task",
+      "title_raw": "Task",
+      "body_text": "Real body text.\n\nBody after keyword.",
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [
+        {
+          "key": "OWNER",
+          "value": "Bob",
+          "source": "property_drawer",
+          "append": false,
+          "line_number": 10
+        }
+      ],
+      "planning": {
+        "scheduled": {
+          "role": "Scheduled",
+          "raw_value": "<2026-06-23 Tue>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1782172800,
+          "end_ts": null,
+          "byte_start": 128,
+          "byte_end": 144,
+          "line_number": 8,
+          "modifiers": []
+        },
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Scheduled",
+          "raw_value": "<2026-06-23 Tue>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1782172800,
+          "end_ts": null,
+          "byte_start": 128,
+          "byte_end": 144,
+          "line_number": 8,
+          "modifiers": []
+        }
+      ],
+      "line_number": 7,
+      "byte_start": 110,
+      "byte_end": 256,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "body/structured-metadata-exclusion/fixture.org",
+      "level": 2,
+      "title": "Child",
+      "title_raw": "Child",
+      "body_text": "Child body.",
+      "body_byte_start": 243,
+      "body_byte_end": 254,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 18,
+      "byte_start": 234,
+      "byte_end": 256,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "body/structured-metadata-exclusion/fixture.org",
+      "level": 1,
+      "title": "Diary Planning",
+      "title_raw": "Diary Planning",
+      "body_text": "Body after planning.",
+      "body_byte_start": 307,
+      "body_byte_end": 327,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": {
+          "role": "Scheduled",
+          "raw_value": "<%%(diary-float t 42)>",
+          "timestamp_type": "Diary",
+          "range_type": "None",
+          "has_time": null,
+          "start_ts": null,
+          "end_ts": null,
+          "byte_start": 284,
+          "byte_end": 306,
+          "line_number": 22,
+          "modifiers": []
+        },
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Scheduled",
+          "raw_value": "<%%(diary-float t 42)>",
+          "timestamp_type": "Diary",
+          "range_type": "None",
+          "has_time": null,
+          "start_ts": null,
+          "end_ts": null,
+          "byte_start": 284,
+          "byte_end": 306,
+          "line_number": 22,
+          "modifiers": []
+        }
+      ],
+      "line_number": 21,
+      "byte_start": 256,
+      "byte_end": 328,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}

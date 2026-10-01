@@ -20,7 +20,7 @@ fn protocols() -> HashSet<String> {
 /// Timestamps and ignored ranges (code, verbatim, inline source, snippet) of `content`, as
 /// source slices in source order.
 fn facts_of_content(content: &str) -> (Vec<String>, Vec<String>) {
-    let structure = scan_structure(content).expect("structure");
+    let structure = scan_structure(content);
     let facts = scan_inline(
         content,
         &structure,
@@ -636,7 +636,8 @@ fn adversarial_multibyte_text_never_panics_and_keeps_ranges_on_characters() {
         } else {
             format!("* H\n{text}\n** {text} :t:\n{text}")
         };
-        if let Ok(structure) = scan_structure(&content) {
+        {
+            let structure = scan_structure(&content);
             let facts = scan_inline(
                 &content,
                 &structure,
@@ -692,7 +693,7 @@ fn pathological_input_stays_fast_and_does_not_overflow_the_stack() {
     ];
     for text in cases {
         let content = format!("* H\n{text}\n");
-        let structure = scan_structure(&content).expect("structure");
+        let structure = scan_structure(&content);
         let facts = scan_inline(
             &content,
             &structure,

@@ -505,6 +505,7 @@ fn run_variant(
         todo: Default::default(),
         search: search.clone(),
         query: Default::default(),
+        index: Default::default(),
     };
     let capability_connection = Connection::open(&db_path).map_err(|error| error.to_string())?;
     let fts5_available = crate::db::sqlite_supports_fts5(&capability_connection)
@@ -1892,6 +1893,7 @@ mod tests {
             todo: Default::default(),
             search: search.clone(),
             query: Default::default(),
+            index: Default::default(),
         };
         let mut left = open_database_with_schema(
             &left_path,

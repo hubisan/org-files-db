@@ -1,0 +1,145 @@
+{
+  "file_path": "planning/one-line-planning/fixture.org",
+  "metadata": {
+    "title": "One Line Planning Fixture",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "One Line Planning Fixture",
+        "line_number": 1
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "planning/one-line-planning/fixture.org",
+      "level": 0,
+      "title": "One Line Planning Fixture",
+      "title_raw": "One Line Planning Fixture",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 122,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "planning/one-line-planning/fixture.org",
+      "level": 1,
+      "title": "Test",
+      "title_raw": "Test",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": {
+          "role": "Scheduled",
+          "raw_value": "<2024-11-20 Wed>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 80,
+          "byte_end": 96,
+          "line_number": 3,
+          "modifiers": []
+        },
+        "deadline": {
+          "role": "Deadline",
+          "raw_value": "<2024-12-01 Sun>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1733011200,
+          "end_ts": null,
+          "byte_start": 52,
+          "byte_end": 68,
+          "line_number": 3,
+          "modifiers": []
+        },
+        "closed": {
+          "role": "Closed",
+          "raw_value": "<2024-11-20 Wed>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 105,
+          "byte_end": 121,
+          "line_number": 3,
+          "modifiers": []
+        }
+      },
+      "timestamps": [
+        {
+          "role": "Deadline",
+          "raw_value": "<2024-12-01 Sun>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1733011200,
+          "end_ts": null,
+          "byte_start": 52,
+          "byte_end": 68,
+          "line_number": 3,
+          "modifiers": []
+        },
+        {
+          "role": "Scheduled",
+          "raw_value": "<2024-11-20 Wed>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 80,
+          "byte_end": 96,
+          "line_number": 3,
+          "modifiers": []
+        },
+        {
+          "role": "Closed",
+          "raw_value": "<2024-11-20 Wed>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1732060800,
+          "end_ts": null,
+          "byte_start": 105,
+          "byte_end": 121,
+          "line_number": 3,
+          "modifiers": []
+        }
+      ],
+      "line_number": 2,
+      "byte_start": 35,
+      "byte_end": 122,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}

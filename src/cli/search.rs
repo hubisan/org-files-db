@@ -22,6 +22,7 @@ pub(crate) enum CliSearchScope {
     Body,
 }
 
+#[cfg(feature = "bench")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProductionSearchResultKey {
     pub(crate) file_path: String,
@@ -67,6 +68,7 @@ pub(super) fn search_json_rows_for_config(
     production_search_rows_with_connection(&connection, scope, expression, config)
 }
 
+#[cfg(feature = "bench")]
 pub(crate) fn production_search_result_count_with_connection(
     connection: &Connection,
     scope: CliSearchScope,
@@ -78,6 +80,7 @@ pub(crate) fn production_search_result_count_with_connection(
         .map_err(|error| error.to_string())
 }
 
+#[cfg(feature = "bench")]
 pub(crate) fn production_search_stable_results_with_connection(
     connection: &Connection,
     scope: CliSearchScope,

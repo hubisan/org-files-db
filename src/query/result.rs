@@ -114,12 +114,16 @@ enum ResultDomain {
     Links,
 }
 
+// Non-production variants are comparison baselines used by tests and the `bench` feature.
+#[cfg_attr(not(any(test, feature = "bench")), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HeadingPathStrategy {
     RecursiveQueryDerived,
     RustDrivenBulkAncestors,
 }
 
+// Non-production variants are comparison baselines used by tests and the `bench` feature.
+#[cfg_attr(not(any(test, feature = "bench")), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DirectFlatShapingStrategy {
     CloneBaseline,
@@ -429,12 +433,15 @@ mod paths;
 mod tests;
 
 use self::enrich::*;
+#[cfg(feature = "bench")]
+pub(crate) use self::execute::execute_and_shape_query_with_metadata_strategy;
 pub use self::execute::{
     execute_and_shape_query, shape_matched_heading_nodes, shape_query_results,
 };
+#[cfg(any(test, feature = "bench"))]
 pub(crate) use self::execute::{
     execute_and_shape_query_with_direct_flat_shaping_strategy,
-    execute_and_shape_query_with_metadata_strategy, execute_and_shape_query_with_path_strategy,
+    execute_and_shape_query_with_path_strategy,
     execute_and_shape_query_with_relation_reuse_strategy,
 };
 use self::flat::*;

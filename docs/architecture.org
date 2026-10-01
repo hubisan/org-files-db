@@ -55,7 +55,7 @@ Read [[./config.org][Configuration Reference]] and [[./design/incremental-indexi
 
 Since #103 the adapter builds every structural fact from the own line scanner, and since #105 every inline object from the own inline scanner: ~src/parser/line_lexer.rs~ classifies lines and ~src/parser/structure_scanner.rs~ builds the heading tree, section ranges, planning lines, property drawers, keywords, blocks, drawers and comment runs. Titles, tags, TODO keywords and priorities come from the raw headline line (~src/parser/title.rs~), planning entries from the raw planning line (~src/parser/timestamp_raw.rs~), and timestamps, inline code ranges and the visible title text from ~src/parser/inline_scanner.rs~. The scanners are iterative or bounded, so nesting depth never grows the call stack. Read [[./design/line-scanner.org][Line Scanner]] for the rules and the stage plan.
 
-The adapter rejects files with a heading deeper than 100 levels (~MAX_HEADING_LEVEL~) with a parse error naming level and line. Only ~^\*+ ~ lines count as headlines; the limit is a product rule, not a stack guard, and stays until the owner decides.
+There is no heading depth limit, as in Org; only ~^\*+ ~ lines count as headlines.
 
 The parser produces source facts. The indexer converts those facts into the persistent database model.
 

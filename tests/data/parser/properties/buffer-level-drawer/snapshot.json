@@ -1,0 +1,91 @@
+{
+  "file_path": "properties/buffer-level-drawer/fixture.org",
+  "metadata": {
+    "title": "Buffer Property Drawer",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Buffer Property Drawer",
+        "line_number": 6
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "properties/buffer-level-drawer/fixture.org",
+      "level": 0,
+      "title": "Buffer Property Drawer",
+      "title_raw": "Buffer Property Drawer",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [
+        {
+          "key": "CATEGORY",
+          "value": "Level 0 Category Property",
+          "source": "property_drawer",
+          "append": false,
+          "line_number": 2
+        },
+        {
+          "key": "WHATEVER",
+          "value": "test",
+          "source": "property_drawer",
+          "append": false,
+          "line_number": 3
+        },
+        {
+          "key": "ID",
+          "value": "7dad9b62-a3cc-43ec-a60f-e650bdaeae6d",
+          "source": "property_drawer",
+          "append": false,
+          "line_number": 4
+        }
+      ],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 165,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "properties/buffer-level-drawer/fixture.org",
+      "level": 1,
+      "title": "Heading level 1",
+      "title_raw": "Heading level 1",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 8,
+      "byte_start": 147,
+      "byte_end": 165,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}
