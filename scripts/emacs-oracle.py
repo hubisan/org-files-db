@@ -12,8 +12,8 @@ Usage:
 
 Environment: EMACS (default emacs), ORGFDB_BIN (default target/release/orgfdb,
 then target/debug/orgfdb).  Exit status of compare is 1 when a difference is
-not classified in scripts/emacs-oracle-known.json (a: orgfdb bug, b: Orgize
-deviation, c: intentional model difference; d, harness artifacts, are
+not classified in scripts/emacs-oracle-known.json (a: orgfdb bug, b: deviation of a
+former backend, none left, c: intentional model difference; d, harness artifacts, are
 normalized away in this script), else 0.
 """
 import json

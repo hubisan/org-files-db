@@ -1,4 +1,4 @@
-//! Stage A of the Orgize replacement (#101): a pure, per-line classifier.
+//! Stage A of the own Org scanner (#101): a pure, per-line classifier.
 //!
 //! Every function here looks at one line only. Anything that needs context (is this
 //! `:NAME:` a drawer or a property row, is the block closed) belongs to

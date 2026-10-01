@@ -1,0 +1,183 @@
+{
+  "file_path": "headings/nested-planning-lines/fixture.org",
+  "metadata": {
+    "title": "Org Tests for Headings",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Org Tests for Headings",
+        "line_number": 1
+      },
+      {
+        "key": "STARTUP",
+        "value": "showall",
+        "line_number": 2
+      },
+      {
+        "key": "TODO",
+        "value": "TODO(t) | OK(o) PARTLY(p) NOT_IMPLEMENTING(n)",
+        "line_number": 3
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "headings/nested-planning-lines/fixture.org",
+      "level": 0,
+      "title": "Org Tests for Headings",
+      "title_raw": "Org Tests for Headings",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 233,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "headings/nested-planning-lines/fixture.org",
+      "level": 1,
+      "title": "Priortiy",
+      "title_raw": "Priortiy",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 5,
+      "byte_start": 106,
+      "byte_end": 118,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "headings/nested-planning-lines/fixture.org",
+      "level": 1,
+      "title": "Planning Info",
+      "title_raw": "Planning Info",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 7,
+      "byte_start": 118,
+      "byte_end": 233,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "headings/nested-planning-lines/fixture.org",
+      "level": 2,
+      "title": "Each on one Line",
+      "title_raw": "Each on one Line",
+      "body_text": "DEADLINE: <2023-11-12>\nCLOSED: [2023-11-10 Fri 14:00]",
+      "body_byte_start": 179,
+      "body_byte_end": 232,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": {
+          "role": "Scheduled",
+          "raw_value": "<2023-11-10>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1699574400,
+          "end_ts": null,
+          "byte_start": 166,
+          "byte_end": 178,
+          "line_number": 10,
+          "modifiers": []
+        },
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [
+        {
+          "role": "Scheduled",
+          "raw_value": "<2023-11-10>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1699574400,
+          "end_ts": null,
+          "byte_start": 166,
+          "byte_end": 178,
+          "line_number": 10,
+          "modifiers": []
+        },
+        {
+          "role": "Body",
+          "raw_value": "<2023-11-12>",
+          "timestamp_type": "Active",
+          "range_type": "None",
+          "has_time": false,
+          "start_ts": 1699747200,
+          "end_ts": null,
+          "byte_start": 189,
+          "byte_end": 201,
+          "line_number": 11,
+          "modifiers": []
+        },
+        {
+          "role": "Body",
+          "raw_value": "[2023-11-10 Fri 14:00]",
+          "timestamp_type": "Inactive",
+          "range_type": "None",
+          "has_time": true,
+          "start_ts": 1699624800,
+          "end_ts": null,
+          "byte_start": 210,
+          "byte_end": 232,
+          "line_number": 12,
+          "modifiers": []
+        }
+      ],
+      "line_number": 9,
+      "byte_start": 135,
+      "byte_end": 233,
+      "parent_index": 2,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}

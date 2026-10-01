@@ -1,0 +1,131 @@
+{
+  "file_path": "todo-keywords/overlapping-file-local-lines/fixture.org",
+  "metadata": {
+    "title": "Overlapping TODO Fixture",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Overlapping TODO Fixture",
+        "line_number": 1
+      },
+      {
+        "key": "TODO",
+        "value": "TODO NEXT | DONE",
+        "line_number": 2
+      },
+      {
+        "key": "SEQ_TODO",
+        "value": "TODO WAIT | DONE CANCELED",
+        "line_number": 3
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "todo-keywords/overlapping-file-local-lines/fixture.org",
+      "level": 0,
+      "title": "Overlapping TODO Fixture",
+      "title_raw": "Overlapping TODO Fixture",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 165,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "todo-keywords/overlapping-file-local-lines/fixture.org",
+      "level": 1,
+      "title": "First heading",
+      "title_raw": "TODO First heading",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": "TODO",
+      "todo_type": "Open",
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 5,
+      "byte_start": 98,
+      "byte_end": 119,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "todo-keywords/overlapping-file-local-lines/fixture.org",
+      "level": 1,
+      "title": "Second heading",
+      "title_raw": "NEXT Second heading",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": "NEXT",
+      "todo_type": "Open",
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 6,
+      "byte_start": 119,
+      "byte_end": 141,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "todo-keywords/overlapping-file-local-lines/fixture.org",
+      "level": 1,
+      "title": "Finished heading",
+      "title_raw": "DONE Finished heading",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": "DONE",
+      "todo_type": "Closed",
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 7,
+      "byte_start": 141,
+      "byte_end": 165,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}

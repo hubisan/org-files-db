@@ -454,6 +454,8 @@ Stable rebuild reasons are:
 - ~history-unavailable~
 - ~full-invalidation~
 
+~history-unavailable~ means that ~--since-generation~ is older than ~oldest_available_generation~. The index keeps only the newest ~index.journal_retention_generations~ generations of journal history (default ~1000~), so a client that stays away longer must rebuild its view.
+
 A generation newer than the current generation is an error.
 
 The command does not execute a structural query. Read [[./design/index-generations-and-changes.org][Index Generations and Changes]] for journal semantics.

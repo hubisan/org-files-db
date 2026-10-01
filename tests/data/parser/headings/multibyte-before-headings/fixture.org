@@ -1,0 +1,14 @@
+#+TITLE: Übersicht 🚀 Größe
+
+Präambel mit Umlauten: äöü und Emoji 🚀.
+
+* Überschrift ÄÖÜ [[https://example.org/ä][Link ß]] :tag:
+
+Text nach „Anführungszeichen“ und 日本語 mit [[file:sub/äöü.org][Verweis]].
+
+** Zweite Ebene 🚀 Emoji
+
+[2026-03-20 Fr] Körper mit Zeitstempel und https://example.org/ü.
+
+* 日本語の見出し
+SCHEDULED: <2026-03-21 Sa>

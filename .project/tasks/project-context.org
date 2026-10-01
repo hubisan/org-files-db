@@ -49,6 +49,8 @@ Non-goals for the beginning:
 
 ** Decision: use Orgize only as an adapter
 
+Superseded (#41): Orgize was replaced by the project's own line-based scanner in three stages (#101, #103, #105); see ~docs/design/line-scanner.org~.
+
 ~orgize~ is used as the first parser backend, but only inside a clearly bounded adapter module.
 
 Allowed:

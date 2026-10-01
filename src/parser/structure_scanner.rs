@@ -1,9 +1,9 @@
-//! Stage B of the Orgize replacement (#101, #103): the structure automaton.
+//! Stage B of the own Org scanner (#101, #103): the structure automaton.
 //!
 //! Turns the per-line classes of `line_lexer` into the heading tree, per-section
 //! planning and property drawers, block and drawer regions, keyword lines, and
 //! comment and fixed-width runs. The parse entry (`orgize_adapter`) builds every
-//! structural fact from this output; Orgize only reads inline details.
+//! structural fact from this output; `inline_scanner` reads the text between.
 //! States and transitions: `docs/design/line-scanner.org`.
 
 use std::{collections::HashSet, ops::Range};
@@ -11,18 +11,6 @@ use std::{collections::HashSet, ops::Range};
 use super::line_lexer::{classify_line, lines, Line, LineClass};
 use super::model::{ParsedKeyword, ParsedProperty, ParsedPropertySource};
 use super::properties::parsed_property_from_raw_line;
-
-/// Deepest heading level accepted. A product rule (#44) that started as a stack guard
-/// for Orgize's recursive tree; the scanner itself never recurses. It counts every
-/// `^\*+ ` line, because Org reads such a line as a headline wherever it stands.
-pub const MAX_HEADING_LEVEL: usize = 100;
-
-/// Heading deeper than `MAX_HEADING_LEVEL`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DepthError {
-    pub level: usize,
-    pub line_number: u32,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Structure {
@@ -151,7 +139,7 @@ struct Scan<'a> {
     dangling_until: usize,
 }
 
-pub fn scan_structure(content: &str) -> Result<Structure, DepthError> {
+pub fn scan_structure(content: &str) -> Structure {
     let lines: Vec<(Line, LineClass)> = lines(content)
         .map(|line| {
             let class = classify_line(line.text(content));
@@ -185,7 +173,7 @@ impl Scan<'_> {
         &self.text(index)[range.clone()]
     }
 
-    fn run(&mut self) -> Result<Structure, DepthError> {
+    fn run(&mut self) -> Structure {
         let content_len = self.content.len();
         let mut out = Structure {
             headings: Vec::new(),
@@ -219,9 +207,6 @@ impl Scan<'_> {
                 .map_or(self.next_headline[index], |frame| frame.end_line);
 
             if let LineClass::Headline { level } = class {
-                if level > MAX_HEADING_LEVEL {
-                    return Err(DepthError { level, line_number });
-                }
                 while let Some(&top) = open.last() {
                     if out.headings[top].level < level {
                         break;
@@ -407,7 +392,7 @@ impl Scan<'_> {
             out.headings[top].subtree.end = content_len;
         }
         out.regions.sort_by_key(|region| region.range.start);
-        Ok(out)
+        out
     }
 
     /// First `:END:` line after `begin` and before `limit`.
@@ -558,7 +543,7 @@ mod tests {
     /// One token per fact: `H<level>@<line>[^<parent>][ P][ D[keys]]`, `F[keys]` for the
     /// file drawer, `K:<key>`, `<kind>:<name>@<start>`, `comment`, `fixed`.
     fn summary(content: &str) -> String {
-        let scan = scan_structure(content).expect("depth is fine");
+        let scan = scan_structure(content);
         let keys = |drawer: &PropertyDrawerNode| {
             drawer
                 .rows
@@ -720,14 +705,5 @@ mod tests {
         for (content, expected) in table {
             assert_eq!(summary(content), *expected, "input {content:?}");
         }
-    }
-
-    #[test]
-    fn rejects_headings_over_the_depth_limit() {
-        let deepest = format!("{} x\n", "*".repeat(MAX_HEADING_LEVEL));
-        assert!(scan_structure(&deepest).is_ok());
-        let too_deep = format!("a\n{} x\n", "*".repeat(MAX_HEADING_LEVEL + 1));
-        let error = scan_structure(&too_deep).unwrap_err();
-        assert_eq!((error.level, error.line_number), (MAX_HEADING_LEVEL + 1, 2));
     }
 }
