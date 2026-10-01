@@ -21,8 +21,13 @@ pub fn execute_sqlite_query_with_options(
             })?;
     }
 
-    let result = execute_sqlite_query_with_relation(connection, query, options)
-        .map(|executed| executed.rows);
+    let result =
+        execute_sqlite_query_with_relation(connection, query, options).and_then(|executed| {
+            if let Some(temporary_relation) = executed.temporary_relation {
+                cleanup_temporary_matched_relation(connection, temporary_relation)?;
+            }
+            Ok(executed.rows)
+        });
     if !owns_snapshot {
         return result;
     }
@@ -45,38 +50,6 @@ pub(crate) fn execute_sqlite_query_with_relation(
     connection: &Connection,
     query: &ValidatedQuery,
     options: &QueryExecutionOptions,
-) -> Result<ExecutedSqliteQuery, QueryExecutionError> {
-    execute_sqlite_query_with_relation_and_strategies(
-        connection,
-        query,
-        options,
-        PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
-        MatchedRelationReuseStrategy::QueryDerived,
-    )
-}
-
-#[cfg(test)]
-pub(crate) fn execute_sqlite_query_with_relation_and_metadata_strategy(
-    connection: &Connection,
-    query: &ValidatedQuery,
-    options: &QueryExecutionOptions,
-    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
-) -> Result<ExecutedSqliteQuery, QueryExecutionError> {
-    execute_sqlite_query_with_relation_and_strategies(
-        connection,
-        query,
-        options,
-        metadata_predicate_strategy,
-        MatchedRelationReuseStrategy::QueryDerived,
-    )
-}
-
-pub(crate) fn execute_sqlite_query_with_relation_and_strategies(
-    connection: &Connection,
-    query: &ValidatedQuery,
-    options: &QueryExecutionOptions,
-    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
-    relation_reuse_strategy: MatchedRelationReuseStrategy,
 ) -> Result<ExecutedSqliteQuery, QueryExecutionError> {
     let resolved_relative_dates = resolve_relative_dates(
         query,
@@ -114,13 +87,9 @@ pub(crate) fn execute_sqlite_query_with_relation_and_strategies(
     }
 
     match resolved.target {
-        QueryTarget::Headings => execute_heading_query_with_relation_strategy(
-            connection,
-            &resolved,
-            restrict_files,
-            metadata_predicate_strategy,
-            relation_reuse_strategy,
-        ),
+        QueryTarget::Headings => {
+            execute_heading_query_with_relation(connection, &resolved, restrict_files)
+        }
         QueryTarget::Links => {
             let compiled = compile_sqlite_query_with_file_restriction(&resolved, restrict_files)?;
             let rows = execute_links_query(connection, &compiled)?;
@@ -142,21 +111,14 @@ pub(crate) fn execute_sqlite_query_with_relation_and_strategies(
     }
 }
 
-pub(in crate::query::sqlite) fn execute_heading_query_with_relation_strategy(
+pub(in crate::query::sqlite) fn execute_heading_query_with_relation(
     connection: &Connection,
     resolved: &ValidatedQuery,
     restrict_files: bool,
-    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
-    relation_reuse_strategy: MatchedRelationReuseStrategy,
 ) -> Result<ExecutedSqliteQuery, QueryExecutionError> {
-    let compiled = compile_sqlite_query_with_metadata_strategy(
-        resolved,
-        restrict_files,
-        metadata_predicate_strategy,
-    )?;
+    let compiled = compile_sqlite_query_with_file_restriction(resolved, restrict_files)?;
 
-    let materialize = relation_reuse_strategy == MatchedRelationReuseStrategy::SelectiveTemp
-        && heading_matched_relation_cost(resolved) == MatchedRelationCost::Expensive;
+    let materialize = heading_matched_relation_cost(resolved) == MatchedRelationCost::Expensive;
     let (heading_relation, temporary_relation) = if materialize {
         (
             materialize_heading_relation(connection, &compiled)?,
@@ -173,11 +135,7 @@ pub(in crate::query::sqlite) fn execute_heading_query_with_relation_strategy(
             .collect::<Vec<_>>();
         let root_compiled = if heading_root_truth(resolved.predicate.as_ref()) != StaticTruth::False
         {
-            let root_compiled = compile_heading_root_file_query(
-                resolved,
-                restrict_files,
-                metadata_predicate_strategy,
-            )?;
+            let root_compiled = compile_heading_root_file_query(resolved, restrict_files)?;
             rows.extend(
                 execute_file_rows_query(connection, &root_compiled)?
                     .into_iter()

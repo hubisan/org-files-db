@@ -1,9 +1,8 @@
 use super::{
     compile_sqlite_query, execute_sqlite_query, execute_sqlite_query_with_options,
-    execute_sqlite_query_with_relation_and_metadata_strategy, expand_leading_home_path_with_home,
-    heading_matched_relation_cost, params_from_iter, sqlite_query_validation_options, FileQueryRow,
-    HeadingQueryMatch, HeadingQueryRow, LinkQueryRow, MatchedRelationCost,
-    MetadataPredicateSqlStrategy, QueryExecutionErrorKind, QueryParam, QueryRows,
+    expand_leading_home_path_with_home, heading_matched_relation_cost, params_from_iter,
+    sqlite_query_validation_options, FileQueryRow, HeadingQueryMatch, HeadingQueryRow,
+    LinkQueryRow, MatchedRelationCost, QueryExecutionErrorKind, QueryParam, QueryRows,
 };
 use crate::db::{
     open_database, open_in_memory_database_with_schema, DbWriter, EffectivePropertyRecord,
@@ -1349,33 +1348,7 @@ fn compiled_property_predicates_use_materialized_effective_properties() {
 }
 
 #[test]
-fn production_predicate_driven_metadata_strategy_preserves_boolean_query_rows() {
-    let connection = seeded_connection();
-    for query in [
-        r#"(headings (and (level 1) (tags "urgent" :inherit nil)))"#,
-        r#"(headings (and (level 1) (property "OWNER" "Bob" :inherit nil)))"#,
-        r#"(headings (and (level 1) (property "CATEGORY" "work" :inherit t)))"#,
-        r#"(headings (and (level 1) (keyword "AUTHOR" "Alice" :inherit nil)))"#,
-        r#"(headings (and (level 1) (not (property "OWNER" "Bob" :inherit nil))))"#,
-        r#"(headings (and (level 1) (or (tags "urgent" :inherit nil) (property "OWNER" "Bob" :inherit nil))))"#,
-    ] {
-        let validated = validated(query);
-        let legacy = execute_sqlite_query_with_relation_and_metadata_strategy(
-            &connection,
-            &validated,
-            &QueryExecutionOptions::default(),
-            MetadataPredicateSqlStrategy::HeadingDrivenExists,
-        )
-        .expect("heading-driven metadata query should execute")
-        .rows;
-        let production = execute_sqlite_query(&connection, &validated)
-            .expect("production metadata query should execute");
-        assert_eq!(legacy, production, "query changed result: {query}");
-    }
-}
-
-#[test]
-fn production_metadata_strategy_compiles_indexable_equality_subqueries() {
+fn production_metadata_predicates_compile_indexable_equality_subqueries() {
     let tag = compile_sqlite_query(&validated(
         r#"(headings (and (level 1) (tags "urgent" :inherit nil)))"#,
     ))

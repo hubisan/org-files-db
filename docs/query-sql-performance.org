@@ -3,7 +3,7 @@
 
 * Purpose
 
-The benchmark code behind these measurements was removed in #114 and lives in git history before that change. This page stays as the record of the measurements and decisions.
+The benchmark code behind these measurements was removed in #114 and lives in git history before that change. This page stays as the record of the measurements and decisions. #114 also removed the strategy variants that only the benchmarks selected: heading-driven ~EXISTS~ for heading metadata predicates (regexp predicates and file targets keep that SQL form), the recursive query-derived heading path loader, the clone-based direct flat shaping and query-derived matched relations without the selective TEMP rule.
 
 This document records the SQL performance work for structural query execution and result enrichment.
 
@@ -956,7 +956,7 @@ Each strategy result records:
 
 Production still selects ~rust-driven-bulk-ancestors~.
 
-The alternate strategy exists only for the same-process benchmark reference.
+The alternate strategy existed only for the same-process benchmark reference and was removed in #114.
 
 The Rust-driven production path now moves each loaded ~Vec<PathEntry>~ into its result node.
 

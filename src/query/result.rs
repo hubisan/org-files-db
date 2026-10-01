@@ -10,10 +10,8 @@ use serde::Serialize;
 
 use super::sql_support::id_chunk_capacity;
 use super::sqlite::{
-    cleanup_temporary_matched_relation, execute_sqlite_query_with_relation_and_strategies,
-    file_relation_columns, heading_relation_columns, HeadingQueryMatch,
-    MatchedRelationReuseStrategy, MatchedSqlRelation, MetadataPredicateSqlStrategy,
-    PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY, PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
+    cleanup_temporary_matched_relation, execute_sqlite_query_with_relation, file_relation_columns,
+    heading_relation_columns, HeadingQueryMatch, MatchedSqlRelation,
 };
 use super::{
     FileQueryRow, HeadingQueryRow, LinkQueryRow, QueryExecutionError, QueryRows, QueryTarget,
@@ -111,25 +109,6 @@ enum ResultDomain {
     Headings,
     Links,
 }
-
-// Non-production variants are comparison baselines used only by tests.
-#[cfg_attr(not(test), allow(dead_code))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum HeadingPathStrategy {
-    RecursiveQueryDerived,
-    RustDrivenBulkAncestors,
-}
-
-// Non-production variants are comparison baselines used only by tests.
-#[cfg_attr(not(test), allow(dead_code))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum DirectFlatShapingStrategy {
-    CloneBaseline,
-    MoveOwned,
-}
-
-const PRODUCTION_DIRECT_FLAT_SHAPING_STRATEGY: DirectFlatShapingStrategy =
-    DirectFlatShapingStrategy::MoveOwned;
 
 fn public_result_kind(domain: ResultDomain, heading_level: i64) -> QueryResultKind {
     match domain {
@@ -433,12 +412,6 @@ mod tests;
 use self::enrich::*;
 pub use self::execute::{
     execute_and_shape_query, shape_matched_heading_nodes, shape_query_results,
-};
-#[cfg(test)]
-pub(crate) use self::execute::{
-    execute_and_shape_query_with_direct_flat_shaping_strategy,
-    execute_and_shape_query_with_path_strategy,
-    execute_and_shape_query_with_relation_reuse_strategy,
 };
 use self::flat::*;
 use self::loaders::*;

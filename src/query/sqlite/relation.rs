@@ -8,15 +8,6 @@ pub(in crate::query::sqlite) const QUERY_MATCHED_HEADINGS_TABLE: &str =
     "orgfdb_query_matched_headings";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum MatchedRelationReuseStrategy {
-    QueryDerived,
-    SelectiveTemp,
-}
-
-pub(crate) const PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY: MatchedRelationReuseStrategy =
-    MatchedRelationReuseStrategy::SelectiveTemp;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MatchedRelationCost {
     Cheap,
     Expensive,

@@ -14,7 +14,6 @@ impl FlatMetadataContext {
         rows: &QueryRows,
         includes: &[QueryInclude],
         relation: Option<&MatchedSqlRelation>,
-        path_strategy: HeadingPathStrategy,
     ) -> Result<Self, QueryShapeError> {
         let include_set = includes.iter().copied().collect::<BTreeSet<_>>();
         let mut metadata_heading_ids = BTreeSet::new();
@@ -126,14 +125,9 @@ impl FlatMetadataContext {
 
         let heading_paths = if include_set.contains(&QueryInclude::Path) {
             match (rows, relation) {
-                (QueryRows::Headings(rows), Some(relation)) => match path_strategy {
-                    HeadingPathStrategy::RecursiveQueryDerived => {
-                        load_heading_paths_recursive_from_relation(connection, relation, rows)?
-                    }
-                    HeadingPathStrategy::RustDrivenBulkAncestors => {
-                        load_heading_paths_from_relation(connection, relation, rows)?
-                    }
-                },
+                (QueryRows::Headings(rows), Some(relation)) => {
+                    load_heading_paths_from_relation(connection, relation, rows)?
+                }
                 (QueryRows::Headings(_), None) => HashMap::new(),
                 (QueryRows::Files(_), _) | (QueryRows::Links(_), _) => HashMap::new(),
             }
@@ -148,157 +142,6 @@ impl FlatMetadataContext {
             root_tags,
             heading_paths,
         })
-    }
-
-    pub(in crate::query::result) fn shape_file_row_cloned(
-        &mut self,
-        row: &FileQueryRow,
-        domain: ResultDomain,
-        includes: &[QueryInclude],
-    ) -> Result<FileResultNode, QueryShapeError> {
-        let path_ref = Path::new(&row.path);
-        let name = path_ref
-            .file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or(row.path.as_str())
-            .to_string();
-        let dir = path_ref
-            .parent()
-            .and_then(|value| value.to_str())
-            .unwrap_or(".")
-            .to_string();
-
-        let tags = self
-            .root_tags
-            .get(&row.root_heading_id)
-            .cloned()
-            .unwrap_or_default();
-        let node_path = includes.contains(&QueryInclude::Path).then(|| {
-            vec![PathEntry::File(FilePathEntry {
-                id: row.id,
-                path: row.path.clone(),
-                title: row.root_title.clone(),
-                title_raw: row.root_title_raw.clone(),
-            })]
-        });
-        let properties = includes.contains(&QueryInclude::Properties).then(|| {
-            self.properties
-                .get(&row.root_heading_id)
-                .cloned()
-                .unwrap_or_default()
-        });
-        let effective_properties =
-            includes
-                .contains(&QueryInclude::EffectiveProperties)
-                .then(|| {
-                    self.effective_properties
-                        .get(&row.root_heading_id)
-                        .cloned()
-                        .unwrap_or_default()
-                });
-        let keywords = includes.contains(&QueryInclude::Keywords).then(|| {
-            self.keywords
-                .get(&row.root_heading_id)
-                .cloned()
-                .unwrap_or_default()
-        });
-
-        let node = FileResultNode {
-            kind: public_result_kind(domain, 0),
-            matched: true,
-            id: row.id,
-            level: 0,
-            path: row.path.clone(),
-            name,
-            dir,
-            title: row.root_title.clone(),
-            title_raw: row.root_title_raw.clone(),
-            root_heading_id: row.root_heading_id,
-            mtime_ns: row.mtime_ns,
-            size: row.size,
-            content_hash: row.content_hash.clone(),
-            indexed_at: row.indexed_at,
-            location: Location {
-                file_path: row.path.clone(),
-                line: row.root_line_number,
-                byte_start: None,
-                byte_end: None,
-            },
-            tags,
-            node_path,
-            properties,
-            effective_properties,
-            keywords,
-            links: None,
-            backlinks: None,
-            children: None,
-        };
-        Ok(node)
-    }
-
-    pub(in crate::query::result) fn shape_heading_row_cloned(
-        &mut self,
-        row: &HeadingQueryRow,
-        includes: &[QueryInclude],
-    ) -> Result<HeadingResultNode, QueryShapeError> {
-        let all_tags = serde_json::from_str(&row.all_tags_json)
-            .map_err(|source| QueryShapeError::invalid_json("all_tags_json", row.id, source))?;
-
-        let node_path = includes
-            .contains(&QueryInclude::Path)
-            .then(|| self.heading_paths.remove(&row.id).unwrap_or_default());
-        let properties = includes
-            .contains(&QueryInclude::Properties)
-            .then(|| self.properties.get(&row.id).cloned().unwrap_or_default());
-        let effective_properties =
-            includes
-                .contains(&QueryInclude::EffectiveProperties)
-                .then(|| {
-                    self.effective_properties
-                        .get(&row.id)
-                        .cloned()
-                        .unwrap_or_default()
-                });
-        let keywords = includes
-            .contains(&QueryInclude::Keywords)
-            .then(|| self.keywords.get(&row.id).cloned().unwrap_or_default());
-
-        let node = HeadingResultNode {
-            kind: public_result_kind(ResultDomain::Headings, row.level),
-            matched: true,
-            id: row.id,
-            file_id: row.file_id,
-            parent_id: row.parent_id,
-            level: row.level,
-            title: row.title.clone(),
-            title_raw: row.title_raw.clone(),
-            todo_keyword: row.todo_keyword.clone(),
-            todo_type: row.todo_type.clone(),
-            priority: row.priority.clone(),
-            scheduled_raw: row.scheduled_raw.clone(),
-            scheduled_ts: row.scheduled_ts,
-            deadline_raw: row.deadline_raw.clone(),
-            deadline_ts: row.deadline_ts,
-            closed_raw: row.closed_raw.clone(),
-            closed_ts: row.closed_ts,
-            archivedp: row.archivedp,
-            footnote_section_p: row.footnote_section_p,
-            all_tags,
-            location: Location {
-                file_path: row.file_path.clone(),
-                line: row.line_number,
-                byte_start: Some(row.byte_start),
-                byte_end: Some(row.byte_end),
-            },
-            node_path,
-            properties,
-            effective_properties,
-            keywords,
-            links: None,
-            backlinks: None,
-            children: None,
-        };
-        Ok(node)
     }
 
     pub(in crate::query::result) fn shape_file_row(

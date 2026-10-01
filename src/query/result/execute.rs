@@ -5,80 +5,6 @@ pub fn execute_and_shape_query(
     query: &ValidatedQuery,
     options: &QueryExecutionOptions,
 ) -> Result<QueryResponse, QueryShapeError> {
-    execute_and_shape_query_with_strategies(
-        connection,
-        query,
-        options,
-        HeadingPathStrategy::RustDrivenBulkAncestors,
-        PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
-        PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY,
-        PRODUCTION_DIRECT_FLAT_SHAPING_STRATEGY,
-    )
-}
-
-#[cfg(test)]
-pub(crate) fn execute_and_shape_query_with_path_strategy(
-    connection: &Connection,
-    query: &ValidatedQuery,
-    options: &QueryExecutionOptions,
-    path_strategy: HeadingPathStrategy,
-) -> Result<QueryResponse, QueryShapeError> {
-    execute_and_shape_query_with_strategies(
-        connection,
-        query,
-        options,
-        path_strategy,
-        PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
-        PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY,
-        PRODUCTION_DIRECT_FLAT_SHAPING_STRATEGY,
-    )
-}
-
-#[cfg(test)]
-pub(crate) fn execute_and_shape_query_with_relation_reuse_strategy(
-    connection: &Connection,
-    query: &ValidatedQuery,
-    options: &QueryExecutionOptions,
-    relation_reuse_strategy: MatchedRelationReuseStrategy,
-) -> Result<QueryResponse, QueryShapeError> {
-    execute_and_shape_query_with_strategies(
-        connection,
-        query,
-        options,
-        HeadingPathStrategy::RustDrivenBulkAncestors,
-        PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
-        relation_reuse_strategy,
-        PRODUCTION_DIRECT_FLAT_SHAPING_STRATEGY,
-    )
-}
-
-#[cfg(test)]
-pub(crate) fn execute_and_shape_query_with_direct_flat_shaping_strategy(
-    connection: &Connection,
-    query: &ValidatedQuery,
-    options: &QueryExecutionOptions,
-    shaping_strategy: DirectFlatShapingStrategy,
-) -> Result<QueryResponse, QueryShapeError> {
-    execute_and_shape_query_with_strategies(
-        connection,
-        query,
-        options,
-        HeadingPathStrategy::RustDrivenBulkAncestors,
-        PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
-        PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY,
-        shaping_strategy,
-    )
-}
-
-pub(in crate::query::result) fn execute_and_shape_query_with_strategies(
-    connection: &Connection,
-    query: &ValidatedQuery,
-    options: &QueryExecutionOptions,
-    path_strategy: HeadingPathStrategy,
-    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
-    relation_reuse_strategy: MatchedRelationReuseStrategy,
-    shaping_strategy: DirectFlatShapingStrategy,
-) -> Result<QueryResponse, QueryShapeError> {
     let owns_snapshot = connection.is_autocommit();
     if owns_snapshot {
         connection
@@ -86,15 +12,7 @@ pub(in crate::query::result) fn execute_and_shape_query_with_strategies(
             .map_err(|source| QueryShapeError::database("query_snapshot.begin", source))?;
     }
 
-    let result = execute_and_shape_query_in_snapshot(
-        connection,
-        query,
-        options,
-        path_strategy,
-        metadata_predicate_strategy,
-        relation_reuse_strategy,
-        shaping_strategy,
-    );
+    let result = execute_and_shape_query_in_snapshot(connection, query, options);
     if !owns_snapshot {
         return result;
     }
@@ -117,31 +35,14 @@ pub(in crate::query::result) fn execute_and_shape_query_in_snapshot(
     connection: &Connection,
     query: &ValidatedQuery,
     options: &QueryExecutionOptions,
-    path_strategy: HeadingPathStrategy,
-    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
-    relation_reuse_strategy: MatchedRelationReuseStrategy,
-    shaping_strategy: DirectFlatShapingStrategy,
 ) -> Result<QueryResponse, QueryShapeError> {
-    let executed = execute_sqlite_query_with_relation_and_strategies(
-        connection,
-        query,
-        options,
-        metadata_predicate_strategy,
-        relation_reuse_strategy,
-    )?;
+    let executed = execute_sqlite_query_with_relation(connection, query, options)?;
     let crate::query::sqlite::ExecutedSqliteQuery {
         rows,
         relation,
         temporary_relation,
     } = executed;
-    let shaped = shape_query_results_internal(
-        connection,
-        rows,
-        options,
-        Some(&relation),
-        path_strategy,
-        shaping_strategy,
-    );
+    let shaped = shape_query_results_internal(connection, rows, options, Some(&relation));
     let cleanup = match temporary_relation {
         Some(temporary_relation) => {
             cleanup_temporary_matched_relation(connection, temporary_relation)
@@ -161,14 +62,7 @@ pub fn shape_query_results(
     rows: QueryRows,
     options: &QueryExecutionOptions,
 ) -> Result<QueryResponse, QueryShapeError> {
-    shape_query_results_internal(
-        connection,
-        rows,
-        options,
-        None,
-        HeadingPathStrategy::RustDrivenBulkAncestors,
-        PRODUCTION_DIRECT_FLAT_SHAPING_STRATEGY,
-    )
+    shape_query_results_internal(connection, rows, options, None)
 }
 
 pub(in crate::query::result) fn shape_query_results_internal(
@@ -176,21 +70,12 @@ pub(in crate::query::result) fn shape_query_results_internal(
     rows: QueryRows,
     options: &QueryExecutionOptions,
     relation: Option<&MatchedSqlRelation>,
-    path_strategy: HeadingPathStrategy,
-    shaping_strategy: DirectFlatShapingStrategy,
 ) -> Result<QueryResponse, QueryShapeError> {
     let includes = normalized_includes(&options.includes);
     if options.output_mode == QueryOutputMode::Flat
         && supports_direct_flat_shaping(&rows, &includes, relation.is_some())
     {
-        return shape_direct_flat_results(
-            connection,
-            rows,
-            includes,
-            relation,
-            path_strategy,
-            shaping_strategy,
-        );
+        return shape_direct_flat_results(connection, rows, includes, relation);
     }
 
     let context = EnrichmentContext::load(connection, &rows, &includes)?;
@@ -269,67 +154,37 @@ pub(in crate::query::result) fn shape_direct_flat_results(
     rows: QueryRows,
     includes: Vec<QueryInclude>,
     relation: Option<&MatchedSqlRelation>,
-    path_strategy: HeadingPathStrategy,
-    shaping_strategy: DirectFlatShapingStrategy,
 ) -> Result<QueryResponse, QueryShapeError> {
-    let mut metadata =
-        FlatMetadataContext::load(connection, &rows, &includes, relation, path_strategy)?;
+    let mut metadata = FlatMetadataContext::load(connection, &rows, &includes, relation)?;
     let target = match &rows {
         QueryRows::Headings(_) => QueryTarget::Headings,
         QueryRows::Links(_) => QueryTarget::Links,
         QueryRows::Files(_) => QueryTarget::Files,
     };
-    let results = match shaping_strategy {
-        DirectFlatShapingStrategy::CloneBaseline => match &rows {
-            QueryRows::Headings(rows) => rows
-                .iter()
-                .map(|row| match row {
-                    HeadingQueryMatch::File(row) => metadata
-                        .shape_file_row_cloned(row, ResultDomain::Headings, &includes)
-                        .map(QueryResultNode::File),
-                    HeadingQueryMatch::Heading(row) => metadata
-                        .shape_heading_row_cloned(row, &includes)
-                        .map(QueryResultNode::Heading),
-                })
-                .collect::<Result<Vec<_>, QueryShapeError>>()?,
-            QueryRows::Links(rows) => rows
-                .iter()
-                .map(|row| QueryResultNode::Link(Box::new(metadata.shape_link_row(row))))
-                .collect(),
-            QueryRows::Files(rows) => rows
-                .iter()
-                .map(|row| {
-                    metadata
-                        .shape_file_row_cloned(row, ResultDomain::Files, &includes)
-                        .map(QueryResultNode::File)
-                })
-                .collect::<Result<Vec<_>, QueryShapeError>>()?,
-        },
-        DirectFlatShapingStrategy::MoveOwned => match rows {
-            QueryRows::Headings(rows) => rows
-                .into_iter()
-                .map(|row| match row {
-                    HeadingQueryMatch::File(row) => metadata
-                        .shape_file_row(row, ResultDomain::Headings, &includes)
-                        .map(QueryResultNode::File),
-                    HeadingQueryMatch::Heading(row) => metadata
-                        .shape_heading_row(row, &includes)
-                        .map(QueryResultNode::Heading),
-                })
-                .collect::<Result<Vec<_>, QueryShapeError>>()?,
-            QueryRows::Links(rows) => rows
-                .iter()
-                .map(|row| QueryResultNode::Link(Box::new(metadata.shape_link_row(row))))
-                .collect(),
-            QueryRows::Files(rows) => rows
-                .into_iter()
-                .map(|row| {
-                    metadata
-                        .shape_file_row(row, ResultDomain::Files, &includes)
-                        .map(QueryResultNode::File)
-                })
-                .collect::<Result<Vec<_>, QueryShapeError>>()?,
-        },
+    let results = match rows {
+        QueryRows::Headings(rows) => rows
+            .into_iter()
+            .map(|row| match row {
+                HeadingQueryMatch::File(row) => metadata
+                    .shape_file_row(row, ResultDomain::Headings, &includes)
+                    .map(QueryResultNode::File),
+                HeadingQueryMatch::Heading(row) => metadata
+                    .shape_heading_row(row, &includes)
+                    .map(QueryResultNode::Heading),
+            })
+            .collect::<Result<Vec<_>, QueryShapeError>>()?,
+        QueryRows::Links(rows) => rows
+            .iter()
+            .map(|row| QueryResultNode::Link(Box::new(metadata.shape_link_row(row))))
+            .collect(),
+        QueryRows::Files(rows) => rows
+            .into_iter()
+            .map(|row| {
+                metadata
+                    .shape_file_row(row, ResultDomain::Files, &includes)
+                    .map(QueryResultNode::File)
+            })
+            .collect::<Result<Vec<_>, QueryShapeError>>()?,
     };
 
     Ok(QueryResponse {
