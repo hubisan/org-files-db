@@ -34,7 +34,7 @@ use error::{CliError, ErrorFormat};
 use listing::{headings_json_rows, links_json_rows};
 use query::{
     parse_query_presentation_spec, presentation_response_with_restriction,
-    query_response_with_restriction, read_restricted_file_paths,
+    query_response_with_restriction, read_restricted_file_paths, IndexStateGuard,
 };
 use search::{cli_search_scope, search_json_rows};
 use view::run_view_command;
@@ -168,9 +168,15 @@ where
             include,
             restrict_files_json,
             presentation_spec_json,
+            expect_database_id,
+            expect_generation,
             config,
             query,
         } => {
+            let guard = IndexStateGuard {
+                expect_database_id,
+                expect_generation,
+            };
             let output_format = format.selected();
             let presentation_spec =
                 parse_query_presentation_spec(output_format, presentation_spec_json.as_deref())?;
@@ -188,6 +194,7 @@ where
                         &include,
                         config.as_deref(),
                         restricted_file_paths,
+                        &guard,
                     )?;
                     write_json_output(writer, &response)
                 }
@@ -201,10 +208,10 @@ where
                     let response = presentation_response_with_restriction(
                         &query,
                         output,
-                        &include,
                         config.as_deref(),
                         restricted_file_paths,
                         spec,
+                        &guard,
                     )?;
                     write_compact_json_output(writer, &response)
                 }

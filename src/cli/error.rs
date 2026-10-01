@@ -96,6 +96,12 @@ pub(super) enum CliError {
         heading_id: i64,
         source: serde_json::Error,
     },
+    StaleIndex {
+        expected_database_id: Option<String>,
+        expected_generation: Option<i64>,
+        actual_database_id: String,
+        actual_generation: i64,
+    },
     Json(serde_json::Error),
     Io(io::Error),
 }
@@ -132,6 +138,7 @@ impl CliError {
             | Self::PresentationBuild(_)
             | Self::PresentationSnapshot { .. }
             | Self::InvalidHeadingPath { .. }
+            | Self::StaleIndex { .. }
             | Self::Json(_)
             | Self::Io(_) => 1,
         }
@@ -158,6 +165,7 @@ impl CliError {
             | Self::SchemaInspect(_)
             | Self::UnsupportedIndexStateSchema { .. }
             | Self::PresentationSnapshot { .. } => "database",
+            Self::StaleIndex { .. } => "stale-index",
             Self::Search(SearchError::DisabledByConfig) => "search-disabled",
             Self::Search(
                 SearchError::FtsUnavailable
@@ -281,6 +289,30 @@ impl fmt::Display for CliError {
                     heading_id, source
                 )
             }
+            Self::StaleIndex {
+                expected_database_id,
+                expected_generation,
+                actual_database_id,
+                actual_generation,
+            } => {
+                write!(f, "stale index: ")?;
+                let mut mismatches = Vec::new();
+                if let Some(expected) = expected_database_id {
+                    if expected != actual_database_id {
+                        mismatches.push(format!(
+                            "expected database id {expected}, found {actual_database_id}"
+                        ));
+                    }
+                }
+                if let Some(expected) = expected_generation {
+                    if *expected != *actual_generation {
+                        mismatches.push(format!(
+                            "expected generation {expected}, found {actual_generation}"
+                        ));
+                    }
+                }
+                write!(f, "{}", mismatches.join("; "))
+            }
             Self::Json(source) => write!(f, "failed to render JSON output: {source}"),
             Self::Io(source) => write!(f, "failed to write CLI output: {source}"),
         }
@@ -317,7 +349,8 @@ impl Error for CliError {
             Self::PresentationSnapshot { source, .. } => Some(source),
             Self::InvalidRestriction(_)
             | Self::InvalidPresentationUsage(_)
-            | Self::InvalidPresentationViewUsage(_) => None,
+            | Self::InvalidPresentationViewUsage(_)
+            | Self::StaleIndex { .. } => None,
             Self::InvalidHeadingPath { source, .. } => Some(source),
             Self::Json(source) => Some(source),
             Self::Io(source) => Some(source),

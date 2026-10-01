@@ -20,16 +20,16 @@ use crate::{
     db::{open_existing_database_read_only, read_index_state},
     presentation::PresentationSpec,
     presentation_view::{
-        PresentationViewInclude, PresentationViewOutputMode, PresentationViewRegistryAccessError,
+        PresentationViewOutputMode, PresentationViewRegistryAccessError,
         PresentationViewRegistryHandle, RegisteredPresentationView,
     },
     presentation_view_cache::{
         presentation_view_cache_root, PresentationViewCachePathError, PresentationViewCacheStore,
     },
     query::{
-        effective_query_date, execute_and_shape_query, parse_query,
+        effective_query_date, execute_and_shape_query, load_link_target_locations, parse_query,
         sqlite_query_validation_options, validate_query, QueryDateResolutionOptions,
-        QueryExecutionOptions, QueryInclude, QueryOutputMode,
+        QueryExecutionOptions, QueryOutputMode,
     },
 };
 
@@ -72,15 +72,10 @@ pub(crate) fn run_rebuild_worker(
         sqlite_query_validation_options(&connection).map_err(|source| source.to_string())?;
     let validated =
         validate_query(parsed, &validation_options).map_err(|source| source.to_string())?;
-    let explicit_includes = view
-        .definition
-        .includes
-        .iter()
-        .copied()
-        .map(query_include)
-        .collect::<Vec<_>>();
+    // Registered includes add nothing to a presentation payload; only the
+    // includes the columns, sort rules and row source need are loaded.
     let query_includes = spec
-        .combined_includes_for_query_target(validated.target, &explicit_includes)
+        .required_includes_for_query_target(validated.target)
         .map_err(|source| source.to_string())?;
     let options = QueryExecutionOptions {
         output_mode: query_output_mode(view.definition.output),
@@ -91,11 +86,14 @@ pub(crate) fn run_rebuild_worker(
     };
     let query_response = execute_and_shape_query(&connection, &validated, &options)
         .map_err(|source| source.to_string())?;
+    let link_targets = load_link_target_locations(&connection, &query_response.results)
+        .map_err(|source| source.to_string())?;
     let response = spec
         .build_response(
             state.database_id.clone(),
             state.generation,
             query_response.results,
+            &link_targets,
         )
         .map_err(|source| source.to_string())?;
     connection
@@ -176,19 +174,6 @@ fn query_output_mode(output: PresentationViewOutputMode) -> QueryOutputMode {
     match output {
         PresentationViewOutputMode::Flat => QueryOutputMode::Flat,
         PresentationViewOutputMode::Outline => QueryOutputMode::Outline,
-    }
-}
-
-fn query_include(include: PresentationViewInclude) -> QueryInclude {
-    match include {
-        PresentationViewInclude::Path => QueryInclude::Path,
-        PresentationViewInclude::Properties => QueryInclude::Properties,
-        PresentationViewInclude::EffectiveProperties => QueryInclude::EffectiveProperties,
-        PresentationViewInclude::Keywords => QueryInclude::Keywords,
-        PresentationViewInclude::Links => QueryInclude::Links,
-        PresentationViewInclude::Backlinks => QueryInclude::Backlinks,
-        PresentationViewInclude::Source => QueryInclude::Source,
-        PresentationViewInclude::Target => QueryInclude::Target,
     }
 }
 

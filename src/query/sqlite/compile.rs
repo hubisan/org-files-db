@@ -377,6 +377,7 @@ pub(in crate::query::sqlite) fn compile_heading_predicate(
         ),
         "title" => compile_heading_title_predicate(scope, predicate),
         "level" => compile_level_predicate(scope, predicate),
+        "id" => compile_id_predicate(&scope.heading_col("id"), predicate),
         "file-name" => compile_text_predicate(
             QueryTarget::Headings,
             &sqlite_file_name_expr(&scope.file_col("path")),
@@ -501,6 +502,7 @@ pub(in crate::query::sqlite) fn compile_file_predicate(
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
     match predicate.name.as_str() {
+        "id" => compile_id_predicate(&scope.file_col("id"), predicate),
         "file-name" => compile_text_predicate(
             QueryTarget::Files,
             &sqlite_file_name_expr(&scope.file_col("path")),
@@ -608,6 +610,25 @@ pub(in crate::query::sqlite) fn compile_level_predicate(
         }
         _ => unreachable!("validator should guarantee valid level args"),
     }
+}
+
+pub(in crate::query::sqlite) fn compile_id_predicate(
+    column: &str,
+    predicate: &ValidatedPredicate,
+) -> Result<SqlFragment, QueryExecutionError> {
+    let params = predicate
+        .args
+        .iter()
+        .map(|arg| match arg {
+            ValidatedArg::Scalar(QueryValue::Integer(value)) => QueryParam::Integer(*value),
+            _ => unreachable!("validator should guarantee integer id args"),
+        })
+        .collect::<Vec<_>>();
+    let placeholders = vec!["?"; params.len()].join(", ");
+    Ok(SqlFragment {
+        sql: format!("({column} IN ({placeholders}))"),
+        params,
+    })
 }
 
 pub(in crate::query::sqlite) fn compile_priority_predicate(

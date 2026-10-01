@@ -73,6 +73,86 @@ fn query_invalid_is_json() {
     assert_eq!(json_error(&stderr)["kind"], "query-invalid");
 }
 
+fn run_stdout(args: &[&str]) -> (i32, String, String) {
+    let output = Command::new(env!("CARGO_BIN_EXE_orgfdb"))
+        .args(args)
+        .output()
+        .expect("run orgfdb");
+    (
+        output.status.code().expect("exit code"),
+        String::from_utf8(output.stdout).expect("utf8 stdout"),
+        String::from_utf8(output.stderr).expect("utf8 stderr"),
+    )
+}
+
+#[test]
+fn query_index_guard_passes_on_match_and_fails_with_stale_index() {
+    let dir = tempdir("guard");
+    let config = build_index(&dir);
+    let (code, stdout, stderr) = run_stdout(&[
+        "query",
+        "--format",
+        "presentation-json",
+        "--presentation-spec-json",
+        r#"{"columns":[{"name":"title"}]}"#,
+        "--config",
+        &config,
+        "(headings)",
+    ]);
+    assert_eq!(code, 0, "{stderr}");
+    let state: Value = serde_json::from_str(&stdout).expect("presentation JSON");
+    let database_id = state["database_id"]
+        .as_str()
+        .expect("database_id")
+        .to_string();
+    let generation = state["generation"]
+        .as_i64()
+        .expect("generation")
+        .to_string();
+
+    for format in [None, Some("presentation-json")] {
+        let mut base = vec!["query"];
+        if let Some(format) = format {
+            base.extend([
+                "--format",
+                format,
+                "--presentation-spec-json",
+                r#"{"columns":[{"name":"title"}]}"#,
+            ]);
+        }
+        base.extend(["--config", &config]);
+
+        let mut matching = base.clone();
+        matching.extend([
+            "--expect-database-id",
+            &database_id,
+            "--expect-generation",
+            &generation,
+            "(headings)",
+        ]);
+        let (code, _, stderr) = run_stdout(&matching);
+        assert_eq!(code, 0, "{stderr}");
+
+        for guard in [
+            ["--expect-generation", "987654"],
+            ["--expect-database-id", "not-this-database"],
+        ] {
+            let mut stale = base.clone();
+            stale.extend(guard);
+            stale.extend(["--error-format", "json", "(headings)"]);
+            let (code, stdout, stderr) = run_stdout(&stale);
+            assert_eq!(code, 1, "{stderr}");
+            assert!(stdout.is_empty(), "no result output on a stale index");
+            let error = json_error(&stderr);
+            assert_eq!(error["kind"], "stale-index");
+            assert!(error["message"]
+                .as_str()
+                .unwrap()
+                .starts_with("stale index"));
+        }
+    }
+}
+
 #[test]
 fn search_disabled_is_json() {
     let dir = tempdir("search");

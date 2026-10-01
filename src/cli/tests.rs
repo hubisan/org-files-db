@@ -5,7 +5,7 @@ use super::{
     },
     error::CliError,
     listing::{headings_json_rows, headings_rows_for_json, links_json_rows, links_rows_for_json},
-    query::{presentation_response_with_restriction, query_json_response},
+    query::query_json_response,
     rebuild, run_with_args_and_writer,
     search::{search_json_rows, CliSearchScope, SearchError},
     view::presentation_view_definition,
@@ -16,7 +16,6 @@ use crate::db::{
     EffectiveTagRecord, FileRecordInput, HeadingRecord, LinkRecord, OutlinePathRecord,
     SchemaDefinition, TagRecord, CURRENT_SCHEMA_VERSION,
 };
-use crate::presentation::PresentationSpec;
 use crate::test_support::{write_file, TestDir};
 use clap::Parser;
 use rusqlite::Connection;
@@ -514,10 +513,14 @@ fn parses_rebuild_and_headings_arguments() {
             include,
             restrict_files_json,
             presentation_spec_json,
+            expect_database_id,
+            expect_generation,
             config,
             query,
         } => {
             assert!(format.json);
+            assert_eq!(expect_database_id, None);
+            assert_eq!(expect_generation, None);
             assert_eq!(format.selected(), CliQueryOutputFormat::Json);
             assert_eq!(output, CliQueryOutput::Outline);
             assert_eq!(
@@ -995,32 +998,132 @@ fn query_presentation_format_uses_shared_query_validation() {
 }
 
 #[test]
-fn query_presentation_combines_explicit_and_inferred_includes() {
-    let test_dir = TestDir::new("presentation-inferred-includes");
+fn query_presentation_emits_slim_action_records_for_every_result_kind() {
+    let test_dir = TestDir::new("presentation-action-records");
     let config_path = write_query_fixture(&test_dir);
-    let spec = PresentationSpec::parse_json(
-        r#"{
-            "columns":[{"name":"file-name"}],
-            "sort":[{"column":"outline-path"}]
-        }"#,
-    )
-    .expect("presentation specification should parse");
-
-    let response = presentation_response_with_restriction(
-        "(headings (todo \"NEXT\"))",
-        CliQueryOutput::Flat,
-        &[CliQueryInclude::Links],
-        Some(&config_path),
-        None,
-        &spec,
-    )
-    .expect("query should combine explicit and inferred includes");
-
-    let crate::query::QueryResultNode::Heading(node) = &response.results[0] else {
-        panic!("expected heading result");
+    let config = config_path.display().to_string();
+    let run = |query: &str, extra: &[&str]| -> Value {
+        let mut args = vec![
+            "orgfdb".to_string(),
+            "query".to_string(),
+            "--format".to_string(),
+            "presentation-json".to_string(),
+            "--presentation-spec-json".to_string(),
+            r#"{"columns":[{"name":"file-name"}]}"#.to_string(),
+        ];
+        args.extend(extra.iter().map(|arg| arg.to_string()));
+        args.extend(["--config".to_string(), config.clone(), query.to_string()]);
+        serde_json::from_slice(&run_cli_output(args).expect("presentation query should succeed"))
+            .expect("presentation output should be JSON")
     };
-    assert!(node.node_path.is_some());
-    assert!(node.links.is_some());
+    let json = |query: &str| -> Value {
+        let response = query_json_response(query, CliQueryOutput::Flat, &[], Some(&config_path))
+            .expect("json query should succeed");
+        serde_json::to_value(response).expect("query response should serialize")
+    };
+
+    // Headings and roots: [kind, id, file, line, byte_start]; files are deduplicated.
+    let headings = run("(headings)", &[]);
+    assert_eq!(headings["presentation_version"], 3);
+    let normal = json("(headings)");
+    let files = headings["files"].as_array().expect("files table");
+    let normal_results = normal["results"].as_array().expect("results");
+    assert_eq!(
+        headings["results"].as_array().unwrap().len(),
+        normal_results.len()
+    );
+    assert_eq!(files.len(), 2);
+    for (record, node) in headings["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip(normal_results)
+    {
+        let kind = ["root", "heading", "file", "link"][record[0].as_u64().unwrap() as usize];
+        assert_eq!(kind, node["kind"]);
+        assert_eq!(record[1], node["id"]);
+        assert_eq!(
+            files[record[2].as_u64().unwrap() as usize],
+            node["location"]["file_path"]
+        );
+        assert_eq!(record[3], node["location"]["line"]);
+        assert_eq!(record[4], node["location"]["byte_start"]);
+        assert_eq!(record.as_array().unwrap().len(), 5);
+    }
+
+    // Files.
+    let file_results = run("(files)", &[]);
+    let normal_files = json("(files)");
+    for (record, node) in file_results["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip(normal_files["results"].as_array().unwrap())
+    {
+        assert_eq!(record[0], 2);
+        assert_eq!(record[1], node["id"]);
+        assert_eq!(record.as_array().unwrap().len(), 5);
+    }
+
+    // Links: resolved ones carry the target, the broken one carries nulls.
+    let links = run("(links)", &[]);
+    let normal_links = json("(links)");
+    let link_files = links["files"].as_array().unwrap();
+    let mut resolved = 0;
+    let mut unresolved = 0;
+    for (record, node) in links["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip(normal_links["results"].as_array().unwrap())
+    {
+        assert_eq!(record[0], 3);
+        assert_eq!(record[1], node["id"]);
+        assert_eq!(record[3], node["location"]["line"]);
+        assert_eq!(record.as_array().unwrap().len(), 8);
+        if node["resolution_status"] == "resolved" {
+            resolved += 1;
+            let target_path = link_files[record[5].as_u64().unwrap() as usize]
+                .as_str()
+                .unwrap();
+            assert!(target_path.ends_with("notes.org"), "{target_path}");
+            assert!(record[6].is_i64());
+        } else {
+            unresolved += 1;
+            assert_eq!(
+                &record.as_array().unwrap()[5..],
+                &[Value::Null, Value::Null, Value::Null]
+            );
+        }
+    }
+    assert!(resolved >= 2 && unresolved >= 1, "{resolved} {unresolved}");
+
+    // A heading target resolves to the heading line and byte offset.
+    let notes_heading = json(r#"(headings (title "SQLite notes" :exact t))"#);
+    let heading = &notes_heading["results"][0];
+    let heading_link = links["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip(normal_links["results"].as_array().unwrap())
+        .find(|(_, node)| node["target_heading_id"] == heading["id"])
+        .expect("a link targets the SQLite notes heading")
+        .0;
+    assert_eq!(heading_link[6], heading["location"]["line"]);
+    assert_eq!(heading_link[7], heading["location"]["byte_start"]);
+
+    // --include adds nothing to the presentation response.
+    assert_eq!(
+        run(
+            "(links)",
+            &["--include", "path,links,backlinks,source,target"]
+        ),
+        links
+    );
+    assert_eq!(
+        run("(headings)", &["--include", "path,links,properties"]),
+        headings
+    );
 }
 
 #[test]
@@ -1050,11 +1153,11 @@ fn query_presentation_format_emits_complete_compact_output() {
 
     let text = std::str::from_utf8(&output).expect("presentation output should be UTF-8");
     assert_eq!(text.lines().count(), 1);
-    assert!(text.starts_with("{\"presentation_version\":2,"));
+    assert!(text.starts_with("{\"presentation_version\":3,"));
 
     let response: Value =
         serde_json::from_slice(&output).expect("presentation output should be valid JSON");
-    assert_eq!(response["presentation_version"], 2);
+    assert_eq!(response["presentation_version"], 3);
     assert!(!response["database_id"]
         .as_str()
         .expect("database_id should be a string")
@@ -1150,9 +1253,16 @@ fn query_presentation_expands_keyword_rows_with_inferred_data() {
     let rows = response["rows"]
         .as_array()
         .expect("presentation rows should be an array");
+    let files = response["files"]
+        .as_array()
+        .expect("presentation files should be an array");
     let projects_index = results
         .iter()
-        .position(|result| result["name"].as_str() == Some("projects.org"))
+        .position(|result| {
+            files[result[2].as_u64().expect("file index") as usize]
+                .as_str()
+                .is_some_and(|path| path.ends_with("projects.org"))
+        })
         .expect("projects result should exist");
     let project_rows = rows
         .iter()

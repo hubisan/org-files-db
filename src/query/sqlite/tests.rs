@@ -2705,6 +2705,7 @@ fn every_validator_predicate_has_an_executed_query() {
         ("title", r#"(headings (title "Query Engine"))"#),
         ("has-text", r#"(headings (has-text "query"))"#),
         ("level", r#"(headings (level 1))"#),
+        ("id", r#"(headings (id 11))"#),
         ("priority", r#"(headings (priority "A"))"#),
         ("tags", r#"(headings (tags "query"))"#),
         ("property", r#"(headings (property "ID"))"#),
@@ -2799,6 +2800,46 @@ fn every_validator_predicate_has_an_executed_query() {
         vec![101]
     );
     assert!(links(r#"(links (link-description "No such text" :exact t))"#).is_empty());
+}
+
+#[test]
+fn id_predicate_matches_database_ids_for_every_target() {
+    let connection = seeded_connection();
+    let run =
+        |query: &str| execute_sqlite_query(&connection, &validated(query)).expect("query runs");
+
+    assert_eq!(heading_ids(run("(headings (id 11 13 999))")), vec![11, 13]);
+    assert_eq!(
+        heading_ids(run("(headings (and (id 11 13) (not (id 13))))")),
+        vec![11]
+    );
+    assert_eq!(
+        heading_ids(run(r#"(headings (and (id 11 12 13) (todo)))"#)),
+        vec![11]
+    );
+    // A level-0 id returns the root row of its file, not a heading.
+    match run("(headings (id 10))") {
+        QueryRows::Headings(rows) => {
+            assert_eq!(rows.len(), 1);
+            assert!(matches!(&rows[0], HeadingQueryMatch::File(row) if row.root_heading_id == 10));
+        }
+        other => panic!("expected heading rows, got {other:?}"),
+    }
+
+    let QueryRows::Files(all_files) = run("(files)") else {
+        panic!("expected file rows");
+    };
+    let first = all_files.first().expect("seeded files exist");
+    let (first_id, first_path) = (first.id, first.path.clone());
+    assert_eq!(
+        file_paths(run(&format!("(files (id {first_id} 987654))"))),
+        vec![first_path]
+    );
+    assert!(file_paths(run("(files (id 987654))")).is_empty());
+
+    assert_eq!(link_ids(run("(links (id 101 777))")), vec![101]);
+    assert_eq!(link_ids(run("(links (id 100 101))")), vec![100, 101]);
+    assert!(link_ids(run("(links (id 777))")).is_empty());
 }
 
 #[test]

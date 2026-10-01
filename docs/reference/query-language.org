@@ -359,6 +359,30 @@ Examples:
 
 The synthetic file root uses level ~0~.
 
+** ~id~
+
+~id~ matches objects by database id. It is valid for ~headings~, ~files~ and ~links~ and takes one or more integer ids.
+
+#+begin_src lisp
+(id N ...)
+#+end_src
+
+Examples:
+
+#+begin_src lisp
+(headings (id 42))
+(headings (id 42 57 91))
+(files (id 3))
+(links (id 7 8))
+(headings (and (id 42 57) (todo)))
+#+end_src
+
+An id that does not exist matches nothing. ~id~ combines with every other predicate and with ~not~, ~and~ and ~or~ as usual.
+
+The id is the ~id~ field of the normal query result. In a ~headings~ query it is the heading id. A synthetic file root (level ~0~) is a file-shaped result whose ~id~ is the file id, so reload it with the ~files~ target.
+
+Database ids are only valid for one database generation. A client that loads objects by id passes ~--expect-database-id~ and ~--expect-generation~ to ~orgfdb query~ so that a changed index fails with ~stale-index~ instead of returning other objects. Read [[../cli.org][CLI Reference]].
+
 ** ~priority~
 
 Supported forms are:
@@ -756,6 +780,7 @@ Broken, unresolved, ambiguous, and unsupported links do not match a structured t
 
 The ~files~ target supports:
 
+- ~id~
 - ~file-name~
 - ~file-path~
 - ~file-dir~

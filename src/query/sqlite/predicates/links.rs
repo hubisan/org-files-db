@@ -125,6 +125,7 @@ pub(in crate::query::sqlite) fn compile_link_predicate(
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
     match predicate.name.as_str() {
+        "id" => compile_id_predicate(&scope.link_col("id"), predicate),
         "link-type" => compile_in_list(
             QueryTarget::Links,
             &scope.link_col("link_type"),

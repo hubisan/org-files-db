@@ -202,6 +202,7 @@ fn validate_call(
         },
         "has-text" => validate_has_text(call, target, options),
         "level" => validate_level(call, target),
+        "id" => validate_id(call, target),
         "priority" => validate_priority(call, target),
         "tags" => validate_tags(call, target, options),
         "property" => validate_property(call, target, options),
@@ -342,6 +343,34 @@ fn validate_level(
         }
     }
 
+    Ok(validated_predicate(target, call.name, args, options))
+}
+
+fn validate_id(
+    call: PredicateCall,
+    target: QueryTarget,
+) -> Result<ValidatedPredicate, QueryValidationError> {
+    let options = validate_options(target, &call.name, &call.options, &[])?;
+    let args = validate_all_scalar(target, &call.name, &call.args)?;
+    if args.is_empty() {
+        return Err(QueryValidationError::new(
+            QueryValidationErrorKind::WrongArity,
+            target,
+            "id",
+            "id expects one or more integer database ids",
+        ));
+    }
+    if args
+        .iter()
+        .any(|arg| !matches!(arg, ValidatedArg::Scalar(QueryValue::Integer(_))))
+    {
+        return Err(QueryValidationError::new(
+            QueryValidationErrorKind::InvalidValue,
+            target,
+            "id",
+            "id expects integer database ids",
+        ));
+    }
     Ok(validated_predicate(target, call.name, args, options))
 }
 
@@ -1167,6 +1196,7 @@ fn predicate_is_known_globally(name: &str) -> bool {
             | "title"
             | "has-text"
             | "level"
+            | "id"
             | "priority"
             | "tags"
             | "property"

@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, error::Error, fmt, path::Path};
+use std::{cmp::Ordering, collections::HashMap, error::Error, fmt, path::Path};
 
 use rayon::prelude::*;
 use serde::{
@@ -6,7 +6,9 @@ use serde::{
     Deserialize, Serialize, Serializer,
 };
 
-use crate::query::{PathEntry, QueryInclude, QueryResultNode, QueryTarget};
+use crate::query::{
+    LinkTargetLocation, PathEntry, QueryInclude, QueryResultKind, QueryResultNode, QueryTarget,
+};
 
 const DEFAULT_TRUNCATION_MARKER: &str = "…";
 const DEFAULT_OUTLINE_SEPARATOR: &str = " » ";
@@ -41,7 +43,7 @@ const TARGET_INCLUDE: &[QueryInclude] = &[QueryInclude::Target];
 const EFFECTIVE_PROPERTIES_INCLUDE: &[QueryInclude] = &[QueryInclude::EffectiveProperties];
 const KEYWORDS_INCLUDE: &[QueryInclude] = &[QueryInclude::Keywords];
 
-pub const PRESENTATION_VERSION: u32 = 2;
+pub const PRESENTATION_VERSION: u32 = 3;
 
 const PRESENTATION_ROLE_VALUES: &[&str] = &[
     "heading",
@@ -64,8 +66,114 @@ pub struct PresentationResponse {
     pub presentation_version: u32,
     pub database_id: String,
     pub generation: i64,
-    pub results: Vec<QueryResultNode>,
+    pub files: Vec<String>,
+    pub results: Vec<PresentationActionRecord>,
     pub rows: Vec<PresentationRow>,
+}
+
+/// Kinds of action records in wire order. The index is the record's `kind`.
+const PRESENTATION_RESULT_KINDS: &[QueryResultKind] = &[
+    QueryResultKind::Root,
+    QueryResultKind::Heading,
+    QueryResultKind::File,
+    QueryResultKind::Link,
+];
+
+fn presentation_result_kind_index(kind: QueryResultKind) -> usize {
+    PRESENTATION_RESULT_KINDS
+        .iter()
+        .position(|candidate| *candidate == kind)
+        .expect("every result kind has a wire index")
+}
+
+/// Where a result lives in its source file. `file` indexes the response's
+/// `files` table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PresentationLocation {
+    pub file: usize,
+    pub line: Option<i64>,
+    pub byte_start: Option<i64>,
+}
+
+/// The slim per-result record clients keep for actions on a selected row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresentationActionRecord {
+    pub kind: QueryResultKind,
+    pub id: i64,
+    pub location: PresentationLocation,
+    /// Link records only: the resolved target, or `None` for an unresolved link.
+    pub target: Option<PresentationLocation>,
+}
+
+impl Serialize for PresentationActionRecord {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let is_link = self.kind == QueryResultKind::Link;
+        let mut seq = serializer.serialize_seq(Some(if is_link { 8 } else { 5 }))?;
+        seq.serialize_element(&presentation_result_kind_index(self.kind))?;
+        seq.serialize_element(&self.id)?;
+        seq.serialize_element(&self.location.file)?;
+        seq.serialize_element(&self.location.line)?;
+        seq.serialize_element(&self.location.byte_start)?;
+        if is_link {
+            seq.serialize_element(&self.target.map(|target| target.file))?;
+            seq.serialize_element(&self.target.and_then(|target| target.line))?;
+            seq.serialize_element(&self.target.and_then(|target| target.byte_start))?;
+        }
+        seq.end()
+    }
+}
+
+/// Builds the deduplicated `files` table and one action record per top-level
+/// result. `link_targets` supplies the resolved target of link results.
+pub fn build_action_records(
+    results: &[QueryResultNode],
+    link_targets: &HashMap<i64, LinkTargetLocation>,
+) -> (Vec<String>, Vec<PresentationActionRecord>) {
+    let mut files = Vec::<String>::new();
+    let mut file_indexes = HashMap::<String, usize>::new();
+    let mut file_index = |path: &str| -> usize {
+        if let Some(index) = file_indexes.get(path) {
+            return *index;
+        }
+        let index = files.len();
+        files.push(path.to_string());
+        file_indexes.insert(path.to_string(), index);
+        index
+    };
+
+    let records = results
+        .iter()
+        .map(|result| {
+            let (kind, id, location, target) = match result {
+                QueryResultNode::File(node) => (node.kind, node.id, &node.location, None),
+                QueryResultNode::Heading(node) => (node.kind, node.id, &node.location, None),
+                QueryResultNode::Link(node) => (
+                    node.kind,
+                    node.id,
+                    &node.location,
+                    link_targets.get(&node.id),
+                ),
+            };
+            PresentationActionRecord {
+                kind,
+                id,
+                location: PresentationLocation {
+                    file: file_index(&location.file_path),
+                    line: location.line,
+                    byte_start: location.byte_start,
+                },
+                target: target.map(|target| PresentationLocation {
+                    file: file_index(&target.file_path),
+                    line: target.line,
+                    byte_start: target.byte_start,
+                }),
+            }
+        })
+        .collect();
+    (files, records)
 }
 
 impl Serialize for PresentationResponse {
@@ -73,10 +181,11 @@ impl Serialize for PresentationResponse {
     where
         S: Serializer,
     {
-        let mut map = serializer.serialize_map(Some(6))?;
+        let mut map = serializer.serialize_map(Some(7))?;
         map.serialize_entry("presentation_version", &self.presentation_version)?;
         map.serialize_entry("database_id", &self.database_id)?;
         map.serialize_entry("generation", &self.generation)?;
+        map.serialize_entry("files", &self.files)?;
         map.serialize_entry("results", &self.results)?;
         map.serialize_entry("schemas", &PresentationWireSchemas)?;
         map.serialize_entry("rows", &PresentationWireRows(&self.rows))?;
@@ -91,13 +200,61 @@ impl Serialize for PresentationWireSchemas {
     where
         S: Serializer,
     {
-        let mut map = serializer.serialize_map(Some(6))?;
+        let mut map = serializer.serialize_map(Some(9))?;
+        map.serialize_entry("result_kinds", &PresentationWireResultKinds)?;
+        map.serialize_entry("result_shapes", &PresentationWireResultShapes)?;
+        map.serialize_entry("result_file_encoding", "index-into-files")?;
         map.serialize_entry("row_fields", &["result_index", "row_context", "cells"])?;
         map.serialize_entry("cell_fields", &["search_text", "display_text", "role"])?;
         map.serialize_entry("row_context_shapes", &PresentationWireRowContextShapes)?;
         map.serialize_entry("display_text_null", "same-as-search_text")?;
         map.serialize_entry("role_encoding", "null-or-index-into-role_values")?;
         map.serialize_entry("role_values", PRESENTATION_ROLE_VALUES)?;
+        map.end()
+    }
+}
+
+struct PresentationWireResultKinds;
+
+impl Serialize for PresentationWireResultKinds {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(PRESENTATION_RESULT_KINDS.len()))?;
+        for kind in PRESENTATION_RESULT_KINDS {
+            seq.serialize_element(kind.as_str())?;
+        }
+        seq.end()
+    }
+}
+
+struct PresentationWireResultShapes;
+
+impl Serialize for PresentationWireResultShapes {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        const LOCATED: [&str; 5] = ["kind", "id", "file", "line", "byte_start"];
+        const LINK: [&str; 8] = [
+            "kind",
+            "id",
+            "file",
+            "line",
+            "byte_start",
+            "target_file",
+            "target_line",
+            "target_byte_start",
+        ];
+        let mut map = serializer.serialize_map(Some(PRESENTATION_RESULT_KINDS.len()))?;
+        for kind in PRESENTATION_RESULT_KINDS {
+            if *kind == QueryResultKind::Link {
+                map.serialize_entry(kind.as_str(), &LINK)?;
+            } else {
+                map.serialize_entry(kind.as_str(), &LOCATED)?;
+            }
+        }
         map.end()
     }
 }
@@ -238,13 +395,15 @@ impl PresentationResponse {
     pub fn new(
         database_id: impl Into<String>,
         generation: i64,
-        results: Vec<QueryResultNode>,
+        files: Vec<String>,
+        results: Vec<PresentationActionRecord>,
         rows: Vec<PresentationRow>,
     ) -> Self {
         Self {
             presentation_version: PRESENTATION_VERSION,
             database_id: database_id.into(),
             generation,
+            files,
             results,
             rows,
         }
@@ -395,18 +554,6 @@ impl PresentationSpec {
         if let Some(row_source) = self.row_source {
             append_unique_includes(&mut includes, row_source.kind.required_includes());
         }
-        Ok(includes)
-    }
-
-    pub fn combined_includes_for_query_target(
-        &self,
-        target: QueryTarget,
-        explicit: &[QueryInclude],
-    ) -> Result<Vec<QueryInclude>, PresentationSpecError> {
-        let mut includes = Vec::new();
-        append_unique_includes(&mut includes, explicit);
-        let inferred = self.required_includes_for_query_target(target)?;
-        append_unique_includes(&mut includes, &inferred);
         Ok(includes)
     }
 
@@ -821,6 +968,7 @@ impl PresentationSpec {
         database_id: impl Into<String>,
         generation: i64,
         results: Vec<QueryResultNode>,
+        link_targets: &HashMap<i64, LinkTargetLocation>,
     ) -> Result<PresentationResponse, PresentationBuildError> {
         let rows = self
             .expand_rows(&results)
@@ -850,10 +998,12 @@ impl PresentationSpec {
                 .map_err(PresentationBuildError::Layout)?
         };
 
+        let (files, records) = build_action_records(&results, link_targets);
         Ok(PresentationResponse::new(
             database_id,
             generation,
-            results,
+            files,
+            records,
             rows,
         ))
     }
@@ -2242,15 +2392,17 @@ impl Error for PresentationSpecError {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use crate::query::result::{FilePathEntry, FileRef, HeadingPathEntry, HeadingRef};
     use crate::query::{
         EffectivePropertyFact, FileResultNode, HeadingResultNode, KeywordFact, LinkResultNode,
-        LinkTarget, Location, PathEntry, QueryInclude, QueryResultKind, QueryResultNode,
-        QueryTarget,
+        LinkTarget, LinkTargetLocation, Location, PathEntry, QueryInclude, QueryResultKind,
+        QueryResultNode, QueryTarget,
     };
 
     use super::{
-        presentation_role_index, presentation_should_parallel_layout,
+        build_action_records, presentation_role_index, presentation_should_parallel_layout,
         presentation_should_parallel_sort, PresentationCell, PresentationColumn,
         PresentationResponse, PresentationResultKind, PresentationRole, PresentationRoleRule,
         PresentationRow, PresentationRowContext, PresentationRowSourceKind,
@@ -2450,10 +2602,12 @@ mod tests {
 
     #[test]
     fn wire_response_separates_results_rows_and_visible_cells() {
+        let (files, results) = build_action_records(&[file_result(7, "project")], &HashMap::new());
         let response = PresentationResponse::new(
             "00000000-0000-4000-8000-000000000001",
             42,
-            vec![file_result(7, "project")],
+            files,
+            results,
             vec![PresentationRow {
                 result_index: 0,
                 row_context: None,
@@ -2498,11 +2652,77 @@ mod tests {
     }
 
     #[test]
+    fn action_records_encode_each_kind_deduplicate_files_and_resolve_link_targets() {
+        let heading = heading_result();
+        let mut root = file_result(5, "root");
+        let QueryResultNode::File(root_node) = &mut root else {
+            unreachable!("file_result should return a file");
+        };
+        root_node.kind = QueryResultKind::Root;
+        root_node.location.file_path = "/notes/notes.org".to_string();
+        let file = file_result(6, "other");
+        let resolved = link_result();
+        let mut unresolved = link_result();
+        let QueryResultNode::Link(unresolved_node) = &mut unresolved else {
+            unreachable!("link_result should return a link");
+        };
+        unresolved_node.id = 22;
+        unresolved_node.resolution_status = Some("broken".to_string());
+        let link_targets = HashMap::from([(
+            21,
+            LinkTargetLocation {
+                file_path: "/notes/target.org".to_string(),
+                line: Some(3),
+                byte_start: Some(40),
+            },
+        )]);
+
+        let (files, records) =
+            build_action_records(&[heading, root, file, resolved, unresolved], &link_targets);
+        let response = PresentationResponse::new("db", 1, files, records, Vec::new());
+        let value = serde_json::to_value(&response).expect("response should serialize");
+
+        assert_eq!(
+            value["files"],
+            serde_json::json!(["/notes/notes.org", "/notes/other.org", "/notes/target.org"])
+        );
+        assert_eq!(
+            value["results"],
+            serde_json::json!([
+                [1, 12, 0, 12, 100],
+                [0, 5, 0, 1, null],
+                [2, 6, 1, 1, null],
+                [3, 21, 0, 12, 100, 2, 3, 40],
+                [3, 22, 0, 12, 100, null, null, null],
+            ])
+        );
+        assert_eq!(
+            value["schemas"]["result_kinds"],
+            serde_json::json!(["root", "heading", "file", "link"])
+        );
+        assert_eq!(
+            value["schemas"]["result_shapes"],
+            serde_json::json!({
+                "root": ["kind", "id", "file", "line", "byte_start"],
+                "heading": ["kind", "id", "file", "line", "byte_start"],
+                "file": ["kind", "id", "file", "line", "byte_start"],
+                "link": [
+                    "kind", "id", "file", "line", "byte_start",
+                    "target_file", "target_line", "target_byte_start"
+                ],
+            })
+        );
+        assert_eq!(value["schemas"]["result_file_encoding"], "index-into-files");
+    }
+
+    #[test]
     fn several_rows_can_reference_one_result_with_structured_contexts() {
+        let (files, results) = build_action_records(&[file_result(11, "notes")], &HashMap::new());
         let response = PresentationResponse::new(
             "00000000-0000-4000-8000-000000000001",
             9,
-            vec![file_result(11, "notes")],
+            files,
+            results,
             vec![
                 PresentationRow {
                     result_index: 0,
@@ -2553,10 +2773,12 @@ mod tests {
 
     #[test]
     fn wire_response_uses_null_display_sentinel_for_equal_text() {
+        let (files, results) = build_action_records(&[file_result(1, "notes")], &HashMap::new());
         let response = PresentationResponse::new(
             "00000000-0000-4000-8000-000000000001",
             1,
-            vec![file_result(1, "notes")],
+            files,
+            results,
             vec![PresentationRow {
                 result_index: 0,
                 row_context: None,
@@ -3017,7 +3239,7 @@ mod tests {
     }
 
     #[test]
-    fn row_source_and_hidden_sort_includes_are_inferred_and_combined() {
+    fn row_source_and_hidden_sort_includes_are_inferred() {
         let spec = PresentationSpec::parse_json(
             r#"{
                 "columns":[{"name":"file-name"}],
@@ -3031,18 +3253,6 @@ mod tests {
             spec.required_includes_for_query_target(QueryTarget::Headings)
                 .expect("presentation includes should derive"),
             vec![QueryInclude::Path, QueryInclude::EffectiveProperties]
-        );
-        assert_eq!(
-            spec.combined_includes_for_query_target(
-                QueryTarget::Headings,
-                &[QueryInclude::Links, QueryInclude::Path]
-            )
-            .expect("explicit and inferred includes should combine"),
-            vec![
-                QueryInclude::Links,
-                QueryInclude::Path,
-                QueryInclude::EffectiveProperties
-            ]
         );
     }
 
@@ -3602,10 +3812,13 @@ mod tests {
         .expect("tag presentation should parse");
 
         let response = spec
-            .build_response("database-id", 7, vec![result])
+            .build_response("database-id", 7, vec![result], &HashMap::new())
             .expect("tag rows should build");
 
-        assert_eq!(response.results, vec![original]);
+        assert_eq!(
+            response.results,
+            build_action_records(&[original], &HashMap::new()).1
+        );
         assert_eq!(response.rows.len(), 2);
         assert!(response.rows.iter().all(|row| row.result_index == 0));
         assert_eq!(
@@ -3640,10 +3853,10 @@ mod tests {
         .expect("tag presentation should parse");
 
         let response = spec
-            .build_response("database-id", 7, vec![result.clone()])
+            .build_response("database-id", 7, vec![result.clone()], &HashMap::new())
             .expect("empty tag source should build");
 
-        assert_eq!(response.results, vec![result]);
+        assert_eq!(response.results.len(), 1);
         assert!(response.rows.is_empty());
     }
 
@@ -3676,7 +3889,7 @@ mod tests {
         .expect("property presentation should parse");
 
         let response = spec
-            .build_response("database-id", 7, vec![result])
+            .build_response("database-id", 7, vec![result], &HashMap::new())
             .expect("property rows should build");
 
         assert_eq!(response.rows.len(), 2);
@@ -3722,7 +3935,7 @@ mod tests {
         .expect("keyword presentation should parse");
 
         let response = spec
-            .build_response("database-id", 7, vec![result])
+            .build_response("database-id", 7, vec![result], &HashMap::new())
             .expect("keyword rows should build");
 
         assert_eq!(response.rows.len(), 3);
@@ -3760,7 +3973,7 @@ mod tests {
         .expect("hidden tag sort should parse");
 
         let response = spec
-            .build_response("database-id", 7, vec![result])
+            .build_response("database-id", 7, vec![result], &HashMap::new())
             .expect("expanded rows should sort");
 
         assert_eq!(
@@ -3793,7 +4006,7 @@ mod tests {
         .expect("property presentation should parse");
 
         let error = spec
-            .build_response("database-id", 7, vec![result])
+            .build_response("database-id", 7, vec![result], &HashMap::new())
             .expect_err("missing effective property data should fail");
         assert_eq!(
             error.to_string(),
@@ -3884,12 +4097,15 @@ mod tests {
         .expect("presentation should parse");
 
         let response = spec
-            .build_response("database-id", 7, results.clone())
+            .build_response("database-id", 7, results.clone(), &HashMap::new())
             .expect("presentation response should build");
 
         assert_eq!(response.database_id, "database-id");
         assert_eq!(response.generation, 7);
-        assert_eq!(response.results, results);
+        assert_eq!(
+            response.results,
+            build_action_records(&results, &HashMap::new()).1
+        );
         assert_eq!(response.rows.len(), 2);
         assert_eq!(response.rows[0].result_index, 1);
         assert_eq!(response.rows[1].result_index, 0);
