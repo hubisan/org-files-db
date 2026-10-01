@@ -30,7 +30,7 @@ mod view;
 
 use args::{Cli, CliOutputFormat, CliQueryOutputFormat, Command};
 use clap::Parser;
-use error::CliError;
+use error::{CliError, ErrorFormat};
 use listing::{headings_json_rows, links_json_rows};
 use query::{
     parse_query_presentation_spec, presentation_response_with_restriction,
@@ -45,12 +45,14 @@ pub(crate) use search::{
 use view::run_view_command;
 
 pub fn run() -> ExitCode {
+    let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    let error_format = ErrorFormat::from_args(&args);
     let stdout = io::stdout();
     let mut handle = stdout.lock();
-    match run_with_args_and_writer(std::env::args_os(), &mut handle) {
+    match run_with_args_and_writer(args, &mut handle) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("{error}");
+            eprintln!("{}", error.render(error_format));
             ExitCode::from(error.exit_code())
         }
     }
@@ -71,6 +73,10 @@ where
         }
         Err(error) => return Err(CliError::Parse(error)),
     };
+    let error_format = match cli.error_format {
+        args::CliErrorFormat::Text => ErrorFormat::Text,
+        args::CliErrorFormat::Json => ErrorFormat::Json,
+    };
     match cli.command {
         Command::Rebuild {
             config,
@@ -78,7 +84,7 @@ where
             accept_source_root_changes,
         } => {
             let report = rebuild_with_options(&config, allow_empty, accept_source_root_changes)?;
-            print_diagnostics(&report);
+            print_diagnostics(&report, error_format);
             Ok(())
         }
         Command::Watch { config } => {
@@ -310,12 +316,29 @@ fn write_compact_json_output<T: Serialize>(
     writer.write_all(b"\n").map_err(CliError::Io)
 }
 
-fn print_diagnostics(report: &RebuildReport) {
+fn print_diagnostics(report: &RebuildReport, format: ErrorFormat) {
     for diagnostic in &report.diagnostics {
-        let label = match diagnostic.severity {
-            crate::parser::DiagnosticSeverity::Warning => "warning",
-            crate::parser::DiagnosticSeverity::Error => "error",
-        };
+        let is_warning = matches!(
+            diagnostic.severity,
+            crate::parser::DiagnosticSeverity::Warning
+        );
+        if format == ErrorFormat::Json {
+            let mut body = serde_json::Map::new();
+            if !is_warning {
+                body.insert("kind".into(), "diagnostic".into());
+            }
+            body.insert("message".into(), diagnostic.message.clone().into());
+            if let Some(path) = &diagnostic.file_path {
+                body.insert("path".into(), path.display().to_string().into());
+            }
+            if let Some(line) = diagnostic.line_number {
+                body.insert("line".into(), line.into());
+            }
+            let key = if is_warning { "warning" } else { "error" };
+            eprintln!("{}", serde_json::json!({ key: body }));
+            continue;
+        }
+        let label = if is_warning { "warning" } else { "error" };
         match (&diagnostic.file_path, diagnostic.line_number) {
             (Some(path), Some(line)) => {
                 eprintln!("{label}: {}:{line}: {}", path.display(), diagnostic.message);
