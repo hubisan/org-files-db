@@ -469,6 +469,7 @@ mod tests {
             todo: Default::default(),
             search: Default::default(),
             query: Default::default(),
+            index: Default::default(),
         }
     }
 

@@ -1,0 +1,118 @@
+{
+  "file_path": "properties/file-level-keywords/fixture.org",
+  "metadata": {
+    "title": "File Property Keywords",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "File Property Keywords",
+        "line_number": 1
+      },
+      {
+        "key": "PROPERTY",
+        "value": "Effort_ALL 0:10 0:30 1:00",
+        "line_number": 3
+      },
+      {
+        "key": "PROPERTY",
+        "value": "var foo=1",
+        "line_number": 4
+      },
+      {
+        "key": "PROPERTY",
+        "value": "var+ bar=2",
+        "line_number": 5
+      },
+      {
+        "key": "CATEGORY",
+        "value": "project",
+        "line_number": 6
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "properties/file-level-keywords/fixture.org",
+      "level": 0,
+      "title": "File Property Keywords",
+      "title_raw": "File Property Keywords",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [
+        {
+          "key": "EFFORT_ALL",
+          "value": "0:10 0:30 1:00",
+          "source": "property_keyword",
+          "append": false,
+          "line_number": 3
+        },
+        {
+          "key": "VAR",
+          "value": "foo=1",
+          "source": "property_keyword",
+          "append": false,
+          "line_number": 4
+        },
+        {
+          "key": "VAR",
+          "value": "bar=2",
+          "source": "property_keyword",
+          "append": true,
+          "line_number": 5
+        },
+        {
+          "key": "CATEGORY",
+          "value": "project",
+          "source": "category_keyword",
+          "append": false,
+          "line_number": 6
+        }
+      ],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 142,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "properties/file-level-keywords/fixture.org",
+      "level": 1,
+      "title": "Task",
+      "title_raw": "Task",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 2,
+      "byte_start": 32,
+      "byte_end": 142,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}

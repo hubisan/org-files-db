@@ -1,0 +1,2 @@
+# classification: org-special-case
+# note: The parser model exposes a synthetic level-0/file-scope node before regular headings.

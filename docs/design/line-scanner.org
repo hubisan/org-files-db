@@ -1,11 +1,11 @@
 #+TITLE: Line Scanner
 #+STARTUP: showall
 
-This document describes the own line-based Org scanner that replaces Orgize in stages (#41). Stage 1 (#101) added the scanner next to the adapter. Stage 2 (#103, done) builds the production parse path, ~OrgizeAdapter~ in ~src/parser/orgize_adapter.rs~, from the scanner: every structural fact comes from it, and Orgize only reads inline details through ~src/parser/orgize_inline.rs~. Stage 3 replaces those details and removes the dependency.
+This document describes the own Org scanner that replaced Orgize in three stages (#41). Stage 1 (#101) added the line scanner next to the adapter. Stage 2 (#103) built the production parse path, ~OrgizeAdapter~ in ~src/parser/orgize_adapter.rs~, from the scanner: every structural fact comes from it. Stage 3 (#105, done) reads the inline objects with own code in ~src/parser/inline_scanner.rs~ and removed the ~orgize~ dependency.
 
 * Goal and scope
 
-Orgize is replaced because its node model deviates from Org in many small places (see the register in [[./parser-risks.org][Parser Risks]]) and because its recursive tree limits heading depth. The replacement is deliberately not a full Org parser. It reproduces what Emacs Org 9.6 reports for the facts the index stores (checked with Emacs 29.3, and by ~scripts/emacs-oracle.py~). Where the scanner and the former Orgize-based adapter disagreed, the scanner follows Emacs.
+Orgize was replaced because its node model deviates from Org in many small places (see the register in [[./parser-risks.org][Parser Risks]]) and because its recursive tree limits heading depth. The replacement is deliberately not a full Org parser. It reproduces what Emacs Org 9.6 reports for the facts the index stores (checked with Emacs 29.3, and by ~scripts/emacs-oracle.py~). Where the scanner and the former Orgize-based adapter disagreed, the scanner follows Emacs.
 
 The scanner has two stages. Both work on byte offsets into the UTF-8 source and are iterative, so nesting depth never grows the call stack.
 
@@ -66,7 +66,7 @@ The diagram is in [[./line-scanner.svg][line-scanner.svg]] (source: ~line-scanne
 - *Affiliated keywords.* ~#+NAME:~, ~#+CAPTION:~, ~#+HEADER:~, ~#+RESULTS:~, ~#+ATTR_x:~ and the other Org affiliated keywords belong to the next element when a non-empty line follows inside the same container. They are then no document keywords (the output lists them in ~affiliated~), and the element range starts at the first of them. A comment line after them is part of a paragraph, not a comment. Without a following element (a blank line, a headline or the end of the file after the whole chain of them) they are plain keywords (Emacs: ~#+NAME: n~ before ~#+TITLE: t~ gives only ~TITLE~; ~#+NAME: x~ before a blank line gives ~NAME~).
 - *Comments and fixed-width lines* form one region per run of consecutive lines.
 - *Line endings.* CRLF is handled in the lexer. A lone ~\r~ is part of the text.
-- *Depth.* The scanner returns an error for a headline deeper than ~MAX_HEADING_LEVEL~ (100, #44), which the adapter reports as a parse error naming level and line. Only ~^\*+ ~ lines count, wherever they stand, since Org reads a ~*~ line inside a block as a headline; ~**\tx~ is text and never counts. The scanner is iterative and does not need the limit for stack safety; it stays a product rule.
+- *Depth.* There is no depth limit, as in Org. The scanner is iterative, so any depth is stack-safe. Only ~^\*+ ~ lines are headlines, wherever they stand, since Org reads a ~*~ line inside a block as a headline; ~**\tx~ is text.
 
 ** Output model
 
@@ -91,13 +91,24 @@ The synthetic level-0 file root is not part of the scanner output. The adapter b
 - Body text: the section range without the planning line, the property drawer and the top-level keyword lines, each with the blank lines after it (Org's ~:post-blank~).
 - Link scanning: ignored ranges are keyword and affiliated lines, planning lines, comment and fixed-width runs, and the whole range of src, example, export and comment blocks; source contexts come from drawer, verse, quote, center and justify regions, property drawers and headline titles.
 
-* What still uses Orgize
+* Inline objects (stage 3)
 
-Only ~src/parser/orgize_inline.rs~ imports Orgize (and nothing else in the crate). It reads three inline details, and stage 3 has to replace exactly these.
+~src/parser/inline_scanner.rs~ reads what lies between the structure: timestamps and inline code, verbatim, inline source and export snippets (~scan_inline~), and the visible text of titles (~normalize_title_text~). It follows ~org-element~ (Org 9.6.15, checked with Emacs 29.3) the way the line scanner does: a unit of text is lexed forward and an object that starts earlier hides what lies inside it.
 
-- Timestamp nodes in headline titles and body text (role ~body~), and inline code, verbatim, inline source and snippet ranges, which link scanning skips (~scan_inline~). Orgize never parses the file: it gets a copy of the source with the same byte offsets in which headlines, planning lines, property drawers, keyword lines, comment and fixed-width runs, raw block regions and the begin and end lines of blocks, dynamic blocks and drawers are blanked, and all remaining structural-looking lines (unclosed begin lines, stray end lines, ~*~ followed by a tab) are defused. So Orgize builds no headline tree (no recursion, no depth limit from it) and never sees an empty quote, center or special block, on which it asserts in debug builds. Headline lines are parsed one by one, because emphasis may span lines of one paragraph.
-- Title normalization: markup characters dropped, statistics cookies removed, bracket links replaced by their description (~normalize_title_text~, ~render_link_description_for_title~). Titles without a markup character skip Orgize.
-- The conversion of Orgize timestamps into ~ParsedTimestamp~ (range type, time, modifiers from the raw text).
+Units. The body text comes from ~blanked_body_text~, a copy of the source with the same byte offsets in which everything the scanner knows as structure is blanked and every other structural-looking line is defused (unclosed begin lines, stray end lines, ~*~ followed by a tab). ~body_units~ cuts it into the texts in which Org parses objects:
+
+- paragraphs, which end at a blank line, a list item, a table row or rule, a horizontal rule, a footnote definition (~[fn:x]~ at the line start), a LaTeX environment with its end line, a clock line, or at a line that leaves the list item that holds the paragraph (indentation, tabs count to the next multiple of 8);
+- the text of a list item behind its bullet, counter and checkbox, and the tag of a description item (~- tag :: text~, for ~-~, ~+~ and ~*~ bullets only, at the last ~ ::~ of the line), each as a text of its own;
+- table cells (between the bars, blanks trimmed; a rule row has none), and no text at all in a table.el table (a full rule line, then lines that start with ~|~ or ~+~, ending in a rule, with more than one rule);
+- the content of a verse block as one text, blank lines included;
+- a clock line, in which only the timestamps count (Emacs keeps them in the ~:value~ of the clock element, so ~org-element-map~ does not list them; orgfdb has always stored them as body timestamps);
+- a headline title: the text behind the TODO keyword, the priority cookie and the word ~COMMENT~ up to the tags, as Org parses it.
+
+Objects. ~Lexer~ tries an object at every character that can start one, in the order of ~org-element--object-lex~, and steps over what it finds: emphasis (bold, italic, underline, strike-through, code, verbatim) with the hard-coded rules of ~org-element--parse-generic-emphasis~ (opening after a space, ~-~, ~(~, ~'~, ~"~, ~{~ or a line start and before a non-space; closing after a non-space and before a space or one of ~-.,;:!?'")}\[~; any number of lines, because ~org-element~ 9.6 has no limit, unlike ~org-emphasis-regexp-components~ that only fontification uses; "space" is what the Org syntax table calls whitespace, which includes NBSP and the Unicode spaces), subscripts and superscripts, bracket, angle and plain links, timestamps, statistics cookies, inline footnotes, export snippets, macros, targets and radio targets, inline source blocks, entities (by the list of ~org-entities~ in ~src/parser/inline_entities.rs~) and LaTeX fragments. Containers parse their contents with the restrictions of ~org-element-object-restrictions~: a link description has no links, timestamps or footnotes, a table cell no inline source and no cookie, a radio target only emphasis, code and the like. A timestamp is ~org-element--timestamp-regexp~ (any text after the date up to the first ~]~ or ~>~ of the line, so ~<2024-04-01 Mon +1x>~ and ~<2024-04-01 Mon .+1m/2m>~ are timestamps), its raw value is read as ~org-element-timestamp-parser~ does, and range type, times, bounds and modifiers come from ~timestamp_raw.rs~ like for planning timestamps. Not read: citations, inline babel calls, line breaks and other object parsing inside a macro or latex fragment. A plain or angle link uses the configured protocols and ~org-link-plain-re~ / ~org-link-angle-re~ of Org 9.6; a bracket link uses the extent of ~link_scanner~ so that both agree.
+
+Facts. Code, verbatim, inline source and snippet ranges are the ranges link scanning skips; other objects that swallow text (macros, LaTeX fragments) are not, as before. The adapter drops a timestamp that lies inside a bracket link of the scanner. Nesting is capped at 48 levels and every forward search is an indexed lookup or bounded by the object, so hostile input cannot overflow the stack or make a scan quadratic.
+
+Titles. ~normalize_title_text~ renders the lexed title: the markers of bold, italic, underline, code and verbatim are dropped, statistics cookies removed, a bracket link replaced by its rendered description or its decoded target; strike-through, sub- and superscripts and inline footnotes keep their markers and render their contents; everything else stays as written. Leading and trailing spaces and tabs go. Titles without one of ~* / _ = ~ [~ skip the lexer.
 
 * What stays in helpers
 
@@ -111,27 +122,27 @@ The scanner only finds lines. It reuses these modules and adds no second impleme
 
 * Regression corpus
 
-~src/parser/corpus_tests.rs~ replaced the stage 1 differential test, because the adapter is the scanner now. It feeds every ~tests/data/parser/**/fixture.org~, every file in ~tests/data/emacs-oracle/~, every ~docs/**/*.org~, ~README.org~, ~CHANGELOG.org~, about 120 hand-written adversarial inputs and 1500 deterministic random line sequences (~ADAPTER_CORPUS_CASES~ for more) through the adapter in a debug build. Every input must parse without a panic (or fail with the depth error), keep every heading, body, timestamp and link range on the source, and show Orgize no structure. What Emacs decides is checked against Emacs: the parser fixtures in ~tests/data/parser/~ and ~tests/data/emacs-oracle/structure.org~ run in ~scripts/emacs-oracle.py~, and the parser contract guard (~tests/parser_contract_guard.rs~) pins their output.
+~src/parser/corpus_tests.rs~ replaced the stage 1 differential test, because the adapter is the scanner now. It feeds every ~tests/data/parser/**/fixture.org~, every file in ~tests/data/emacs-oracle/~, every ~docs/**/*.org~, ~README.org~, ~CHANGELOG.org~, about 120 hand-written adversarial inputs and 1500 deterministic random line sequences (~ADAPTER_CORPUS_CASES~ for more) through the adapter in a debug build. Every input must parse without a panic (or fail with the depth error), keep every heading, body, timestamp and link range on the source, and leave no structural line in the text the inline scanner reads. What Emacs decides is checked against Emacs: the parser fixtures in ~tests/data/parser/~ and ~tests/data/emacs-oracle/structure.org~ run in ~scripts/emacs-oracle.py~, and the parser contract guard (~tests/parser_contract_guard.rs~) pins their output.
 
 * Resolved differences from Orgize
 
-The stage 1 differential test allowed these adapter deviations from Emacs. The adapter now follows Emacs on each (verified with ~emacs --batch -Q~, ~org-element-parse-buffer~ and ~org-entry-get~). The parser contract version is 8.
+The stage 1 differential test allowed these adapter deviations from Emacs. The adapter now follows Emacs on each (verified with ~emacs --batch -Q~, ~org-element-parse-buffer~ and ~org-entry-get~). The parser contract version is 10 since the depth limit was removed.
 
 - A planning keyword line without a timestamp (~SCHEDULED: garbage~, ~CLOSED:~) is an empty planning element (Emacs: planning L2-2, property-drawer L3-5), so the property drawer after it counts and the line is not body text.
 - A block ends at the first matching end line, names compare without case (Emacs: src-block L2-5 across a non-matching ~#+end_example~; src-block L2-3 for ~#+begin_SRC~ ... ~#+End_src~).
 - ~:my-drawer:~ and ~:äö:~ are drawers (Emacs: ~drawer name=my-drawer~, ~name=äö~).
 - A drawer after ~#+NAME:~ starts at the keyword (Emacs: drawer L2-5).
 - ~#+NAME:~ before a keyword, a comment, a stray end line or an unclosed block is no keyword element (Emacs: keyword TITLE, paragraph).
-- A quote, center or special block without content is a block (Emacs: quote-block L1-2); Orgize never sees it.
+- A quote, center or special block without content is a block (Emacs: quote-block L1-2).
 - Found on the way, with the same evidence: a property drawer with a row that is no property has no properties; a planning line holds every keyword in it; ~#+BEGIN: name~ ... ~#+END:~ is a dynamic block; priority cookies count only at the start of the title or directly after the keyword (~* foo [#A] x~ has no priority); ~* TODO [#10] x~ drops the cookie from the title like ~* [#10] x~; ~#+TITLE: t <2024-01-01>~ is a title; the tags of a CRLF headline are read.
 
 * Staging plan
 
 - Stage 1 (#101): lexer, scanner, differential test, this document.
 - Stage 2 (#103, done): the production path is built from the scanner, Orgize is reduced to the inline seam, the differential test became the regression corpus, and every allowed deviation follows Emacs.
-- Stage 3: replace the three inline uses above (timestamp nodes and inline code ranges, title normalization, timestamp conversion), remove the dependency, and decide whether ~MAX_HEADING_LEVEL~ stays as a product rule.
+- Stage 3 (#105, done): own inline scanning replaces the three inline uses (timestamp nodes and inline code ranges, title normalization, timestamp conversion) and the dependency is removed. The heading depth limit of 100 (~MAX_HEADING_LEVEL~) was removed afterwards, since the scanners need no limit for stack safety.
 
 * Open questions
 
-- Lists, tables, footnote definitions and LaTeX environments (~\begin{x}~ to ~\end{x}~) are not modeled. Emacs hides raw lines inside LaTeX environments and tables from block and drawer detection; the corpus found no such case. Model them when a corpus file needs it.
+- Lists, tables, footnote definitions and LaTeX environments (~\begin{x}~ to ~\end{x}~) are modeled for inline objects only (see above). Emacs hides raw lines inside LaTeX environments and tables from block and drawer detection; the corpus found no such case. Model them when a corpus file needs it.
 - Keyword lines inside a list item count as top-level for body text, because the scanner does not track indentation.

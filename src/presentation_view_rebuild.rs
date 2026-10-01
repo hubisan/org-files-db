@@ -941,7 +941,7 @@ mod tests {
     };
     use crate::test_support::TestDir;
     use crate::{
-        config::Config,
+        config::{Config, DEFAULT_JOURNAL_RETENTION_GENERATIONS},
         db::{
             advance_index_generation, open_database_with_schema, read_index_state,
             IndexGenerationChange, SchemaDefinition, CURRENT_SCHEMA_VERSION,
@@ -1039,8 +1039,12 @@ index_body_text = false
         )
         .expect("database should open");
         let transaction = connection.transaction().expect("transaction should start");
-        advance_index_generation(&transaction, &IndexGenerationChange::full_invalidation())
-            .expect("generation should advance");
+        advance_index_generation(
+            &transaction,
+            &IndexGenerationChange::full_invalidation(),
+            DEFAULT_JOURNAL_RETENTION_GENERATIONS,
+        )
+        .expect("generation should advance");
         transaction.commit().expect("transaction should commit");
         read_index_state(&connection)
             .expect("state should load")

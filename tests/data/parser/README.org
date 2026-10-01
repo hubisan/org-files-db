@@ -5,13 +5,10 @@ This directory contains parser regression fixtures grouped by behavior.
 Each fixture lives in its own directory and uses the same file names:
 
 - ~fixture.org~: Org input document
-- ~expected.txt~: minimal machine-readable expectations
+- ~notes.txt~: comment lines only (~# classification:~ and ~# note:~) saying why the fixture exists
+- ~snapshot.json~: the pretty-printed ~ParsedOrgDocument~ the parser produces for ~fixture.org~, including byte offsets
 
-The ~expected.txt~ format is intentionally simple:
-
-- comment lines start with ~#~
-- data lines use ~key=value~
-- unsupported or future expectations stay in comments until the parser model exposes them
+Snapshots are compared by ~tests/parser_snapshots.rs~. After an intended parser change run ~UPDATE_SNAPSHOTS=1 cargo test --test parser_snapshots~, review the ~snapshot.json~ diff in git, bump ~PARSER_INDEXER_CONTRACT_VERSION~ and update ~CONTRACT~ (~tests/parser_contract_guard.rs~ hashes the snapshots and prints the new hash).
 
 Current categories:
 
@@ -34,6 +31,7 @@ Current categories:
 - ~file-scope/multiple-title-keywords~ - several TITLE keywords are combined in file order
 - ~file-scope/raw-generic-keywords~ - generic keywords, also late ones, land on the file node
 - ~headings/basic-heading~ - simplest headline extraction
+- ~headings/multibyte-before-headings~ - heading, body and link byte offsets after multibyte UTF-8 text (umlauts, emoji, CJK)
 - ~headings/nested-planning-lines~ - nested headings with per-line planning and a custom ~#+TODO~
 - ~headings/nested-parent-indexes~ - parent links with a skipped level and a return to level 1 (basis for materialized paths)
 - ~headings/not-headings-stay-text~ - star without space, indented star, ~TODOX~ and lowercase ~todo~ are not keywords or headings
@@ -50,6 +48,7 @@ Current categories:
 - ~properties/heading-drawer-multiple-properties~ - several properties in a heading drawer
 - ~properties/late-file-keywords~ - file-level keywords after headings normalize onto the file node
 - ~timestamps/planning-timestamp~ - planning and body timestamps: ranges, times, repeaters, warnings, diary, invalid placements
+- ~timestamps/inline-objects~ - body and title timestamps as org-element reads them: ranges, single-digit hours, repeaters with a deadline part, and the objects that hide (code, verbatim, inline source, snippet, link description, table.el) or show (emphasis, footnote, table cell, description tag) a timestamp
 - ~todo-keywords/custom-sequence~ - custom ~#+TODO~ sequence overrides defaults
 - ~todo-keywords/overlapping-file-local-lines~ - overlapping ~#+TODO~ and ~#+SEQ_TODO~ lines
 - ~todo-keywords/simplified-file-local-lines~ - ~TODO~, ~SEQ_TODO~, ~TYP_TODO~ accumulate and override defaults

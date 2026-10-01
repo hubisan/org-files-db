@@ -1,0 +1,2 @@
+# classification: org-special-case
+# note: Simplified Org in-buffer TODO keyword lines accumulate globally and override defaults.

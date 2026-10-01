@@ -1,0 +1,2 @@
+# classification: org-special-case
+# note: Positive property-drawer placement case derived from the legacy property fixture.

@@ -104,7 +104,7 @@ The derived search part includes FTS policy, body indexing, and SQLite FTS5 capa
 
 Incremental planning compares the stored context with the current context. An incompatible context can require wider reconciliation or a full rebuild.
 
-The semantic fingerprint includes ~PARSER_INDEXER_CONTRACT_VERSION~ (~src/indexing_context.rs~). Any change to parser or indexer output for unchanged input must bump it, so existing databases reparse all files on the next incremental or watch run. The guard test ~tests/parser_contract_guard.rs~ hashes the parsed output of every fixture under ~tests/data/parser~ and compares it, together with the version, against ~tests/data/parser/CONTRACT~. When it fails, bump the version and update that file.
+The semantic fingerprint includes ~PARSER_INDEXER_CONTRACT_VERSION~ (~src/indexing_context.rs~). Any change to parser or indexer output for unchanged input must bump it, so existing databases reparse all files on the next incremental or watch run. The guard test ~tests/parser_contract_guard.rs~ hashes the ~snapshot.json~ of every fixture under ~tests/data/parser~ (kept equal to the parsed output by ~tests/parser_snapshots.rs~) and compares it, together with the version, against ~tests/data/parser/CONTRACT~. When it fails, bump the version and update that file.
 
 ~query.timezone~ is query-only configuration. It does not invalidate indexed source facts.
 
@@ -131,7 +131,7 @@ Existing plan entries keep the expected database row identity. Transactional app
 
 ** Failed sources
 
-One unreadable or unparsable source file must not fail the whole rebuild or stop the watcher. A file whose preparation fails is skipped. Failures are a read error, invalid UTF-8, an unstable snapshot, or a parse error such as heading depth above 100.
+One unreadable or unparsable source file must not fail the whole rebuild or stop the watcher. A file whose preparation fails is skipped. Failures are a read error, invalid UTF-8, an unstable snapshot, or a parse error.
 
 - Invalid UTF-8 is never decoded lossily, because byte offsets must match the file. The file is skipped.
 - A rebuild does not index a skipped file. The rebuild commits all other files.

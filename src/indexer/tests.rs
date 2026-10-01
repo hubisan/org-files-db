@@ -121,6 +121,7 @@ fn scoped_link_resolution_matches_full_resolution_after_incremental_edits() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
     };
     let a = root.join("a.org");
     let b = root.join("b.org");
@@ -256,6 +257,7 @@ fn recursive_root_config(test_dir: &TestDir, roots: Vec<PathBuf>) -> Config {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
     }
 }
 
@@ -2528,6 +2530,7 @@ fn rebuild_persists_non_utf8_paths_without_lossy_identity_conversion() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
         discovery: Default::default(),
     };
     let mut connection =
@@ -2564,6 +2567,7 @@ fn planner_statistics_refresh_after_rebuild_and_changed_incremental_reconcile() 
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
         discovery: Default::default(),
     };
     let mut connection =
@@ -2630,6 +2634,7 @@ fn rebuild_refuses_zero_input_when_existing_indexed_data_would_be_deleted() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
         discovery: Default::default(),
     };
 
@@ -2679,6 +2684,7 @@ fn rebuild_allows_zero_input_when_existing_database_is_empty() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
         discovery: Default::default(),
     };
 
@@ -2749,6 +2755,7 @@ fn rebuild_with_allow_empty_clears_existing_indexed_data() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
         discovery: Default::default(),
     };
 
@@ -4199,6 +4206,7 @@ fn child_heading_inherits_parent_tags_in_effective_tags() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
         discovery: Default::default(),
     };
     let mut connection =
@@ -4241,6 +4249,7 @@ fn rebuild_stores_direct_and_effective_heading_tags_and_filetags() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
         discovery: Default::default(),
     };
     let mut connection =
@@ -4336,6 +4345,7 @@ fn duplicate_inherited_tags_are_not_repeated_in_effective_tags() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
         discovery: Default::default(),
     };
     let mut connection =
@@ -4407,6 +4417,7 @@ fn rebuilding_same_file_twice_is_idempotent_and_replaces_old_rows() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
         discovery: Default::default(),
     };
     let mut connection =
@@ -4472,6 +4483,7 @@ fn rebuilding_same_links_twice_keeps_resolution_fields_deterministic() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
         discovery: Default::default(),
     };
     let mut connection = crate::db::open_database_with_schema(
@@ -4534,6 +4546,7 @@ fn rebuild_computes_parent_ids_for_nested_headings() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
         discovery: Default::default(),
     };
     let mut connection =
@@ -4616,6 +4629,7 @@ fn outline_rows_remain_consistent_after_rebuild() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
         discovery: Default::default(),
     };
     let mut connection =
@@ -4883,6 +4897,7 @@ fn rebuild_recreates_fts_rows_from_canonical_data_without_stale_matches() {
             index_body_text: true,
         },
         query: Default::default(),
+        index: Default::default(),
         discovery: Default::default(),
     };
     let mut connection = crate::db::open_database_with_schema(
@@ -4965,6 +4980,7 @@ fn empty_rebuild_with_fts_enabled_recreates_empty_heading_fts_state() {
             index_body_text: true,
         },
         query: Default::default(),
+        index: Default::default(),
         discovery: Default::default(),
     };
 
@@ -5021,6 +5037,7 @@ fn rebuild_stores_heading_bodies_only_when_body_indexing_is_enabled() {
             index_body_text: true,
         },
         query: Default::default(),
+        index: Default::default(),
         discovery: Default::default(),
     };
     let mut connection =
@@ -5152,6 +5169,7 @@ fn rebuild_skips_heading_bodies_when_body_indexing_is_disabled() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
         discovery: Default::default(),
     };
     let mut connection =
@@ -5203,6 +5221,7 @@ fn rebuild_updates_body_text_capability_when_configuration_changes() {
             index_body_text: true,
         },
         query: Default::default(),
+        index: Default::default(),
         discovery: Default::default(),
     };
     Indexer::new(OrgizeAdapter::new())
@@ -5260,6 +5279,7 @@ fn rebuild_excludes_structured_metadata_from_stored_heading_bodies() {
             index_body_text: true,
         },
         query: Default::default(),
+        index: Default::default(),
         discovery: Default::default(),
     };
     let mut connection =
@@ -5351,6 +5371,7 @@ fn faulty_file_is_skipped_with_a_diagnostic_while_others_are_indexed() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
         discovery: Default::default(),
     };
     let mut connection =
@@ -5416,6 +5437,7 @@ fn full_rebuild_replaces_malformed_previous_indexing_context() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
         discovery: Default::default(),
     };
     let mut connection = crate::db::open_database_with_schema(
@@ -5470,6 +5492,7 @@ fn failed_context_persistence_rolls_back_all_rebuild_state() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
         discovery: Default::default(),
     };
     let mut connection = crate::db::open_database_with_schema(
@@ -5632,6 +5655,7 @@ fn preparation_hashes_and_normalizes_one_stable_file_snapshot() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
     };
     let prepared = Indexer::new(OrgizeAdapter::new())
         .prepare_discovered_file(
@@ -5847,6 +5871,7 @@ fn change_planning_is_read_only_and_uses_the_unchanged_fast_path() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
     };
     write_file(&path, "* Original\n[[https://example.com]]\n");
     let mut connection = crate::db::open_database_with_schema(
@@ -5928,6 +5953,7 @@ fn change_planning_handles_context_invalidation_without_unnecessary_parsing() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
     };
     write_file(&path, "* Original\n");
     let mut connection = crate::db::open_database_with_schema(
@@ -5999,6 +6025,7 @@ fn terminal_context_or_identity_problems_have_no_actionable_change_groups() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
     };
     write_file(&path, "* Original\n");
     let mut connection = crate::db::open_database_with_schema(
@@ -6050,6 +6077,7 @@ fn change_planning_hashes_metadata_only_files_without_parsing() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
     };
     write_file(&path, "* Original\n");
     let mut connection = crate::db::open_database_with_schema(
@@ -6167,6 +6195,7 @@ fn change_planning_treats_unusable_stored_values_conservatively() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
     };
     write_file(&path, "* Original\n");
     let mut connection = crate::db::open_database_with_schema(
@@ -6220,6 +6249,7 @@ fn change_planning_reports_failed_sources_without_deleting_them() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
     };
     write_file(&path, "* Original\n");
     let mut connection = crate::db::open_database_with_schema(
@@ -6266,6 +6296,7 @@ fn rebuild_and_noop_reconciliation_preserve_identity_and_generation_semantics() 
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
     };
     write_file(&path, "* Stable\n");
     let indexer = Indexer::new(OrgizeAdapter::new());
@@ -6332,6 +6363,7 @@ fn rename_journals_delete_and_upsert_once() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
     };
     write_file(&old_path, "* Renamed without content changes\n");
     let old_canonical =
@@ -6401,6 +6433,7 @@ fn incremental_batch_journals_direct_and_link_resolution_affected_files_once() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
     };
     write_file(&source, "* Source\n[[file:target.org::*Target]]\n");
     write_file(&target, "* Target\n");
@@ -6474,6 +6507,7 @@ fn incremental_candidate_deletion_journals_the_removed_canonical_path() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
     };
     write_file(&path, "* Delete me\n");
     let canonical = fs::canonicalize(&path).expect("path should canonicalize");
@@ -6522,6 +6556,7 @@ fn cached_query_view_patch_matches_a_fresh_unrestricted_query() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
     };
     write_file(&first, "* First\n");
     write_file(&second, "* Second\n");
@@ -6626,6 +6661,7 @@ fn configured_source_reconciliation_uses_the_indexer_plan_and_apply_boundary() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
     };
     let indexer = Indexer::new(OrgizeAdapter::new());
     write_file(&path, "* Original\n");
@@ -6668,6 +6704,7 @@ fn candidate_reconciliation_updates_only_the_submitted_existing_path() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
     };
     let indexer = Indexer::new(OrgizeAdapter::new());
     write_file(&first, "* First\n");
@@ -6718,6 +6755,7 @@ fn candidate_reconciliation_matches_a_deleted_path_by_persisted_identity() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
     };
     let indexer = Indexer::new(OrgizeAdapter::new());
     write_file(&path, "* Original\n");
@@ -6769,6 +6807,7 @@ fn candidate_reconciliation_deletes_persisted_descendants_of_a_removed_directory
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
     };
     let indexer = Indexer::new(OrgizeAdapter::new());
     write_file(&first, "* First\n");
@@ -6820,6 +6859,7 @@ fn actionable_plan_applies_a_modified_file_and_rejects_a_stale_one() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
     };
     let indexer = Indexer::new(OrgizeAdapter::new());
     write_file(&path, "* Original\n");
@@ -6882,6 +6922,7 @@ fn actionable_plan_rejects_a_changed_database_baseline_and_terminal_results() {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
     };
     let indexer = Indexer::new(OrgizeAdapter::new());
     write_file(&path, "* Original\n");
@@ -7442,6 +7483,7 @@ fn skip_policy_config(test_dir: &TestDir, files: Vec<PathBuf>) -> Config {
             index_body_text: false,
         },
         query: Default::default(),
+        index: Default::default(),
     }
 }
 
@@ -7486,35 +7528,6 @@ fn rebuild_skips_invalid_utf8_file_and_indexes_the_others() {
         Some(fs::canonicalize(&bad).expect("path should resolve"))
     );
     assert!(skipped[0].message.contains("UTF-8"));
-}
-
-#[test]
-fn rebuild_skips_unparsable_file_with_excessive_heading_depth() {
-    let test_dir = TestDir::new("rebuild-skip-deep-heading");
-    let good = test_dir.path().join("good.org");
-    let deep = test_dir.path().join("deep.org");
-    let config = skip_policy_config(&test_dir, vec![good.clone(), deep.clone()]);
-    write_file(&good, "* Good\n");
-    write_file(&deep, &format!("{} Deep\n", "*".repeat(101)));
-    let mut connection = crate::db::open_database_with_schema(
-        &config.db_path,
-        &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
-    )
-    .expect("database should open");
-
-    let report = Indexer::new(OrgizeAdapter::new())
-        .rebuild(&mut connection, &config)
-        .expect("one unparsable file must not fail the rebuild");
-
-    assert_eq!(skip_policy_titles(&connection), vec!["Good"]);
-    assert_eq!(
-        report
-            .diagnostics
-            .iter()
-            .filter(|diagnostic| diagnostic.message.starts_with("skipped: "))
-            .count(),
-        1
-    );
 }
 
 #[test]

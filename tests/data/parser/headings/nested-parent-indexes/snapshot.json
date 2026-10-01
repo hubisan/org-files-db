@@ -1,0 +1,173 @@
+{
+  "file_path": "headings/nested-parent-indexes/fixture.org",
+  "metadata": {
+    "title": "Nesting",
+    "keywords": [
+      {
+        "key": "TITLE",
+        "value": "Nesting",
+        "line_number": 1
+      }
+    ]
+  },
+  "headings": [
+    {
+      "file_path": "headings/nested-parent-indexes/fixture.org",
+      "level": 0,
+      "title": "Nesting",
+      "title_raw": "Nesting",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 1,
+      "byte_start": 0,
+      "byte_end": 57,
+      "parent_index": null,
+      "is_archived": false,
+      "is_root": true
+    },
+    {
+      "file_path": "headings/nested-parent-indexes/fixture.org",
+      "level": 1,
+      "title": "A",
+      "title_raw": "A",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 2,
+      "byte_start": 17,
+      "byte_end": 53,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "headings/nested-parent-indexes/fixture.org",
+      "level": 3,
+      "title": "C skips a level",
+      "title_raw": "C skips a level",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 3,
+      "byte_start": 21,
+      "byte_end": 41,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "headings/nested-parent-indexes/fixture.org",
+      "level": 2,
+      "title": "B",
+      "title_raw": "B",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 4,
+      "byte_start": 41,
+      "byte_end": 53,
+      "parent_index": 1,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "headings/nested-parent-indexes/fixture.org",
+      "level": 4,
+      "title": "D",
+      "title_raw": "D",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 5,
+      "byte_start": 46,
+      "byte_end": 53,
+      "parent_index": 3,
+      "is_archived": false,
+      "is_root": false
+    },
+    {
+      "file_path": "headings/nested-parent-indexes/fixture.org",
+      "level": 1,
+      "title": "E",
+      "title_raw": "E",
+      "body_text": null,
+      "body_byte_start": null,
+      "body_byte_end": null,
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "tags": [],
+      "properties": [],
+      "planning": {
+        "scheduled": null,
+        "deadline": null,
+        "closed": null
+      },
+      "timestamps": [],
+      "line_number": 6,
+      "byte_start": 53,
+      "byte_end": 57,
+      "parent_index": 0,
+      "is_archived": false,
+      "is_root": false
+    }
+  ],
+  "links": [],
+  "diagnostics": []
+}

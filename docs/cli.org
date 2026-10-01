@@ -72,7 +72,7 @@ The two safety options are independent. ~--accept-source-root-changes~ does not 
 
 ** Unreadable or unparsable files
 
-One bad source file does not fail the rebuild. A file that cannot be read, is not valid UTF-8, changes while it is read, or cannot be parsed (for example heading depth above 100) is not indexed. ~rebuild~ commits all other files. Invalid UTF-8 is never decoded lossily.
+One bad source file does not fail the rebuild. A file that cannot be read, is not valid UTF-8, changes while it is read, or cannot be parsed is not indexed. ~rebuild~ commits all other files. Invalid UTF-8 is never decoded lossily.
 
 Each skipped file prints a diagnostic to stderr:
 
@@ -479,6 +479,8 @@ Stable rebuild reasons are:
 - ~database-id-changed~
 - ~history-unavailable~
 - ~full-invalidation~
+
+~history-unavailable~ means that ~--since-generation~ is older than ~oldest_available_generation~. The index keeps only the newest ~index.journal_retention_generations~ generations of journal history (default ~1000~), so a client that stays away longer must rebuild its view.
 
 A generation newer than the current generation is an error.
 

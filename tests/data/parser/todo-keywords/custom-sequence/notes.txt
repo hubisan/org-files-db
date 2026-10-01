@@ -1,0 +1,2 @@
+# classification: org-special-case
+# note: Org in-buffer TODO keyword declarations override configured defaults for this file.

@@ -34,6 +34,9 @@ index_body_text = false
 
 [query]
 timezone = "Europe/Zurich"
+
+[index]
+journal_retention_generations = 1000
 #+end_src
 
 * Path rules
@@ -56,6 +59,7 @@ The supported top-level keys are:
 - ~todo~
 - ~search~
 - ~query~
+- ~index~
 
 The old top-level ~recursive~ key is not supported. Configure recursion in each ~[[dirs]]~ entry.
 
@@ -321,3 +325,32 @@ timezone = "Europe/Zurich"
 The loader rejects an invalid timezone name.
 
 The timezone selects the calendar date for relative values. Stored Org planning and generic timestamp values remain timezone-naive.
+
+* ~[index]~
+
+The ~[index]~ section controls index housekeeping.
+
+Supported keys:
+
+- ~journal_retention_generations~
+
+** ~index.journal_retention_generations~
+
+~journal_retention_generations~ sets how many of the newest committed generations keep their affected-file journal.
+
+- Type: integer
+- Default: ~1000~
+- Minimum: ~1~
+
+Every commit that advances the generation deletes journal rows of older generations in the same transaction. ~orgfdb changes --since-generation N~ returns ~cache_action = rebuild~ with reason ~history-unavailable~ when ~N~ is older than ~oldest_available_generation~.
+
+A value below ~1~, a non-integer value, or an unknown key in ~[index]~ is an error. There is no value that keeps the whole history.
+
+Example:
+
+#+begin_src toml
+[index]
+journal_retention_generations = 200
+#+end_src
+
+Lowering the value takes effect at the next committed generation. Raising it does not restore history that was already pruned.
