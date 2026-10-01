@@ -288,3 +288,35 @@ fn rejects_links_to_links_wrapper_at_parser_layer() {
         org_files_db::query::QueryParseErrorKind::InvalidTargetForm
     );
 }
+
+#[test]
+fn id_predicate_accepts_integers_for_every_target_and_rejects_other_arguments() {
+    for query in [
+        "(headings (id 1))",
+        "(files (id 1 2 3))",
+        "(links (id 4))",
+        "(headings (not (id 1)))",
+    ] {
+        let parsed = org_files_db::query::parse_query(query).expect("query should parse");
+        validate_query(parsed, &full_capabilities())
+            .unwrap_or_else(|error| panic!("{query} should validate: {error}"));
+    }
+
+    for (query, kind) in [
+        ("(headings (id))", QueryValidationErrorKind::WrongArity),
+        (
+            r#"(headings (id "1"))"#,
+            QueryValidationErrorKind::InvalidValue,
+        ),
+        ("(files (id 1 foo))", QueryValidationErrorKind::InvalidValue),
+        (
+            "(links (id 1 :exact t))",
+            QueryValidationErrorKind::InvalidOption,
+        ),
+    ] {
+        let parsed = org_files_db::query::parse_query(query).expect("query should parse");
+        let error = validate_query(parsed, &full_capabilities())
+            .expect_err(&format!("{query} should fail"));
+        assert_eq!(error.kind, kind, "{query}");
+    }
+}

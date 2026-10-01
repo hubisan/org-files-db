@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    db::{open_existing_database_read_only, read_index_state},
+    db::{index_state::IndexState, open_existing_database_read_only, read_index_state},
     presentation::{PresentationResponse, PresentationSpec},
     query::{
         execute_and_shape_query, parse_query, sqlite_query_validation_options, validate_query,
@@ -37,7 +37,47 @@ pub(super) fn query_json_response_with_restriction(
     config_path: Option<&Path>,
     restricted_file_paths: Option<Vec<String>>,
 ) -> Result<QueryResponse, CliError> {
-    query_response_with_restriction(query, output, includes, config_path, restricted_file_paths)
+    query_response_with_restriction(
+        query,
+        output,
+        includes,
+        config_path,
+        restricted_file_paths,
+        &IndexStateGuard::default(),
+    )
+}
+
+/// Optional `--expect-database-id` / `--expect-generation` checks, applied to
+/// the index state read inside the query's own read transaction.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(super) struct IndexStateGuard {
+    pub(super) expect_database_id: Option<String>,
+    pub(super) expect_generation: Option<i64>,
+}
+
+impl IndexStateGuard {
+    fn is_empty(&self) -> bool {
+        self.expect_database_id.is_none() && self.expect_generation.is_none()
+    }
+
+    fn check(&self, state: &IndexState) -> Result<(), CliError> {
+        let database_id_matches = self
+            .expect_database_id
+            .as_ref()
+            .is_none_or(|expected| *expected == state.database_id);
+        let generation_matches = self
+            .expect_generation
+            .is_none_or(|expected| expected == state.generation);
+        if database_id_matches && generation_matches {
+            return Ok(());
+        }
+        Err(CliError::StaleIndex {
+            expected_database_id: self.expect_database_id.clone(),
+            expected_generation: self.expect_generation,
+            actual_database_id: state.database_id.clone(),
+            actual_generation: state.generation,
+        })
+    }
 }
 
 pub(super) fn query_response_with_restriction(
@@ -46,10 +86,22 @@ pub(super) fn query_response_with_restriction(
     includes: &[CliQueryInclude],
     config_path: Option<&Path>,
     restricted_file_paths: Option<Vec<String>>,
+    guard: &IndexStateGuard,
 ) -> Result<QueryResponse, CliError> {
     let config = load_cli_config(config_path)?;
     let connection =
         open_existing_database_read_only(&config.db_path).map_err(CliError::Database)?;
+    if !guard.is_empty() {
+        // The guard check and the query must see one committed snapshot.
+        connection
+            .execute_batch("BEGIN DEFERRED TRANSACTION")
+            .map_err(|source| CliError::PresentationSnapshot {
+                operation: "begin",
+                source,
+            })?;
+        let state = read_index_state(&connection).map_err(CliError::IndexState)?;
+        guard.check(&state)?;
+    }
     let parsed = parse_query(query).map_err(CliError::QueryParse)?;
     let validation_options =
         sqlite_query_validation_options(&connection).map_err(CliError::QueryExecute)?;
@@ -66,7 +118,17 @@ pub(super) fn query_response_with_restriction(
         now_utc: None,
         restricted_file_paths,
     };
-    execute_and_shape_query(&connection, &validated, &options).map_err(CliError::QueryShape)
+    let response =
+        execute_and_shape_query(&connection, &validated, &options).map_err(CliError::QueryShape)?;
+    if !guard.is_empty() {
+        connection
+            .execute_batch("COMMIT")
+            .map_err(|source| CliError::PresentationSnapshot {
+                operation: "commit",
+                source,
+            })?;
+    }
+    Ok(response)
 }
 
 pub(super) fn presentation_response_with_restriction(
@@ -76,6 +138,7 @@ pub(super) fn presentation_response_with_restriction(
     config_path: Option<&Path>,
     restricted_file_paths: Option<Vec<String>>,
     spec: &PresentationSpec,
+    guard: &IndexStateGuard,
 ) -> Result<PresentationResponse, CliError> {
     let config = load_cli_config(config_path)?;
     let connection =
@@ -88,6 +151,7 @@ pub(super) fn presentation_response_with_restriction(
         })?;
 
     let state = read_index_state(&connection).map_err(CliError::IndexState)?;
+    guard.check(&state)?;
     let parsed = parse_query(query).map_err(CliError::QueryParse)?;
     let validation_options =
         sqlite_query_validation_options(&connection).map_err(CliError::QueryExecute)?;

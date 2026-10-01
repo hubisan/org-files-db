@@ -120,6 +120,18 @@ pub(super) enum Command {
             help = "PresentationSpec JSON; valid only with --format presentation-json"
         )]
         presentation_spec_json: Option<String>,
+        #[arg(
+            long,
+            value_name = "ID",
+            help = "Fail with a stale-index error unless the committed database id matches"
+        )]
+        expect_database_id: Option<String>,
+        #[arg(
+            long,
+            value_name = "N",
+            help = "Fail with a stale-index error unless the committed generation matches"
+        )]
+        expect_generation: Option<i64>,
         #[arg(long)]
         config: Option<PathBuf>,
         #[arg(help = "Structural query expression, for example '(todo \"NEXT\")'")]

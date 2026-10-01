@@ -514,10 +514,14 @@ fn parses_rebuild_and_headings_arguments() {
             include,
             restrict_files_json,
             presentation_spec_json,
+            expect_database_id,
+            expect_generation,
             config,
             query,
         } => {
             assert!(format.json);
+            assert_eq!(expect_database_id, None);
+            assert_eq!(expect_generation, None);
             assert_eq!(format.selected(), CliQueryOutputFormat::Json);
             assert_eq!(output, CliQueryOutput::Outline);
             assert_eq!(
@@ -1013,6 +1017,7 @@ fn query_presentation_combines_explicit_and_inferred_includes() {
         Some(&config_path),
         None,
         &spec,
+        &crate::cli::query::IndexStateGuard::default(),
     )
     .expect("query should combine explicit and inferred includes");
 
