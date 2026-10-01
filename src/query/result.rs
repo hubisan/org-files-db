@@ -2,14 +2,12 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
     path::Path,
-    time::{Duration, Instant},
 };
 
 use chrono::{DateTime, Utc};
 use rusqlite::{params_from_iter, Connection};
 use serde::Serialize;
 
-use super::benchmark_trace;
 use super::sql_support::id_chunk_capacity;
 use super::sqlite::{
     cleanup_temporary_matched_relation, execute_sqlite_query_with_relation_and_strategies,
@@ -114,16 +112,16 @@ enum ResultDomain {
     Links,
 }
 
-// Non-production variants are comparison baselines used by tests and the `bench` feature.
-#[cfg_attr(not(any(test, feature = "bench")), allow(dead_code))]
+// Non-production variants are comparison baselines used only by tests.
+#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HeadingPathStrategy {
     RecursiveQueryDerived,
     RustDrivenBulkAncestors,
 }
 
-// Non-production variants are comparison baselines used by tests and the `bench` feature.
-#[cfg_attr(not(any(test, feature = "bench")), allow(dead_code))]
+// Non-production variants are comparison baselines used only by tests.
+#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DirectFlatShapingStrategy {
     CloneBaseline,
@@ -433,12 +431,10 @@ mod paths;
 mod tests;
 
 use self::enrich::*;
-#[cfg(feature = "bench")]
-pub(crate) use self::execute::execute_and_shape_query_with_metadata_strategy;
 pub use self::execute::{
     execute_and_shape_query, shape_matched_heading_nodes, shape_query_results,
 };
-#[cfg(any(test, feature = "bench"))]
+#[cfg(test)]
 pub(crate) use self::execute::{
     execute_and_shape_query_with_direct_flat_shaping_strategy,
     execute_and_shape_query_with_path_strategy,
@@ -447,7 +443,5 @@ pub(crate) use self::execute::{
 use self::flat::*;
 use self::loaders::*;
 use self::outline::*;
+pub(crate) use self::paths::load_heading_paths_from_relation;
 use self::paths::*;
-pub(crate) use self::paths::{
-    load_heading_paths_from_relation, load_heading_paths_recursive_from_relation,
-};

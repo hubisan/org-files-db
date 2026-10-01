@@ -21,9 +21,9 @@ Use these documents when you use ~orgfdb~ or build a client for its current publ
 - [[./design/index-generations-and-changes.org][Index Generations and Changes]] describes committed generations and affected-file deltas.
 - [[./design/parser-risks.org][Parser Risks]] records known parser differences and risk decisions, and how to run the local Emacs reference comparison.
 - [[./design/line-scanner.org][Line Scanner]] describes the own line lexer, structure scanner and inline scanner that replaced Orgize (#41, done), with its state diagram [[./design/line-scanner.svg][line-scanner.svg]].
-- [[./performance-baseline.org][Performance Baseline]] describes the benchmark framework and historical measurements.
-- [[./presentation-performance.org][Presentation Performance Benchmarks]] describes retained regression benchmarks, diagnostics, and historical presentation measurements.
-- [[./query-sql-performance.org][Query SQL Performance]] records the query SQL audit, optimizations, and SQL benchmark protocol.
+- [[./performance-baseline.org][Performance Baseline]] records historical benchmark measurements. The benchmark code was removed in #114.
+- [[./presentation-performance.org][Presentation Performance Benchmarks]] records historical presentation measurements. The benchmark code was removed in #114.
+- [[./query-sql-performance.org][Query SQL Performance]] records the query SQL audit, optimizations, and historical SQL measurements.
 
 These documents describe implementation boundaries or detailed internal contracts.
 

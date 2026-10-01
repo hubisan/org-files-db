@@ -1,148 +1,11 @@
 use super::*;
 
-pub(in crate::query::result) struct ResultTraceTimer {
-    pub(in crate::query::result) sql_duration: Duration,
-    pub(in crate::query::result) decode_duration: Duration,
-    pub(in crate::query::result) rows: usize,
-}
-
-impl ResultTraceTimer {
-    pub(in crate::query::result) fn new() -> Self {
-        Self {
-            sql_duration: Duration::ZERO,
-            decode_duration: Duration::ZERO,
-            rows: 0,
-        }
-    }
-
-    pub(in crate::query::result) fn sql<T>(&mut self, operation: impl FnOnce() -> T) -> T {
-        let started = Instant::now();
-        let result = operation();
-        self.sql_duration += started.elapsed();
-        result
-    }
-
-    pub(in crate::query::result) fn decode<T>(&mut self, operation: impl FnOnce() -> T) -> T {
-        self.rows += 1;
-        let started = Instant::now();
-        let result = operation();
-        self.decode_duration += started.elapsed();
-        result
-    }
-
-    pub(in crate::query::result) fn record(
-        self,
-        operation: &'static str,
-        statement_count: usize,
-        bound_parameters: usize,
-    ) {
-        benchmark_trace::record(
-            benchmark_trace::ENRICHMENT_SQL_EXECUTION,
-            operation,
-            self.sql_duration,
-            self.rows,
-            statement_count,
-            bound_parameters,
-        );
-        benchmark_trace::record(
-            benchmark_trace::SQLITE_ROW_DECODING,
-            operation,
-            self.decode_duration,
-            self.rows,
-            0,
-            0,
-        );
-    }
-}
-
-#[derive(Default)]
-pub(in crate::query::result) struct FlatShapingDetail {
-    pub(in crate::query::result) heading_tags_json_duration: Duration,
-    pub(in crate::query::result) heading_metadata_duration: Duration,
-    pub(in crate::query::result) heading_node_duration: Duration,
-    pub(in crate::query::result) heading_rows: usize,
-    pub(in crate::query::result) file_path_components_duration: Duration,
-    pub(in crate::query::result) file_metadata_duration: Duration,
-    pub(in crate::query::result) file_node_duration: Duration,
-    pub(in crate::query::result) file_rows: usize,
-    pub(in crate::query::result) link_node_duration: Duration,
-    pub(in crate::query::result) link_rows: usize,
-}
-
-impl FlatShapingDetail {
-    pub(in crate::query::result) fn record(&self) {
-        if self.heading_rows > 0 {
-            benchmark_trace::record(
-                benchmark_trace::FINAL_RESULT_SHAPING_DETAIL,
-                "heading-tags-json",
-                self.heading_tags_json_duration,
-                self.heading_rows,
-                0,
-                0,
-            );
-            benchmark_trace::record(
-                benchmark_trace::FINAL_RESULT_SHAPING_DETAIL,
-                "heading-metadata-attach",
-                self.heading_metadata_duration,
-                self.heading_rows,
-                0,
-                0,
-            );
-            benchmark_trace::record(
-                benchmark_trace::FINAL_RESULT_SHAPING_DETAIL,
-                "heading-node-build",
-                self.heading_node_duration,
-                self.heading_rows,
-                0,
-                0,
-            );
-        }
-        if self.file_rows > 0 {
-            benchmark_trace::record(
-                benchmark_trace::FINAL_RESULT_SHAPING_DETAIL,
-                "file-path-components",
-                self.file_path_components_duration,
-                self.file_rows,
-                0,
-                0,
-            );
-            benchmark_trace::record(
-                benchmark_trace::FINAL_RESULT_SHAPING_DETAIL,
-                "file-metadata-attach",
-                self.file_metadata_duration,
-                self.file_rows,
-                0,
-                0,
-            );
-            benchmark_trace::record(
-                benchmark_trace::FINAL_RESULT_SHAPING_DETAIL,
-                "file-node-build",
-                self.file_node_duration,
-                self.file_rows,
-                0,
-                0,
-            );
-        }
-        if self.link_rows > 0 {
-            benchmark_trace::record(
-                benchmark_trace::FINAL_RESULT_SHAPING_DETAIL,
-                "link-node-build",
-                self.link_node_duration,
-                self.link_rows,
-                0,
-                0,
-            );
-        }
-    }
-}
-
 pub(in crate::query::result) struct FlatMetadataContext {
     pub(in crate::query::result) properties: HashMap<i64, Vec<PropertyFact>>,
     pub(in crate::query::result) effective_properties: HashMap<i64, Vec<EffectivePropertyFact>>,
     pub(in crate::query::result) keywords: HashMap<i64, Vec<KeywordFact>>,
     pub(in crate::query::result) root_tags: HashMap<i64, Vec<String>>,
     pub(in crate::query::result) heading_paths: HashMap<i64, Vec<PathEntry>>,
-    pub(in crate::query::result) shaping_detail: Option<FlatShapingDetail>,
 }
 
 impl FlatMetadataContext {
@@ -154,7 +17,6 @@ impl FlatMetadataContext {
         path_strategy: HeadingPathStrategy,
     ) -> Result<Self, QueryShapeError> {
         let include_set = includes.iter().copied().collect::<BTreeSet<_>>();
-        let grouping_started = benchmark_trace::active().then(Instant::now);
         let mut metadata_heading_ids = BTreeSet::new();
         let mut root_heading_ids = BTreeSet::new();
         let mut has_heading_rows = false;
@@ -181,16 +43,6 @@ impl FlatMetadataContext {
                 }
             }
             QueryRows::Links(_) => {}
-        }
-        if let Some(started) = grouping_started {
-            benchmark_trace::record(
-                benchmark_trace::RUST_GROUPING,
-                "metadata-heading-ids",
-                started.elapsed(),
-                metadata_heading_ids.len(),
-                0,
-                0,
-            );
         }
         let has_root_rows = !root_heading_ids.is_empty();
 
@@ -223,23 +75,11 @@ impl FlatMetadataContext {
             } else {
                 load_properties(connection, &metadata_heading_ids)?
             };
-            let grouping_started = benchmark_trace::active().then(Instant::now);
-            let loaded_count = loaded.len();
             for property in loaded {
                 properties
                     .entry(property.heading_id)
                     .or_insert_with(Vec::new)
                     .push(property.fact);
-            }
-            if let Some(started) = grouping_started {
-                benchmark_trace::record(
-                    benchmark_trace::RUST_GROUPING,
-                    "properties-map",
-                    started.elapsed(),
-                    loaded_count,
-                    0,
-                    0,
-                );
             }
         }
 
@@ -266,23 +106,11 @@ impl FlatMetadataContext {
             } else {
                 load_keywords(connection, &metadata_heading_ids)?
             };
-            let grouping_started = benchmark_trace::active().then(Instant::now);
-            let loaded_count = loaded.len();
             for keyword in loaded {
                 keywords
                     .entry(keyword.heading_id)
                     .or_insert_with(Vec::new)
                     .push(keyword.fact);
-            }
-            if let Some(started) = grouping_started {
-                benchmark_trace::record(
-                    benchmark_trace::RUST_GROUPING,
-                    "keywords-map",
-                    started.elapsed(),
-                    loaded_count,
-                    0,
-                    0,
-                );
             }
         }
 
@@ -319,7 +147,6 @@ impl FlatMetadataContext {
             keywords,
             root_tags,
             heading_paths,
-            shaping_detail: benchmark_trace::active().then(FlatShapingDetail::default),
         })
     }
 
@@ -329,7 +156,6 @@ impl FlatMetadataContext {
         domain: ResultDomain,
         includes: &[QueryInclude],
     ) -> Result<FileResultNode, QueryShapeError> {
-        let path_started = self.shaping_detail.as_ref().map(|_| Instant::now());
         let path_ref = Path::new(&row.path);
         let name = path_ref
             .file_name()
@@ -341,11 +167,7 @@ impl FlatMetadataContext {
             .and_then(|value| value.to_str())
             .unwrap_or(".")
             .to_string();
-        if let (Some(started), Some(detail)) = (path_started, self.shaping_detail.as_mut()) {
-            detail.file_path_components_duration += started.elapsed();
-        }
 
-        let metadata_started = self.shaping_detail.as_ref().map(|_| Instant::now());
         let tags = self
             .root_tags
             .get(&row.root_heading_id)
@@ -380,11 +202,7 @@ impl FlatMetadataContext {
                 .cloned()
                 .unwrap_or_default()
         });
-        if let (Some(started), Some(detail)) = (metadata_started, self.shaping_detail.as_mut()) {
-            detail.file_metadata_duration += started.elapsed();
-        }
 
-        let node_started = self.shaping_detail.as_ref().map(|_| Instant::now());
         let node = FileResultNode {
             kind: public_result_kind(domain, 0),
             matched: true,
@@ -415,10 +233,6 @@ impl FlatMetadataContext {
             backlinks: None,
             children: None,
         };
-        if let (Some(started), Some(detail)) = (node_started, self.shaping_detail.as_mut()) {
-            detail.file_node_duration += started.elapsed();
-            detail.file_rows += 1;
-        }
         Ok(node)
     }
 
@@ -427,14 +241,9 @@ impl FlatMetadataContext {
         row: &HeadingQueryRow,
         includes: &[QueryInclude],
     ) -> Result<HeadingResultNode, QueryShapeError> {
-        let tags_started = self.shaping_detail.as_ref().map(|_| Instant::now());
         let all_tags = serde_json::from_str(&row.all_tags_json)
             .map_err(|source| QueryShapeError::invalid_json("all_tags_json", row.id, source))?;
-        if let (Some(started), Some(detail)) = (tags_started, self.shaping_detail.as_mut()) {
-            detail.heading_tags_json_duration += started.elapsed();
-        }
 
-        let metadata_started = self.shaping_detail.as_ref().map(|_| Instant::now());
         let node_path = includes
             .contains(&QueryInclude::Path)
             .then(|| self.heading_paths.remove(&row.id).unwrap_or_default());
@@ -453,11 +262,7 @@ impl FlatMetadataContext {
         let keywords = includes
             .contains(&QueryInclude::Keywords)
             .then(|| self.keywords.get(&row.id).cloned().unwrap_or_default());
-        if let (Some(started), Some(detail)) = (metadata_started, self.shaping_detail.as_mut()) {
-            detail.heading_metadata_duration += started.elapsed();
-        }
 
-        let node_started = self.shaping_detail.as_ref().map(|_| Instant::now());
         let node = HeadingResultNode {
             kind: public_result_kind(ResultDomain::Headings, row.level),
             matched: true,
@@ -493,10 +298,6 @@ impl FlatMetadataContext {
             backlinks: None,
             children: None,
         };
-        if let (Some(started), Some(detail)) = (node_started, self.shaping_detail.as_mut()) {
-            detail.heading_node_duration += started.elapsed();
-            detail.heading_rows += 1;
-        }
         Ok(node)
     }
 
@@ -506,7 +307,6 @@ impl FlatMetadataContext {
         domain: ResultDomain,
         includes: &[QueryInclude],
     ) -> Result<FileResultNode, QueryShapeError> {
-        let path_started = self.shaping_detail.as_ref().map(|_| Instant::now());
         let path_ref = Path::new(&row.path);
         let name = path_ref
             .file_name()
@@ -518,11 +318,7 @@ impl FlatMetadataContext {
             .and_then(|value| value.to_str())
             .unwrap_or(".")
             .to_string();
-        if let (Some(started), Some(detail)) = (path_started, self.shaping_detail.as_mut()) {
-            detail.file_path_components_duration += started.elapsed();
-        }
 
-        let metadata_started = self.shaping_detail.as_ref().map(|_| Instant::now());
         let tags = self
             .root_tags
             .remove(&row.root_heading_id)
@@ -553,11 +349,7 @@ impl FlatMetadataContext {
                 .remove(&row.root_heading_id)
                 .unwrap_or_default()
         });
-        if let (Some(started), Some(detail)) = (metadata_started, self.shaping_detail.as_mut()) {
-            detail.file_metadata_duration += started.elapsed();
-        }
 
-        let node_started = self.shaping_detail.as_ref().map(|_| Instant::now());
         let node = FileResultNode {
             kind: public_result_kind(domain, 0),
             matched: true,
@@ -588,10 +380,6 @@ impl FlatMetadataContext {
             backlinks: None,
             children: None,
         };
-        if let (Some(started), Some(detail)) = (node_started, self.shaping_detail.as_mut()) {
-            detail.file_node_duration += started.elapsed();
-            detail.file_rows += 1;
-        }
         Ok(node)
     }
 
@@ -600,14 +388,9 @@ impl FlatMetadataContext {
         row: HeadingQueryRow,
         includes: &[QueryInclude],
     ) -> Result<HeadingResultNode, QueryShapeError> {
-        let tags_started = self.shaping_detail.as_ref().map(|_| Instant::now());
         let all_tags = serde_json::from_str(&row.all_tags_json)
             .map_err(|source| QueryShapeError::invalid_json("all_tags_json", row.id, source))?;
-        if let (Some(started), Some(detail)) = (tags_started, self.shaping_detail.as_mut()) {
-            detail.heading_tags_json_duration += started.elapsed();
-        }
 
-        let metadata_started = self.shaping_detail.as_ref().map(|_| Instant::now());
         let node_path = includes
             .contains(&QueryInclude::Path)
             .then(|| self.heading_paths.remove(&row.id).unwrap_or_default());
@@ -625,11 +408,7 @@ impl FlatMetadataContext {
         let keywords = includes
             .contains(&QueryInclude::Keywords)
             .then(|| self.keywords.remove(&row.id).unwrap_or_default());
-        if let (Some(started), Some(detail)) = (metadata_started, self.shaping_detail.as_mut()) {
-            detail.heading_metadata_duration += started.elapsed();
-        }
 
-        let node_started = self.shaping_detail.as_ref().map(|_| Instant::now());
         let node = HeadingResultNode {
             kind: public_result_kind(ResultDomain::Headings, row.level),
             matched: true,
@@ -665,10 +444,6 @@ impl FlatMetadataContext {
             backlinks: None,
             children: None,
         };
-        if let (Some(started), Some(detail)) = (node_started, self.shaping_detail.as_mut()) {
-            detail.heading_node_duration += started.elapsed();
-            detail.heading_rows += 1;
-        }
         Ok(node)
     }
 
@@ -676,8 +451,7 @@ impl FlatMetadataContext {
         &mut self,
         row: &LinkQueryRow,
     ) -> LinkResultNode {
-        let node_started = self.shaping_detail.as_ref().map(|_| Instant::now());
-        let node = LinkResultNode {
+        LinkResultNode {
             kind: QueryResultKind::Link,
             matched: true,
             id: row.id,
@@ -708,17 +482,6 @@ impl FlatMetadataContext {
             node_path: None,
             source: None,
             target: None,
-        };
-        if let (Some(started), Some(detail)) = (node_started, self.shaping_detail.as_mut()) {
-            detail.link_node_duration += started.elapsed();
-            detail.link_rows += 1;
-        }
-        node
-    }
-
-    pub(in crate::query::result) fn record_shaping_detail(&self) {
-        if let Some(detail) = &self.shaping_detail {
-            detail.record();
         }
     }
 }

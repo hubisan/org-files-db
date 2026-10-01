@@ -16,7 +16,7 @@ pub fn execute_and_shape_query(
     )
 }
 
-#[cfg(any(test, feature = "bench"))]
+#[cfg(test)]
 pub(crate) fn execute_and_shape_query_with_path_strategy(
     connection: &Connection,
     query: &ValidatedQuery,
@@ -34,25 +34,7 @@ pub(crate) fn execute_and_shape_query_with_path_strategy(
     )
 }
 
-#[cfg(feature = "bench")]
-pub(crate) fn execute_and_shape_query_with_metadata_strategy(
-    connection: &Connection,
-    query: &ValidatedQuery,
-    options: &QueryExecutionOptions,
-    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
-) -> Result<QueryResponse, QueryShapeError> {
-    execute_and_shape_query_with_strategies(
-        connection,
-        query,
-        options,
-        HeadingPathStrategy::RustDrivenBulkAncestors,
-        metadata_predicate_strategy,
-        PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY,
-        PRODUCTION_DIRECT_FLAT_SHAPING_STRATEGY,
-    )
-}
-
-#[cfg(any(test, feature = "bench"))]
+#[cfg(test)]
 pub(crate) fn execute_and_shape_query_with_relation_reuse_strategy(
     connection: &Connection,
     query: &ValidatedQuery,
@@ -70,7 +52,7 @@ pub(crate) fn execute_and_shape_query_with_relation_reuse_strategy(
     )
 }
 
-#[cfg(any(test, feature = "bench"))]
+#[cfg(test)]
 pub(crate) fn execute_and_shape_query_with_direct_flat_shaping_strategy(
     connection: &Connection,
     query: &ValidatedQuery,
@@ -297,7 +279,6 @@ pub(in crate::query::result) fn shape_direct_flat_results(
         QueryRows::Links(_) => QueryTarget::Links,
         QueryRows::Files(_) => QueryTarget::Files,
     };
-    let shaping_started = benchmark_trace::active().then(Instant::now);
     let results = match shaping_strategy {
         DirectFlatShapingStrategy::CloneBaseline => match &rows {
             QueryRows::Headings(rows) => rows
@@ -350,18 +331,6 @@ pub(in crate::query::result) fn shape_direct_flat_results(
                 .collect::<Result<Vec<_>, QueryShapeError>>()?,
         },
     };
-    let shaping_duration = shaping_started.map(|started| started.elapsed());
-    metadata.record_shaping_detail();
-    if let Some(duration) = shaping_duration {
-        benchmark_trace::record(
-            benchmark_trace::FINAL_RESULT_SHAPING,
-            "direct-flat-results",
-            duration,
-            results.len(),
-            0,
-            0,
-        );
-    }
 
     Ok(QueryResponse {
         target,

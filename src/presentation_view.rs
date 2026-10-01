@@ -667,14 +667,6 @@ pub(crate) fn show_presentation_view(
     }
 }
 
-#[cfg(feature = "bench")]
-pub(crate) fn wait_for_presentation_view(
-    config: &Config,
-    name: String,
-) -> Result<PresentationViewReadTicket, ViewControlClientError> {
-    wait_for_presentation_view_until(config, name, Instant::now() + VIEW_READ_TIMEOUT)
-}
-
 pub(crate) fn wait_for_presentation_view_until(
     config: &Config,
     name: String,

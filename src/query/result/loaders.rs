@@ -366,105 +366,16 @@ pub(in crate::query::result) fn load_properties_from_relation(
             &mut properties,
         )?;
     }
-    let sort_started = benchmark_trace::active().then(Instant::now);
     properties.sort_by(|left, right| {
         left.heading_id
             .cmp(&right.heading_id)
             .then_with(|| left.fact.line_number.cmp(&right.fact.line_number))
             .then_with(|| left.id.cmp(&right.id))
     });
-    if let Some(started) = sort_started {
-        benchmark_trace::record(
-            benchmark_trace::RUST_LOCAL_SORTING,
-            "properties",
-            started.elapsed(),
-            properties.len(),
-            0,
-            0,
-        );
-    }
     Ok(properties)
 }
 
 pub(in crate::query::result) fn load_properties_from_compiled_relation(
-    connection: &Connection,
-    compiled: &crate::query::CompiledSqlQuery,
-    columns: &str,
-    heading_id_column: &str,
-    properties: &mut Vec<StoredProperty>,
-) -> Result<(), QueryShapeError> {
-    if !benchmark_trace::active() {
-        return load_properties_from_compiled_relation_untraced(
-            connection,
-            compiled,
-            columns,
-            heading_id_column,
-            properties,
-        );
-    }
-    load_properties_from_compiled_relation_traced(
-        connection,
-        compiled,
-        columns,
-        heading_id_column,
-        properties,
-    )
-}
-
-pub(in crate::query::result) fn load_properties_from_compiled_relation_traced(
-    connection: &Connection,
-    compiled: &crate::query::CompiledSqlQuery,
-    columns: &str,
-    heading_id_column: &str,
-    properties: &mut Vec<StoredProperty>,
-) -> Result<(), QueryShapeError> {
-    let sql = format!(
-        "/* orgfdb:enrich-properties params={} */
-         WITH matched({columns}) AS ({})
-         SELECT properties.id, properties.heading_id, properties.key, properties.value,
-                properties.source, properties.append, properties.line_number, properties.source
-         FROM matched
-         INNER JOIN properties
-           ON properties.heading_id = matched.{heading_id_column}",
-        compiled.params.len(),
-        compiled.sql,
-    );
-    let mut timer = ResultTraceTimer::new();
-    let mut statement = timer
-        .sql(|| connection.prepare(&sql))
-        .map_err(|source| QueryShapeError::database("load_properties_relation.prepare", source))?;
-    let mut rows = timer
-        .sql(|| statement.query(params_from_iter(compiled.params.iter())))
-        .map_err(|source| QueryShapeError::database("load_properties_relation.query", source))?;
-    loop {
-        let row = timer.sql(|| rows.next()).map_err(|source| {
-            QueryShapeError::database("load_properties_relation.collect", source)
-        })?;
-        let Some(row) = row else {
-            break;
-        };
-        let property = timer.decode(|| -> rusqlite::Result<StoredProperty> {
-            Ok(StoredProperty {
-                id: row.get(0)?,
-                heading_id: row.get(1)?,
-                fact: PropertyFact {
-                    key: row.get(2)?,
-                    value: row.get(3)?,
-                    source: row.get(4)?,
-                    append: row.get::<_, i64>(5)? != 0,
-                    line_number: row.get(6)?,
-                },
-            })
-        });
-        properties.push(property.map_err(|source| {
-            QueryShapeError::database("load_properties_relation.collect", source)
-        })?);
-    }
-    timer.record("enrich-properties", 1, compiled.params.len());
-    Ok(())
-}
-
-pub(in crate::query::result) fn load_properties_from_compiled_relation_untraced(
     connection: &Connection,
     compiled: &crate::query::CompiledSqlQuery,
     columns: &str,
@@ -515,22 +426,11 @@ pub(in crate::query::result) fn load_effective_properties_from_relation(
     include_headings: bool,
     include_roots: bool,
 ) -> Result<HashMap<i64, Vec<EffectivePropertyFact>>, QueryShapeError> {
-    let grouping_started = benchmark_trace::active().then(Instant::now);
     let mut effective = heading_ids
         .iter()
         .copied()
         .map(|heading_id| (heading_id, Vec::new()))
         .collect::<HashMap<_, _>>();
-    if let Some(started) = grouping_started {
-        benchmark_trace::record(
-            benchmark_trace::RUST_GROUPING,
-            "effective-properties-seed",
-            started.elapsed(),
-            effective.len(),
-            0,
-            0,
-        );
-    }
     if let Some(compiled) = relation.heading_relation().filter(|_| include_headings) {
         load_effective_properties_from_compiled_relation(
             connection,
@@ -549,115 +449,13 @@ pub(in crate::query::result) fn load_effective_properties_from_relation(
             &mut effective,
         )?;
     }
-    let sort_started = benchmark_trace::active().then(Instant::now);
-    let fact_count = effective.values().map(Vec::len).sum();
     for facts in effective.values_mut() {
         facts.sort_by(|left, right| left.key.cmp(&right.key));
-    }
-    if let Some(started) = sort_started {
-        benchmark_trace::record(
-            benchmark_trace::RUST_LOCAL_SORTING,
-            "effective-properties",
-            started.elapsed(),
-            fact_count,
-            0,
-            0,
-        );
     }
     Ok(effective)
 }
 
 pub(in crate::query::result) fn load_effective_properties_from_compiled_relation(
-    connection: &Connection,
-    compiled: &crate::query::CompiledSqlQuery,
-    columns: &str,
-    heading_id_column: &str,
-    effective: &mut HashMap<i64, Vec<EffectivePropertyFact>>,
-) -> Result<(), QueryShapeError> {
-    if !benchmark_trace::active() {
-        return load_effective_properties_from_compiled_relation_untraced(
-            connection,
-            compiled,
-            columns,
-            heading_id_column,
-            effective,
-        );
-    }
-    load_effective_properties_from_compiled_relation_traced(
-        connection,
-        compiled,
-        columns,
-        heading_id_column,
-        effective,
-    )
-}
-
-pub(in crate::query::result) fn load_effective_properties_from_compiled_relation_traced(
-    connection: &Connection,
-    compiled: &crate::query::CompiledSqlQuery,
-    columns: &str,
-    heading_id_column: &str,
-    effective: &mut HashMap<i64, Vec<EffectivePropertyFact>>,
-) -> Result<(), QueryShapeError> {
-    let sql = format!(
-        "/* orgfdb:enrich-effective-properties params={} */
-         WITH matched({columns}) AS ({})
-         SELECT effective_properties.heading_id,
-                effective_properties.key,
-                effective_properties.effective_value
-         FROM matched
-         INNER JOIN effective_properties
-           ON effective_properties.heading_id = matched.{heading_id_column}",
-        compiled.params.len(),
-        compiled.sql,
-    );
-    let mut timer = ResultTraceTimer::new();
-    let mut statement = timer.sql(|| connection.prepare(&sql)).map_err(|source| {
-        QueryShapeError::database("load_effective_properties_relation.prepare", source)
-    })?;
-    let mut rows = timer
-        .sql(|| statement.query(params_from_iter(compiled.params.iter())))
-        .map_err(|source| {
-            QueryShapeError::database("load_effective_properties_relation.query", source)
-        })?;
-    let mut grouping_duration = Duration::ZERO;
-    loop {
-        let row = timer.sql(|| rows.next()).map_err(|source| {
-            QueryShapeError::database("load_effective_properties_relation.collect", source)
-        })?;
-        let Some(row) = row else {
-            break;
-        };
-        let decoded = timer.decode(|| -> rusqlite::Result<(i64, EffectivePropertyFact)> {
-            Ok((
-                row.get(0)?,
-                EffectivePropertyFact {
-                    key: row.get(1)?,
-                    value: Some(row.get(2)?),
-                },
-            ))
-        });
-        let (heading_id, fact) = decoded.map_err(|source| {
-            QueryShapeError::database("load_effective_properties_relation.collect", source)
-        })?;
-        let started = Instant::now();
-        effective.entry(heading_id).or_default().push(fact);
-        grouping_duration += started.elapsed();
-    }
-    let loaded_rows = timer.rows;
-    timer.record("enrich-effective-properties", 1, compiled.params.len());
-    benchmark_trace::record(
-        benchmark_trace::RUST_GROUPING,
-        "effective-properties",
-        grouping_duration,
-        loaded_rows,
-        0,
-        0,
-    );
-    Ok(())
-}
-
-pub(in crate::query::result) fn load_effective_properties_from_compiled_relation_untraced(
     connection: &Connection,
     compiled: &crate::query::CompiledSqlQuery,
     columns: &str,
@@ -726,103 +524,16 @@ pub(in crate::query::result) fn load_keywords_from_relation(
             &mut keywords,
         )?;
     }
-    let sort_started = benchmark_trace::active().then(Instant::now);
     keywords.sort_by(|left, right| {
         left.heading_id
             .cmp(&right.heading_id)
             .then_with(|| left.fact.line_number.cmp(&right.fact.line_number))
             .then_with(|| left.id.cmp(&right.id))
     });
-    if let Some(started) = sort_started {
-        benchmark_trace::record(
-            benchmark_trace::RUST_LOCAL_SORTING,
-            "keywords",
-            started.elapsed(),
-            keywords.len(),
-            0,
-            0,
-        );
-    }
     Ok(keywords)
 }
 
 pub(in crate::query::result) fn load_keywords_from_compiled_relation(
-    connection: &Connection,
-    compiled: &crate::query::CompiledSqlQuery,
-    columns: &str,
-    heading_id_column: &str,
-    keywords: &mut Vec<StoredKeyword>,
-) -> Result<(), QueryShapeError> {
-    if !benchmark_trace::active() {
-        return load_keywords_from_compiled_relation_untraced(
-            connection,
-            compiled,
-            columns,
-            heading_id_column,
-            keywords,
-        );
-    }
-    load_keywords_from_compiled_relation_traced(
-        connection,
-        compiled,
-        columns,
-        heading_id_column,
-        keywords,
-    )
-}
-
-pub(in crate::query::result) fn load_keywords_from_compiled_relation_traced(
-    connection: &Connection,
-    compiled: &crate::query::CompiledSqlQuery,
-    columns: &str,
-    heading_id_column: &str,
-    keywords: &mut Vec<StoredKeyword>,
-) -> Result<(), QueryShapeError> {
-    let sql = format!(
-        "/* orgfdb:enrich-keywords params={} */
-         WITH matched({columns}) AS ({})
-         SELECT keywords.id, keywords.heading_id, keywords.keyword,
-                keywords.value, keywords.line_number
-         FROM matched
-         INNER JOIN keywords
-           ON keywords.heading_id = matched.{heading_id_column}",
-        compiled.params.len(),
-        compiled.sql,
-    );
-    let mut timer = ResultTraceTimer::new();
-    let mut statement = timer
-        .sql(|| connection.prepare(&sql))
-        .map_err(|source| QueryShapeError::database("load_keywords_relation.prepare", source))?;
-    let mut rows = timer
-        .sql(|| statement.query(params_from_iter(compiled.params.iter())))
-        .map_err(|source| QueryShapeError::database("load_keywords_relation.query", source))?;
-    loop {
-        let row = timer.sql(|| rows.next()).map_err(|source| {
-            QueryShapeError::database("load_keywords_relation.collect", source)
-        })?;
-        let Some(row) = row else {
-            break;
-        };
-        let keyword = timer.decode(|| -> rusqlite::Result<StoredKeyword> {
-            Ok(StoredKeyword {
-                id: row.get(0)?,
-                heading_id: row.get(1)?,
-                fact: KeywordFact {
-                    keyword: row.get(2)?,
-                    value: row.get(3)?,
-                    line_number: row.get(4)?,
-                },
-            })
-        });
-        keywords.push(keyword.map_err(|source| {
-            QueryShapeError::database("load_keywords_relation.collect", source)
-        })?);
-    }
-    timer.record("enrich-keywords", 1, compiled.params.len());
-    Ok(())
-}
-
-pub(in crate::query::result) fn load_keywords_from_compiled_relation_untraced(
     connection: &Connection,
     compiled: &crate::query::CompiledSqlQuery,
     columns: &str,
@@ -865,97 +576,6 @@ pub(in crate::query::result) fn load_keywords_from_compiled_relation_untraced(
 }
 
 pub(in crate::query::result) fn load_root_tags_from_relation(
-    connection: &Connection,
-    relation: &MatchedSqlRelation,
-) -> Result<HashMap<i64, Vec<String>>, QueryShapeError> {
-    if !benchmark_trace::active() {
-        return load_root_tags_from_relation_untraced(connection, relation);
-    }
-    load_root_tags_from_relation_traced(connection, relation)
-}
-
-pub(in crate::query::result) fn load_root_tags_from_relation_traced(
-    connection: &Connection,
-    relation: &MatchedSqlRelation,
-) -> Result<HashMap<i64, Vec<String>>, QueryShapeError> {
-    let Some(compiled) = relation.root_relation() else {
-        return Ok(HashMap::new());
-    };
-    let sql = format!(
-        "/* orgfdb:enrich-tags params={} */
-         WITH matched({}) AS ({})
-         SELECT matched.root_heading_id, effective_tags.position, effective_tags.tag
-         FROM matched
-         INNER JOIN effective_tags
-           ON effective_tags.heading_id = matched.root_heading_id",
-        compiled.params.len(),
-        file_relation_columns(),
-        compiled.sql,
-    );
-    let mut timer = ResultTraceTimer::new();
-    let mut statement = timer
-        .sql(|| connection.prepare(&sql))
-        .map_err(|source| QueryShapeError::database("load_root_tags_relation.prepare", source))?;
-    let mut rows = timer
-        .sql(|| statement.query(params_from_iter(compiled.params.iter())))
-        .map_err(|source| QueryShapeError::database("load_root_tags_relation.query", source))?;
-    let mut positioned = HashMap::<i64, Vec<(i64, String)>>::new();
-    let mut grouping_duration = Duration::ZERO;
-    loop {
-        let row = timer.sql(|| rows.next()).map_err(|source| {
-            QueryShapeError::database("load_root_tags_relation.collect", source)
-        })?;
-        let Some(row) = row else {
-            break;
-        };
-        let decoded = timer.decode(|| -> rusqlite::Result<(i64, i64, String)> {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        });
-        let (heading_id, position, tag) = decoded.map_err(|source| {
-            QueryShapeError::database("load_root_tags_relation.collect", source)
-        })?;
-        let started = Instant::now();
-        positioned
-            .entry(heading_id)
-            .or_default()
-            .push((position, tag));
-        grouping_duration += started.elapsed();
-    }
-    let loaded_rows = timer.rows;
-    timer.record("enrich-tags", 1, compiled.params.len());
-    benchmark_trace::record(
-        benchmark_trace::RUST_GROUPING,
-        "root-tags",
-        grouping_duration,
-        loaded_rows,
-        0,
-        0,
-    );
-
-    let started = Instant::now();
-    let tag_count = positioned.values().map(Vec::len).sum();
-    let result = positioned
-        .into_iter()
-        .map(|(heading_id, mut tags)| {
-            tags.sort_by_key(|(position, _)| *position);
-            (
-                heading_id,
-                tags.into_iter().map(|(_, tag)| tag).collect::<Vec<_>>(),
-            )
-        })
-        .collect();
-    benchmark_trace::record(
-        benchmark_trace::RUST_LOCAL_SORTING,
-        "root-tags",
-        started.elapsed(),
-        tag_count,
-        0,
-        0,
-    );
-    Ok(result)
-}
-
-pub(in crate::query::result) fn load_root_tags_from_relation_untraced(
     connection: &Connection,
     relation: &MatchedSqlRelation,
 ) -> Result<HashMap<i64, Vec<String>>, QueryShapeError> {

@@ -24,11 +24,6 @@ signal-hook = "0.4.4"
 sha2 = "0.11.0"
 toml = "1.1.4"
 
-[features]
-# Benchmark modules, benchmark binaries and their trace hooks. Not part of the
-# default build or of `cargo install`.
-bench = ["rusqlite/trace"]
-
 [lib]
 name = "org_files_db"
 path = "src/lib.rs"
@@ -36,28 +31,3 @@ path = "src/lib.rs"
 [[bin]]
 name = "orgfdb"
 path = "src/main.rs"
-
-[[bin]]
-name = "orgfdb-presentation-cache-benchmark"
-path = "src/bin/orgfdb-presentation-cache-benchmark.rs"
-required-features = ["bench"]
-
-[[bin]]
-name = "orgfdb-benchmark"
-path = "src/bin/orgfdb-benchmark.rs"
-required-features = ["bench"]
-
-[[bin]]
-name = "orgfdb-presentation-benchmark"
-path = "src/bin/orgfdb-presentation-benchmark.rs"
-required-features = ["bench"]
-
-[[bin]]
-name = "orgfdb-presentation-payload-analysis"
-path = "src/bin/orgfdb-presentation-payload-analysis.rs"
-required-features = ["bench"]
-
-[[bin]]
-name = "orgfdb-query-sql-benchmark"
-path = "src/bin/orgfdb-query-sql-benchmark.rs"
-required-features = ["bench"]

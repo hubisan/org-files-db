@@ -22,14 +22,6 @@ pub(crate) enum CliSearchScope {
     Body,
 }
 
-#[cfg(feature = "bench")]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ProductionSearchResultKey {
-    pub(crate) file_path: String,
-    pub(crate) byte_start: Option<i64>,
-    pub(crate) rank_bits: u64,
-}
-
 pub(super) fn cli_search_scope(title: bool, body: bool) -> CliSearchScope {
     if title {
         CliSearchScope::Title
@@ -66,53 +58,6 @@ pub(super) fn search_json_rows_for_config(
     let connection =
         open_existing_database_read_only(&config.db_path).map_err(CliError::Database)?;
     production_search_rows_with_connection(&connection, scope, expression, config)
-}
-
-#[cfg(feature = "bench")]
-pub(crate) fn production_search_result_count_with_connection(
-    connection: &Connection,
-    scope: CliSearchScope,
-    expression: &str,
-    config: &Config,
-) -> Result<usize, String> {
-    production_search_rows_with_connection(connection, scope, expression, config)
-        .map(|rows| rows.len())
-        .map_err(|error| error.to_string())
-}
-
-#[cfg(feature = "bench")]
-pub(crate) fn production_search_stable_results_with_connection(
-    connection: &Connection,
-    scope: CliSearchScope,
-    expression: &str,
-    config: &Config,
-) -> Result<Vec<ProductionSearchResultKey>, String> {
-    let mut rows = production_search_rows_with_connection(connection, scope, expression, config)
-        .map_err(|error| error.to_string())?;
-    rows.sort_by(|left, right| {
-        left.rank
-            .total_cmp(&right.rank)
-            .then_with(|| {
-                left.heading
-                    .location
-                    .file_path
-                    .cmp(&right.heading.location.file_path)
-            })
-            .then_with(|| {
-                left.heading
-                    .location
-                    .byte_start
-                    .cmp(&right.heading.location.byte_start)
-            })
-    });
-    Ok(rows
-        .into_iter()
-        .map(|row| ProductionSearchResultKey {
-            file_path: row.heading.location.file_path,
-            byte_start: row.heading.location.byte_start,
-            rank_bits: row.rank.to_bits(),
-        })
-        .collect())
 }
 
 pub(super) fn production_search_rows_with_connection(

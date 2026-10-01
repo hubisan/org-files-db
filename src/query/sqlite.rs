@@ -1,7 +1,4 @@
-use std::{
-    env, fmt,
-    time::{Duration, Instant},
-};
+use std::{env, fmt};
 
 use regex::Regex;
 use rusqlite::{
@@ -11,7 +8,6 @@ use rusqlite::{
 };
 use serde::Serialize;
 
-use super::benchmark_trace;
 use super::priority::normalize_priority;
 use super::result::QueryExecutionOptions;
 use super::sql_support::id_chunk_capacity;
@@ -38,7 +34,7 @@ pub(crate) use self::compile::{
     compile_sqlite_query_with_file_restriction, compile_sqlite_query_with_metadata_strategy,
     MetadataPredicateSqlStrategy, PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
 };
-#[cfg(any(test, feature = "bench"))]
+#[cfg(test)]
 pub(crate) use self::execute::execute_sqlite_query_with_relation;
 #[cfg(test)]
 pub(crate) use self::execute::execute_sqlite_query_with_relation_and_metadata_strategy;

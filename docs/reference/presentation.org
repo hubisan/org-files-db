@@ -674,7 +674,7 @@ JSON serialization stays sequential.
 
 These thresholds come from completed paired benchmarks.
 
-The rejected forced-parallel A/B implementation is not part of production or retained benchmark code.
+The rejected forced-parallel A/B implementation is not part of production code.
 
 * Cache decision
 
@@ -732,7 +732,7 @@ These measurements explain architecture decisions.
 
 They are not cross-machine performance guarantees.
 
-Read [[../presentation-performance.org][Presentation Performance Benchmarks]] for commands, workload details, and historical measurements.
+Read [[../presentation-performance.org][Presentation Performance Benchmarks]] for workload details and historical measurements.
 
 * Historical alternatives
 

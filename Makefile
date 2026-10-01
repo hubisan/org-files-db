@@ -20,13 +20,12 @@ fmt:
 
 clippy:
 	cargo clippy --all-targets -- -D warnings
-	cargo clippy --all-targets --all-features -- -D warnings
 
 test:
-	cargo test --all-targets --all-features
+	cargo test --all-targets
 
 build:
-	cargo build --all-targets --all-features
+	cargo build --all-targets
 
 release:
 	cargo build --release

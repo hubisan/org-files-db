@@ -3,6 +3,8 @@
 
 * Purpose
 
+The benchmark code behind these measurements was removed in #114 and lives in git history before that change. This page stays as the record of the measurements and decisions.
+
 This document records the SQL performance work for structural query execution and result enrichment.
 
 The uncached presentation benchmark showed that query execution dominates latency for large result sets.
@@ -148,7 +150,7 @@ Rust then constructs the final file and heading path from the matched rows and l
 
 The current missing-row and malformed-JSON errors remain unchanged.
 
-The recursive query-derived loader remains available as a benchmark reference.
+The recursive query-derived loader was kept as a benchmark reference and was removed in #114.
 
 Flat file path output needs only the matched file and its synthetic-root data.
 
@@ -968,123 +970,7 @@ Run the schema version ~5~ benchmark before accepting these construction and sha
 
 Do not subtract its phase sum from the latency median.
 
-* Run the SQL benchmark
-
-Build the release benchmark binary.
-
-#+begin_src sh
-cargo build --release --features bench --bin orgfdb-query-sql-benchmark
-#+end_src
-
-The SQL benchmark reuses compatible corpus databases when they exist.
-
-It creates the work directory and missing corpus databases when required.
-
-The first run can spend significant time preparing the ~50'000~-result database.
-
-Use a persistent work directory when repeated benchmark runs need database reuse.
-
-#+begin_src sh
-target/release/orgfdb-query-sql-benchmark \
-  --rows 100,1000,10000,50000 \
-  --warmups 1 \
-  --iterations 3 \
-  --work-dir /tmp/orgfdb-presentation-benchmark-work \
-  --output /tmp/orgfdb-query-sql-benchmark-rust-vs-sqlite-v1.json
-#+end_src
-
-Use a new output path for each benchmark run.
-
-For the heading path variable-limit sensitivity task, use the existing ~50'000~-result database and run:
-
-#+begin_src sh
-target/release/orgfdb-query-sql-benchmark \
-  --rows 50000 \
-  --path-variable-limits 250000,32766,999 \
-  --warmups 1 \
-  --iterations 3 \
-  --work-dir /tmp/orgfdb-presentation-benchmark-work \
-  --output /tmp/orgfdb-query-sql-benchmark-path-variable-limits-v1.json
-#+end_src
-
-This focused run still records the normal ~50'000~-result benchmark sections.
-
-The ~path_strategies~ section is the decision input for the variable-limit sensitivity task.
-
-For the production heading path rebenchmark, run the standard result sizes without an explicit path variable limit.
-
-#+begin_src sh
-target/release/orgfdb-query-sql-benchmark \
-  --rows 100,1000,10000,50000 \
-  --warmups 1 \
-  --iterations 3 \
-  --work-dir /tmp/orgfdb-presentation-benchmark-work \
-  --output /tmp/orgfdb-query-sql-benchmark-production-path-v1.json
-#+end_src
-
-Use the ~headings.path~ entry under ~workloads~ for the end-to-end comparison.
-
-Use its ~direct_phase_profile~ for attribution.
-
-For the metadata predicate benchmark, run the standard result sizes.
-
-#+begin_src sh
-target/release/orgfdb-query-sql-benchmark \
-  --rows 100,1000,10000,50000 \
-  --warmups 1 \
-  --iterations 3 \
-  --work-dir /tmp/orgfdb-presentation-benchmark-work \
-  --output /tmp/orgfdb-query-sql-benchmark-predicate-driven-v1.json
-#+end_src
-
-Use ~metadata_predicate_strategies~ for the SQL-shape comparison.
-
-Use ~compiler_audit~ for the impossible-lookup audit.
-
-For the selective matched-relation refresh, run the standard result sizes with schema version ~10~.
-
-#+begin_src sh
-target/release/orgfdb-query-sql-benchmark \
-  --rows 100,1000,10000,50000 \
-  --warmups 1 \
-  --iterations 3 \
-  --work-dir /tmp/orgfdb-presentation-benchmark-work \
-  --output /tmp/orgfdb-query-sql-benchmark-relation-reuse-v10.json
-#+end_src
-
-Use ~relation_reuse_strategies~ to refresh the isolated simple/complex comparison through the current compiler.
-
-Use ~production_relation_reuse_strategies~ for the complete production enabled/disabled comparison.
-
-Require exact public result equality before using the timing data.
-
-For the complete metadata production A/B, use the same standard result sizes.
-
-#+begin_src sh
-target/release/orgfdb-query-sql-benchmark \
-  --rows 100,1000,10000,50000 \
-  --warmups 1 \
-  --iterations 3 \
-  --work-dir /tmp/orgfdb-presentation-benchmark-work \
-  --output /tmp/orgfdb-query-sql-benchmark-predicate-driven-e2e-v1.json
-#+end_src
-
-Schema version ~7~ records ~production_metadata_predicate_strategies~ for ~10'000~ and ~50'000~ headings.
-
-Use that section as the production latency decision input.
-
-Schema version ~8~ adds ~metadata_index_costs~ at ~50'000~ headings.
-
-For the index-cost gate, run only the largest result size:
-
-#+begin_src sh
-target/release/orgfdb-query-sql-benchmark \
-  --rows 50000 \
-  --warmups 1 \
-  --iterations 3 \
-  --work-dir /tmp/orgfdb-presentation-benchmark-work \
-  --output /tmp/orgfdb-query-sql-benchmark-predicate-index-cost-v1.json
-#+end_src
+* Metadata index cost
 
 The cost section records logical database size, index build time, and one representative ~1'000~-row metadata write.
 
@@ -1161,7 +1047,7 @@ The implementation now selects ~rusqlite 0.40.2~ with ~libsqlite3-sys 0.38.2~.
 
 The ~rusqlite~ dependency disables default features.
 
-It enables only ~bundled~, ~functions~, and ~limits~; the ~bench~ feature adds ~trace~.
+It enables only ~bundled~, ~functions~, and ~limits~.
 
 This keeps the existing orgfdb feature set and avoids unrelated default dependencies.
 
@@ -1333,7 +1219,7 @@ Do not generalize the pattern to properties, effective properties, or file keywo
 
 The temporary schema version ~14~ strategy harness was removed after the decision.
 
-The retained query SQL benchmark output remains schema version ~13~.
+The query SQL benchmark output ended at schema version ~13~.
 
 * Planner statistics lifecycle
 
@@ -1387,7 +1273,7 @@ Planner maintenance is best-effort after commit. A maintenance error does not ch
 
 The temporary planner-statistics benchmark harness was removed after this decision.
 
-The retained query SQL benchmark remains output schema version ~13~.
+The query SQL benchmark ended at output schema version ~13~.
 
 * Benchmark output
 
@@ -1514,7 +1400,7 @@ Schema version ~3~ showed that this loader wins at the local ~250000~ variable l
 
 Schema version ~4~ confirmed the advantage at ~250000~, ~32766~, and ~999~.
 
-The recursive query-derived loader remains only as a benchmark reference.
+The recursive query-derived loader was kept only as a benchmark reference and was removed in #114.
 
 The production rebenchmark shows clear gains through ~10'000~ results and a ~13.7%~ regression at ~50'000~ results.
 

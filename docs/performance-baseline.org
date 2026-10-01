@@ -3,26 +3,19 @@
 
 * Purpose
 
-The benchmark measures structural queries and production FTS5 search. It also records historical index-tuning evidence.
+The benchmark code was removed in #114 and lives in git history before that change. This page stays as the record of the measurements and decisions.
 
-The benchmark does not change authoritative schema decisions, query semantics, or CI limits.
+The benchmark measured structural queries and production FTS5 search. It also records historical index-tuning evidence.
+
+The benchmark did not change authoritative schema decisions, query semantics, or CI limits.
 
 Schema version 10 materialized effective properties. Schema version 11 materialized effective tags. Schema version 12 added index generations and affected-file journaling.
 
 These projections avoid repeated query-time reconstruction of inherited metadata.
 
-* Run
+* Corpus and workloads
 
-All benchmark modules and binaries sit behind the ~bench~ Cargo feature and are not part of the default build or ~cargo install~. Pass ~--features bench~ to build them. Use an optimized release build. Use new, untracked paths for the work directory and JSON output.
-
-#+begin_src sh
-cargo run --release --features bench --bin orgfdb-benchmark -- \
-  --files 1000 --seed 1 --warmups 5 --iterations 30 \
-  --work-dir /tmp/orgfdb-benchmark-work \
-  --output /tmp/orgfdb-benchmark.json
-#+end_src
-
-The corpus generator is deterministic for the same version, file count, and seed.
+The corpus generator was deterministic for the same version, file count, and seed.
 
 Its manifest records:
 
@@ -36,8 +29,6 @@ Its manifest records:
 The corpus includes several outline shapes and indexed Org features. These include TODO states, tags, properties, timestamps, links, and search text.
 
 The workload matrix measures direct and inherited tag matching separately. Inherited tag queries use the materialized ~effective_tags~ projection.
-
-The runner writes benchmark JSON only to the requested output path. It does not modify source fixtures or documentation.
 
 * Measurement protocol
 
@@ -102,7 +93,7 @@ Storage evidence alone does not prove query benefit. Use query plans, timing dis
 On Linux, inspect linked libraries and ~dbstat~ capability with:
 
 #+begin_src sh
-ldd target/release/orgfdb-benchmark | grep -i sqlite
+ldd target/release/orgfdb | grep -i sqlite
 ldd "$(command -v sqlite3)" | grep -i sqlite
 pkg-config --variable=libdir sqlite3
 sqlite3 ':memory:' "SELECT sqlite_compileoption_used('ENABLE_DBSTAT_VTAB');"
@@ -123,17 +114,7 @@ The profile run does not use ~ANALYZE~, ~VACUUM~, or benchmark-only pragmas.
 
 * Historical measured decision
 
-The index decision used this command:
-
-#+begin_src sh
-cargo run --release --features bench --bin orgfdb-benchmark -- \
-  --output .tmp/orgfdb-index-profiles-1000-fixed.json \
-  --work-dir .tmp/orgfdb-index-profiles-1000-fixed-work \
-  --files 1000 \
-  --seed 1 \
-  --warmups 5 \
-  --iterations 30
-#+end_src
+The index decision used the benchmark with 1,000 files, seed 1, 5 warm-ups and 30 iterations.
 
 The corpus contained 1,000 files, 5,675 headings, and 1,091 links.
 
