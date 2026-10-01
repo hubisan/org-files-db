@@ -87,6 +87,7 @@ impl ChangePlan {
             .map(|file| &file.identity)
             .chain(self.created.iter().map(|file| &file.prepared.identity))
             .chain(self.modified.iter().map(|file| &file.prepared.identity))
+            .chain(self.failed.iter().map(|file| &file.identity))
             .collect()
     }
 
@@ -108,9 +109,6 @@ impl TryFrom<ChangePlan> for ActionableChangePlan {
     type Error = ChangeApplicationRejection;
 
     fn try_from(plan: ChangePlan) -> Result<Self, Self::Error> {
-        if !plan.failed.is_empty() {
-            return Err(ChangeApplicationRejection::FailedSources);
-        }
         Ok(Self { plan })
     }
 }
@@ -118,7 +116,6 @@ impl TryFrom<ChangePlan> for ActionableChangePlan {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ChangeApplicationRejection {
     FullRebuildRequired,
-    FailedSources,
     Stale,
 }
 
@@ -130,6 +127,7 @@ pub(crate) enum ChangeApplicationResult {
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct ChangeApplicationReport {
+    pub(crate) skipped: Vec<SkippedSource>,
     pub(crate) unchanged: usize,
     pub(crate) metadata_only: usize,
     pub(crate) created: usize,
@@ -145,6 +143,7 @@ impl From<&ChangePlan> for ChangeApplicationReport {
             created: plan.created.len(),
             modified: plan.modified.len(),
             deleted: plan.deleted.len(),
+            skipped: plan.failed.iter().map(SkippedSource::from).collect(),
         }
     }
 }
@@ -245,12 +244,51 @@ impl From<PersistedFileSnapshot> for DeletedFile {
     }
 }
 
+/// A discovered source whose preparation failed. The file is skipped: its last
+/// good rows (if any) stay untouched and it is not recorded as indexed, so the
+/// next planning run retries it.
 #[derive(Debug)]
-// `path` and `error` are not reported yet; see #34.
-#[allow(dead_code)]
 pub(crate) struct FailedChange {
     pub(crate) path: PathBuf,
+    pub(in crate::indexer) identity: FileIdentity,
     pub(crate) error: IndexerError,
+}
+
+/// Reportable form of a [`FailedChange`] after the rest of the plan was applied.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkippedSource {
+    pub(crate) path: PathBuf,
+    pub(crate) cause: String,
+    /// True when a later retry can plausibly succeed without the file changing
+    /// (unstable snapshot, file vanished or interrupted read).
+    pub(crate) transient: bool,
+}
+
+impl From<&FailedChange> for SkippedSource {
+    fn from(failed: &FailedChange) -> Self {
+        Self {
+            path: failed.path.clone(),
+            cause: skip_cause(&failed.error),
+            transient: failed.error.is_transient_source_failure(),
+        }
+    }
+}
+
+pub(crate) fn skip_cause(error: &IndexerError) -> String {
+    match error {
+        IndexerError::ReadFile { source, .. } => {
+            if source.kind() == io::ErrorKind::InvalidData {
+                "file is not valid UTF-8".to_string()
+            } else {
+                source.to_string()
+            }
+        }
+        IndexerError::Parse { diagnostic, .. } => diagnostic.message.clone(),
+        IndexerError::UnstableFileSnapshot { .. } => {
+            "file changed while it was being read".to_string()
+        }
+        other => other.to_string(),
+    }
 }
 
 pub(in crate::indexer) enum PlannedCurrentFile {
