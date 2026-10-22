@@ -18,3 +18,6 @@ docs/** linguist-documentation
 
 # Make sure Rust is counted normally
 *.rs linguist-language=Rust
+
+# Every PR adds a line under "* Unreleased"; keep both sides on merge.
+CHANGELOG.org merge=union
