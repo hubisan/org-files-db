@@ -14,7 +14,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
+      # Installs the toolchain pinned in rust-toolchain.toml, so CI and local runs match.
+      - run: rustup toolchain install
       - run: make ci

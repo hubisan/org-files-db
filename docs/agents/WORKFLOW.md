@@ -77,6 +77,9 @@ that needs a code change is.
 - The implementer runs the narrowest relevant tests while working; the planner runs
   `make ci` once at the end of the ticket.
 - Keep command output compact; inspect detailed logs only when a step fails.
+- Parallel implementers each use their own `CARGO_TARGET_DIR` with `CARGO_INCREMENTAL=0`
+  and delete it when their ticket ends; run at most three at once. Each target directory
+  takes several GB and a full disk breaks the linker.
 - Load context progressively. Subagent briefs name the exact files and sections so the
   implementer does not rediscover them. Do not scan `.claude/skills/`.
 
