@@ -2691,6 +2691,70 @@ fn execution_matches_link_and_file_regex_metadata_predicates() {
 }
 
 #[test]
+fn source_context_predicate_filters_links_and_nested_has_link() {
+    let connection = seeded_connection();
+    connection
+        .execute_batch(
+            "UPDATE links SET source_context = 'heading' WHERE id IN (100, 101);
+             UPDATE links SET source_context = 'property_drawer' WHERE id = 103;",
+        )
+        .expect("fixture update should apply");
+    let links = |query: &str| {
+        let mut ids = link_ids(execute_sqlite_query(&connection, &validated(query)).expect("runs"));
+        ids.sort_unstable();
+        ids
+    };
+    let headings = |query: &str| {
+        let mut ids =
+            heading_ids(execute_sqlite_query(&connection, &validated(query)).expect("runs"));
+        ids.sort_unstable();
+        ids
+    };
+    let link_cases: &[(&str, &[i64])] = &[
+        (r#"(links (source-context "heading"))"#, &[100, 101]),
+        (
+            r#"(links (source-context "normal"))"#,
+            &[102, 104, 105, 106, 107],
+        ),
+        (
+            r#"(links (source-context "heading" "property_drawer"))"#,
+            &[100, 101, 103],
+        ),
+        (r#"(links (source-context "drawer"))"#, &[]),
+    ];
+    for (query, expected) in link_cases {
+        assert_eq!(&links(query), expected, "{query}");
+    }
+    // Heading 13 only has a body link (105) and must not match.
+    let heading_cases: &[(&str, &[i64])] = &[
+        (
+            r#"(headings (has-link (links (source-context "heading"))))"#,
+            &[11, 12],
+        ),
+        (
+            r#"(headings (has-link (links (source-context "heading" "property_drawer"))))"#,
+            &[11, 12, 21],
+        ),
+    ];
+    for (query, expected) in heading_cases {
+        assert_eq!(&headings(query), expected, "{query}");
+    }
+
+    for (query, needle) in [
+        (
+            r#"(links (source-context "bogus"))"#,
+            "allowed values: normal, heading, property_drawer, drawer, verse_block, quote_block, center_block, justify_block",
+        ),
+        (r#"(headings (source-context "heading"))"#, "source-context"),
+    ] {
+        let parsed = parse_query(query).expect("query should parse");
+        let error = validate_query(parsed, &validation_options())
+            .expect_err("query should not validate");
+        assert!(error.to_string().contains(needle), "{query}: {error}");
+    }
+}
+
+#[test]
 fn every_validator_predicate_has_an_executed_query() {
     let connection = seeded_connection();
     connection
@@ -2750,6 +2814,7 @@ fn every_validator_predicate_has_an_executed_query() {
         ("links-to", r#"(headings (links-to (headings (level 1))))"#),
         ("linked-from", r#"(headings (linked-from :any))"#),
         ("link-type", r#"(links (link-type "file"))"#),
+        ("source-context", r#"(links (source-context "heading"))"#),
         (
             "link-target",
             r#"(links (link-target "file:beta.org" :exact t))"#,

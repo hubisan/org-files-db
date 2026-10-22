@@ -467,8 +467,8 @@ pub(in crate::query::sqlite) fn compile_heading_predicate(
         "has-text" => compile_has_text_predicate(scope, predicate),
         "outline-contains" => compile_outline_contains_predicate(scope, predicate),
         "outline-sequence" => compile_outline_sequence_predicate(scope, predicate),
-        "link-type" | "link-target" | "link-description" | "has-description" | "status"
-        | "source" | "target" => Err(QueryExecutionError::unsupported_predicate(
+        "link-type" | "source-context" | "link-target" | "link-description" | "has-description"
+        | "status" | "source" | "target" => Err(QueryExecutionError::unsupported_predicate(
             QueryTarget::Headings,
             predicate.name.as_str(),
             format!(
@@ -552,14 +552,13 @@ pub(in crate::query::sqlite) fn compile_file_predicate(
             ),
         )),
         "todo" | "done" | "priority" | "title" | "level" | "scheduled" | "deadline" | "closed"
-        | "planning" | "ts" | "ts-active" | "ts-inactive" | "link-type" | "link-target"
-        | "link-description" | "has-description" | "status" | "source" | "target" => {
-            Err(QueryExecutionError::unsupported_predicate(
-                QueryTarget::Files,
-                predicate.name.as_str(),
-                format!("predicate {} is not valid for target files", predicate.name),
-            ))
-        }
+        | "planning" | "ts" | "ts-active" | "ts-inactive" | "link-type" | "source-context"
+        | "link-target" | "link-description" | "has-description" | "status" | "source"
+        | "target" => Err(QueryExecutionError::unsupported_predicate(
+            QueryTarget::Files,
+            predicate.name.as_str(),
+            format!("predicate {} is not valid for target files", predicate.name),
+        )),
         other => Err(QueryExecutionError::unsupported_predicate(
             QueryTarget::Files,
             other,

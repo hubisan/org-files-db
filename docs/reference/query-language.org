@@ -694,6 +694,25 @@ The following predicates work only on ~links~.
 
 The predicate matches any listed stored link type.
 
+** ~source-context~
+
+#+begin_src lisp
+(source-context CONTEXT...)
+#+end_src
+
+The predicate matches links whose stored source context is any listed value. An unknown value is a validation error that names the allowed values. It also works nested in ~has-link~, ~links-to~ and ~linked-from~ link queries.
+
+Stored values:
+
+- ~normal~: body text outside the contexts below.
+- ~heading~: the headline title; ~(headings (has-link (links (source-context "heading"))))~ lists only headings with a link in the headline, not in the section body.
+- ~property_drawer~: the ~:PROPERTIES:~ drawer.
+- ~drawer~: any other drawer.
+- ~verse_block~: a ~#+begin_verse~ block.
+- ~quote_block~: a ~#+begin_quote~ block.
+- ~center_block~: a ~#+begin_center~ block.
+- ~justify_block~: a ~#+begin_justify~ block.
+
 ** ~link-target~
 
 #+begin_src lisp
