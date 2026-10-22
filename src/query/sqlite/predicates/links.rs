@@ -131,6 +131,11 @@ pub(in crate::query::sqlite) fn compile_link_predicate(
             &scope.link_col("link_type"),
             &predicate.args,
         ),
+        "source-context" => compile_in_list(
+            QueryTarget::Links,
+            &scope.link_col("source_context"),
+            &predicate.args,
+        ),
         "link-target" => compile_text_predicate(
             QueryTarget::Links,
             &scope.link_col("raw_target"),

@@ -235,6 +235,7 @@ fn validate_call(
         "links-to" => validate_links_to(call, target, options),
         "linked-from" => validate_linked_from(call, target, options),
         "link-type" => validate_link_type(call, target),
+        "source-context" => validate_source_context(call, target),
         "link-target" | "link-description" => validate_text_predicate(
             call,
             target,
@@ -776,6 +777,43 @@ fn validate_link_type(
     Ok(validated_predicate(target, call.name, args, options))
 }
 
+/// Stored `links.source_context` values (`ParsedLinkSourceContext::as_db_str`).
+const LINK_SOURCE_CONTEXTS: [&str; 8] = [
+    "normal",
+    "heading",
+    "property_drawer",
+    "drawer",
+    "verse_block",
+    "quote_block",
+    "center_block",
+    "justify_block",
+];
+
+fn validate_source_context(
+    call: PredicateCall,
+    target: QueryTarget,
+) -> Result<ValidatedPredicate, QueryValidationError> {
+    ensure_target(target, &call.name, &[QueryTarget::Links])?;
+    let options = validate_options(target, &call.name, &call.options, &[])?;
+    let args = validate_scalar_strings(target, &call.name, &call.args, Arity::OneOrMore)?;
+    for arg in &args {
+        if let ValidatedArg::Scalar(QueryValue::String(value)) = arg {
+            if !LINK_SOURCE_CONTEXTS.contains(&value.as_str()) {
+                return Err(QueryValidationError::new(
+                    QueryValidationErrorKind::InvalidValue,
+                    target,
+                    call.name,
+                    format!(
+                        "unknown source-context {value:?}; allowed values: {}",
+                        LINK_SOURCE_CONTEXTS.join(", ")
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(validated_predicate(target, call.name, args, options))
+}
+
 fn validate_has_description(
     call: PredicateCall,
     target: QueryTarget,
@@ -1223,6 +1261,7 @@ fn predicate_is_known_globally(name: &str) -> bool {
             | "links-to"
             | "linked-from"
             | "link-type"
+            | "source-context"
             | "link-target"
             | "link-description"
             | "has-description"

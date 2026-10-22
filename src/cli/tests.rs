@@ -3808,6 +3808,7 @@ fn docs_query_reference_mentions_public_predicates_includes_and_options() {
         "links-to",
         "linked-from",
         "link-type",
+        "source-context",
         "link-target",
         "link-description",
         "has-description",
