@@ -31,6 +31,7 @@ default_closed_keywords = ["DONE(d)", "CANCEL(c)"]
 [search]
 fts5_enabled = true
 index_body_text = false
+substring_search = false
 
 [query]
 timezone = "Europe/Zurich"
@@ -273,6 +274,7 @@ Supported keys:
 
 - ~fts5_enabled~
 - ~index_body_text~
+- ~substring_search~
 
 ** ~search.fts5_enabled~
 
@@ -307,6 +309,16 @@ The ~[query]~ section controls structural query time handling.
 Supported keys:
 
 - ~timezone~
+
+
+** ~search.substring_search~
+
+~substring_search~ builds a second FTS5 index with the ~trigram~ tokenizer for ~orgfdb search --substring~.
+
+- Type: boolean
+- Default: ~false~
+
+With it, a search term matches anywhere inside a word: ~zept~ finds "Rezept". Terms need at least three characters, case and diacritics are ignored (~praam~ finds "Präambel"). It needs ~fts5_enabled = true~; body text is in it only with ~index_body_text = true~. The index is about three times the size of the indexed text, several times the size of the word index. Changing this setting requires ~orgfdb rebuild~ before ~--substring~ reflects it.
 
 ** ~query.timezone~
 

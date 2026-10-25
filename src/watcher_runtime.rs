@@ -611,6 +611,7 @@ mod tests {
         SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         }
     }
 

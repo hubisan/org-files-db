@@ -51,17 +51,18 @@ struct Segment {
     column: u32,
 }
 
-/// Occurrences per heading id for every row that `expression` matches.
+/// Occurrences per heading id for every row that `expression` matches in the FTS `table`.
 pub(crate) fn load_occurrences(
     connection: &Connection,
+    table: &'static str,
     expression: &str,
     heading_ids: &[i64],
 ) -> rusqlite::Result<HashMap<i64, Vec<SearchOccurrence>>> {
-    let mut highlight = connection.prepare(
-        "SELECT highlight(heading_fts, 0, ?2, ?3), highlight(heading_fts, 1, ?2, ?3)
-         FROM heading_fts
-         WHERE heading_fts MATCH ?1 AND rowid = ?4",
-    )?;
+    let mut highlight = connection.prepare(&format!(
+        "SELECT highlight({table}, 0, ?2, ?3), highlight({table}, 1, ?2, ?3)
+         FROM {table}
+         WHERE {table} MATCH ?1 AND rowid = ?4"
+    ))?;
     let mut segments = connection.prepare(
         "SELECT field, text_start, byte_start, line, column_number
          FROM heading_text_segments

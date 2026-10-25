@@ -666,7 +666,7 @@ Search is separate from the structural query language.
 ** Synopsis
 
 #+begin_src shell
-orgfdb search [--title | --body] [--occurrences] [--config PATH] [--format json | --json] EXPRESSION
+orgfdb search [--title | --body] [--occurrences] [--substring] [--config PATH] [--format json | --json] EXPRESSION
 #+end_src
 
 The expression must not be empty.
@@ -677,6 +677,8 @@ Without ~--title~ or ~--body~, search uses both indexed FTS columns.
 - ~--body~ restricts the complete expression to the FTS ~body~ column.
 
 The two scope options conflict.
+
+~--substring~ uses the trigram index of ~search.substring_search~ instead of the word index. Each term then matches any substring of at least three characters, so ~zept~ finds "Rezept" and ~"ide" AND "est"~ needs both substrings. Shorter terms match nothing. Case and diacritics are ignored. Without the index, search fails with ~index-not-trusted~ and asks to set ~substring_search = true~ and rebuild. ~--substring~ works with ~--title~, ~--body~ and ~--occurrences~.
 
 If one scope option is active, the expression cannot contain its own explicit FTS column filter.
 With a scope option, parentheses outside double-quoted strings must be balanced and a ~)~ may not close more than was opened, so the expression cannot escape the scope.

@@ -19,7 +19,7 @@ use crate::{
         SchemaDefinition, TagRecord, TimestampRecord, TimestampRepeaterRecord, TodoKeywordRecord,
         CURRENT_SCHEMA_VERSION, DB_METADATA_BODY_TEXT_AVAILABLE_KEY, DB_METADATA_FTS_AVAILABLE_KEY,
         DB_METADATA_FTS_BODY_INDEXED_KEY, DB_METADATA_FTS_SCHEMA_VERSION_KEY,
-        FTS_SCHEMA_CONTRACT_VERSION,
+        DB_METADATA_FTS_SUBSTRING_INDEXED_KEY, FTS_SCHEMA_CONTRACT_VERSION,
     },
     exclusions::ExclusionMatcher,
     file_identity::{display_path, FileIdentity},
@@ -528,10 +528,18 @@ where
         if config.search.fts5_enabled {
             DbWriter::rebuild_heading_fts(&tx, config.search.index_body_text)
                 .map_err(IndexerError::Write)?;
-            persist_search_trust_metadata(&tx, true, config.search.index_body_text)
+            DbWriter::rebuild_heading_trigram_fts(&tx, config.search.substring_search)
                 .map_err(IndexerError::Write)?;
+            persist_search_trust_metadata(
+                &tx,
+                true,
+                config.search.index_body_text,
+                config.search.substring_search,
+            )
+            .map_err(IndexerError::Write)?;
         } else {
-            persist_search_trust_metadata(&tx, false, false).map_err(IndexerError::Write)?;
+            DbWriter::rebuild_heading_trigram_fts(&tx, false).map_err(IndexerError::Write)?;
+            persist_search_trust_metadata(&tx, false, false, false).map_err(IndexerError::Write)?;
         }
         // Index invalidations can change how every link resolves, so they take the full pass.
         let resolution_report = if plan.invalidations.is_empty() {
@@ -804,10 +812,18 @@ where
         if config.search.fts5_enabled {
             DbWriter::rebuild_heading_fts(&tx, config.search.index_body_text)
                 .map_err(IndexerError::Write)?;
-            persist_search_trust_metadata(&tx, true, config.search.index_body_text)
+            DbWriter::rebuild_heading_trigram_fts(&tx, config.search.substring_search)
                 .map_err(IndexerError::Write)?;
+            persist_search_trust_metadata(
+                &tx,
+                true,
+                config.search.index_body_text,
+                config.search.substring_search,
+            )
+            .map_err(IndexerError::Write)?;
         } else {
-            persist_search_trust_metadata(&tx, false, false).map_err(IndexerError::Write)?;
+            DbWriter::rebuild_heading_trigram_fts(&tx, false).map_err(IndexerError::Write)?;
+            persist_search_trust_metadata(&tx, false, false, false).map_err(IndexerError::Write)?;
         }
 
         let _resolution_report = LinkResolver::resolve_all(&tx, &discovery.indexed_universe)
@@ -958,9 +974,15 @@ fn persist_search_trust_metadata(
     connection: &Connection,
     fts_available: bool,
     body_indexed: bool,
+    substring_indexed: bool,
 ) -> Result<(), DbWriteError> {
     DbWriter::set_metadata_flag(connection, DB_METADATA_FTS_AVAILABLE_KEY, fts_available)?;
     DbWriter::set_metadata_flag(connection, DB_METADATA_FTS_BODY_INDEXED_KEY, body_indexed)?;
+    DbWriter::set_metadata_flag(
+        connection,
+        DB_METADATA_FTS_SUBSTRING_INDEXED_KEY,
+        substring_indexed,
+    )?;
     DbWriter::set_metadata_value(
         connection,
         DB_METADATA_FTS_SCHEMA_VERSION_KEY,

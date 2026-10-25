@@ -32,6 +32,7 @@ pub(crate) use writer::{
 pub const DB_METADATA_BODY_TEXT_AVAILABLE_KEY: &str = "body_text_available";
 pub const DB_METADATA_FTS_AVAILABLE_KEY: &str = "fts_available";
 pub const DB_METADATA_FTS_BODY_INDEXED_KEY: &str = "fts_body_indexed";
+pub const DB_METADATA_FTS_SUBSTRING_INDEXED_KEY: &str = "fts_substring_indexed";
 pub const DB_METADATA_FTS_SCHEMA_VERSION_KEY: &str = "fts_schema_version";
 pub const DB_METADATA_INDEXING_SEMANTICS_VERSION_KEY: &str = "indexing_semantics_version";
 pub const DB_METADATA_INDEXING_SEMANTICS_FINGERPRINT_KEY: &str = "indexing_semantics_fingerprint";

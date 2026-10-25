@@ -6,7 +6,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 #[cfg(test)]
 use super::index_state::{advance_index_generation, AffectedFile, IndexGenerationChange};
-use super::schema::{heading_fts_sql, sqlite_supports_fts5};
+use super::schema::{heading_fts_sql, heading_trigram_fts_sql, sqlite_supports_fts5};
 use crate::file_identity::display_path;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -889,6 +889,40 @@ impl DbWriter {
             )
             .map_err(|source| DbWriteError::Write {
                 operation: "rebuild_heading_fts.populate",
+                source,
+            })?;
+        Ok(())
+    }
+
+    /// Drops the substring index and, when `enabled`, builds it again from
+    /// `heading_fts_content`. Call it after `rebuild_heading_fts` in the same transaction.
+    pub(crate) fn rebuild_heading_trigram_fts(
+        connection: &Connection,
+        enabled: bool,
+    ) -> Result<(), DbWriteError> {
+        connection
+            .execute_batch("DROP TABLE IF EXISTS heading_trigram_fts;")
+            .map_err(|source| DbWriteError::Write {
+                operation: "rebuild_heading_trigram_fts.drop",
+                source,
+            })?;
+        if !enabled {
+            return Ok(());
+        }
+        connection
+            .execute_batch(heading_trigram_fts_sql())
+            .map_err(|source| DbWriteError::Write {
+                operation: "rebuild_heading_trigram_fts.create",
+                source,
+            })?;
+        connection
+            .execute(
+                "INSERT INTO heading_trigram_fts (rowid, title, body)
+                 SELECT id, title, body FROM heading_fts_content ORDER BY id",
+                [],
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "rebuild_heading_trigram_fts.populate",
                 source,
             })?;
         Ok(())

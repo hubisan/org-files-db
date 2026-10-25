@@ -11,7 +11,7 @@ use crate::tag::derive_effective_tags;
 use super::{
     index_state::{initialize_index_state_schema, INDEX_STATE_SCHEMA_VERSION},
     DB_METADATA_FTS_AVAILABLE_KEY, DB_METADATA_FTS_BODY_INDEXED_KEY,
-    DB_METADATA_FTS_SCHEMA_VERSION_KEY,
+    DB_METADATA_FTS_SCHEMA_VERSION_KEY, DB_METADATA_FTS_SUBSTRING_INDEXED_KEY,
 };
 
 pub const CURRENT_SCHEMA_VERSION: u32 = 14;
@@ -28,6 +28,18 @@ USING fts5(
     title,
     body,
     tokenize = 'unicode61',
+    content = 'heading_fts_content',
+    content_rowid = 'id'
+)
+"#;
+/// Optional second index for substring search. It reads the same external content as
+/// `heading_fts`; `remove_diacritics` needs `case_sensitive 0`, the default.
+const HEADING_TRIGRAM_FTS_SQL: &str = r#"
+CREATE VIRTUAL TABLE heading_trigram_fts
+USING fts5(
+    title,
+    body,
+    tokenize = 'trigram remove_diacritics 1',
     content = 'heading_fts_content',
     content_rowid = 'id'
 )
@@ -1286,6 +1298,10 @@ pub(crate) fn heading_fts_sql() -> &'static str {
     HEADING_FTS_SQL
 }
 
+pub(crate) fn heading_trigram_fts_sql() -> &'static str {
+    HEADING_TRIGRAM_FTS_SQL
+}
+
 fn is_expected_fts5_unavailable_error(error: &rusqlite::Error) -> bool {
     let Some(message) = sqlite_error_message(error) else {
         return false;
@@ -1782,6 +1798,10 @@ fn invalidate_search_trust_metadata(connection: &Connection) -> rusqlite::Result
     connection.execute(
         "INSERT OR REPLACE INTO db_metadata (key, value) VALUES (?1, ?2)",
         (DB_METADATA_FTS_BODY_INDEXED_KEY, "0"),
+    )?;
+    connection.execute(
+        "INSERT OR REPLACE INTO db_metadata (key, value) VALUES (?1, ?2)",
+        (DB_METADATA_FTS_SUBSTRING_INDEXED_KEY, "0"),
     )?;
     connection.execute(
         "INSERT OR REPLACE INTO db_metadata (key, value) VALUES (?1, ?2)",
