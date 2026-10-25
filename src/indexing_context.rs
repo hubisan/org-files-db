@@ -263,6 +263,7 @@ fn derived_search_fingerprint(config: &Config, fts_backend_available: bool) -> S
     encoder.bool("fts5-backend-available", fts_backend_available);
     encoder.string("fts-schema-contract", FTS_SCHEMA_CONTRACT_VERSION);
     encoder.bool("fts-body-indexed", config.search.index_body_text);
+    encoder.bool("fts-substring-indexed", config.search.substring_search);
     encoder.finish()
 }
 

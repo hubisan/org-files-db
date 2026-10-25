@@ -119,6 +119,7 @@ fn scoped_link_resolution_matches_full_resolution_after_incremental_edits() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -255,6 +256,7 @@ fn recursive_root_config(test_dir: &TestDir, roots: Vec<PathBuf>) -> Config {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -2528,6 +2530,7 @@ fn rebuild_persists_non_utf8_paths_without_lossy_identity_conversion() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -2565,6 +2568,7 @@ fn planner_statistics_refresh_after_rebuild_and_changed_incremental_reconcile() 
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -2632,6 +2636,7 @@ fn rebuild_refuses_zero_input_when_existing_indexed_data_would_be_deleted() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -2682,6 +2687,7 @@ fn rebuild_allows_zero_input_when_existing_database_is_empty() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -2753,6 +2759,7 @@ fn rebuild_with_allow_empty_clears_existing_indexed_data() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -4204,6 +4211,7 @@ fn child_heading_inherits_parent_tags_in_effective_tags() {
         search: crate::config::SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -4247,6 +4255,7 @@ fn rebuild_stores_direct_and_effective_heading_tags_and_filetags() {
         search: crate::config::SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -4343,6 +4352,7 @@ fn duplicate_inherited_tags_are_not_repeated_in_effective_tags() {
         search: crate::config::SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -4415,6 +4425,7 @@ fn rebuilding_same_file_twice_is_idempotent_and_replaces_old_rows() {
         search: crate::config::SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -4481,6 +4492,7 @@ fn rebuilding_same_links_twice_keeps_resolution_fields_deterministic() {
         search: crate::config::SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -4544,6 +4556,7 @@ fn rebuild_computes_parent_ids_for_nested_headings() {
         search: crate::config::SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -4627,6 +4640,7 @@ fn outline_rows_remain_consistent_after_rebuild() {
         search: crate::config::SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -4901,6 +4915,7 @@ fn rebuild_recreates_fts_rows_from_canonical_data_without_stale_matches() {
         search: crate::config::SearchConfig {
             fts5_enabled: true,
             index_body_text: true,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -4984,6 +4999,7 @@ fn empty_rebuild_with_fts_enabled_recreates_empty_heading_fts_state() {
         search: crate::config::SearchConfig {
             fts5_enabled: true,
             index_body_text: true,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -5041,6 +5057,7 @@ fn rebuild_stores_heading_bodies_only_when_body_indexing_is_enabled() {
         search: crate::config::SearchConfig {
             fts5_enabled: false,
             index_body_text: true,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -5173,6 +5190,7 @@ fn rebuild_skips_heading_bodies_when_body_indexing_is_disabled() {
         search: crate::config::SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -5225,6 +5243,7 @@ fn rebuild_updates_body_text_capability_when_configuration_changes() {
         search: crate::config::SearchConfig {
             fts5_enabled: false,
             index_body_text: true,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -5247,6 +5266,7 @@ fn rebuild_updates_body_text_capability_when_configuration_changes() {
         search: crate::config::SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         ..enabled
     };
@@ -5283,6 +5303,7 @@ fn rebuild_excludes_structured_metadata_from_stored_heading_bodies() {
         search: crate::config::SearchConfig {
             fts5_enabled: false,
             index_body_text: true,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -5375,6 +5396,7 @@ fn faulty_file_is_skipped_with_a_diagnostic_while_others_are_indexed() {
         search: crate::config::SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -5441,6 +5463,7 @@ fn full_rebuild_replaces_malformed_previous_indexing_context() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -5496,6 +5519,7 @@ fn failed_context_persistence_rolls_back_all_rebuild_state() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -5659,6 +5683,7 @@ fn preparation_hashes_and_normalizes_one_stable_file_snapshot() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -5875,6 +5900,7 @@ fn change_planning_is_read_only_and_uses_the_unchanged_fast_path() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -5957,6 +5983,7 @@ fn change_planning_handles_context_invalidation_without_unnecessary_parsing() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -6029,6 +6056,7 @@ fn terminal_context_or_identity_problems_have_no_actionable_change_groups() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -6081,6 +6109,7 @@ fn change_planning_hashes_metadata_only_files_without_parsing() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -6199,6 +6228,7 @@ fn change_planning_treats_unusable_stored_values_conservatively() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -6253,6 +6283,7 @@ fn change_planning_reports_failed_sources_without_deleting_them() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -6300,6 +6331,7 @@ fn rebuild_and_noop_reconciliation_preserve_identity_and_generation_semantics() 
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -6367,6 +6399,7 @@ fn rename_journals_delete_and_upsert_once() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -6437,6 +6470,7 @@ fn incremental_batch_journals_direct_and_link_resolution_affected_files_once() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -6511,6 +6545,7 @@ fn incremental_candidate_deletion_journals_the_removed_canonical_path() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -6560,6 +6595,7 @@ fn cached_query_view_patch_matches_a_fresh_unrestricted_query() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -6665,6 +6701,7 @@ fn configured_source_reconciliation_uses_the_indexer_plan_and_apply_boundary() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -6708,6 +6745,7 @@ fn candidate_reconciliation_updates_only_the_submitted_existing_path() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -6759,6 +6797,7 @@ fn candidate_reconciliation_matches_a_deleted_path_by_persisted_identity() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -6811,6 +6850,7 @@ fn candidate_reconciliation_deletes_persisted_descendants_of_a_removed_directory
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -6863,6 +6903,7 @@ fn actionable_plan_applies_a_modified_file_and_rejects_a_stale_one() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -6926,6 +6967,7 @@ fn actionable_plan_rejects_a_changed_database_baseline_and_terminal_results() {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),
@@ -7487,6 +7529,7 @@ fn skip_policy_config(test_dir: &TestDir, files: Vec<PathBuf>) -> Config {
         search: SearchConfig {
             fts5_enabled: false,
             index_body_text: false,
+            substring_search: false,
         },
         query: Default::default(),
         index: Default::default(),

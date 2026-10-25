@@ -173,7 +173,8 @@ impl CliError {
                 | SearchError::InvalidTrustMetadata
                 | SearchError::MissingTrustedIndex
                 | SearchError::IncompatibleIndexSchema
-                | SearchError::BodyScopeUnavailable,
+                | SearchError::BodyScopeUnavailable
+                | SearchError::SubstringIndexUnavailable,
             ) => "index-not-trusted",
             Self::Search(
                 SearchError::ScopedColumnFilter { .. }

@@ -306,6 +306,7 @@ fn config_with_sources(
         search: SearchConfig {
             fts5_enabled,
             index_body_text,
+            substring_search: false,
         },
         ..Config::default()
     }

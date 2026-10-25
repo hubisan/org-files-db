@@ -265,20 +265,22 @@ impl DbReader {
             })
     }
 
+    /// Matches `expression` in the FTS table `table` (`heading_fts` or `heading_trigram_fts`).
     pub(crate) fn search_headings(
         connection: &Connection,
+        table: &'static str,
         expression: &str,
     ) -> Result<Vec<SearchHeadingRow>, DbReadError> {
         let mut statement = connection
-            .prepare(
+            .prepare(&format!(
                 "SELECT
                     headings.id,
-                    bm25(heading_fts) AS rank
-                 FROM heading_fts
-                 INNER JOIN headings ON heading_fts.rowid = headings.id
-                 WHERE heading_fts MATCH ?1
-                 ORDER BY rank ASC, headings.id ASC",
-            )
+                    bm25({table}) AS rank
+                 FROM {table}
+                 INNER JOIN headings ON {table}.rowid = headings.id
+                 WHERE {table} MATCH ?1
+                 ORDER BY rank ASC, headings.id ASC"
+            ))
             .map_err(|source| DbReadError::Query {
                 operation: "search_headings.prepare",
                 source,

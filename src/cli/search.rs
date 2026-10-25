@@ -8,7 +8,8 @@ use crate::{
     db::{
         open_existing_database_read_only, sqlite_supports_fts5, DbReader,
         DB_METADATA_FTS_AVAILABLE_KEY, DB_METADATA_FTS_BODY_INDEXED_KEY,
-        DB_METADATA_FTS_SCHEMA_VERSION_KEY, FTS_SCHEMA_CONTRACT_VERSION,
+        DB_METADATA_FTS_SCHEMA_VERSION_KEY, DB_METADATA_FTS_SUBSTRING_INDEXED_KEY,
+        FTS_SCHEMA_CONTRACT_VERSION,
     },
     query::{shape_matched_heading_nodes, HeadingResultNode},
 };
@@ -16,6 +17,32 @@ use crate::{
 pub(crate) use occurrences::SearchOccurrence;
 
 use super::{error::CliError, load_cli_config};
+
+/// The FTS index a search reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum SearchIndex {
+    /// `heading_fts`: whole words and `prefix*`.
+    #[default]
+    Words,
+    /// `heading_trigram_fts`: any substring of at least three characters.
+    Substring,
+}
+
+impl SearchIndex {
+    pub(crate) const fn table(self) -> &'static str {
+        match self {
+            Self::Words => "heading_fts",
+            Self::Substring => "heading_trigram_fts",
+        }
+    }
+}
+
+/// Output and index choices of one search call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct SearchOptions {
+    pub(crate) occurrences: bool,
+    pub(crate) index: SearchIndex,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CliSearchScope {
@@ -40,26 +67,26 @@ pub(super) fn search_json_rows(
     expression: &str,
     config_path: Option<&Path>,
 ) -> Result<Vec<SearchJsonRow>, CliError> {
-    search_json_rows_with_occurrences(scope, expression, config_path, false)
+    search_json_rows_with_options(scope, expression, config_path, SearchOptions::default())
 }
 
-/// Like `search_json_rows`; with `occurrences` each row lists its matched title and body
-/// text with source positions.
-pub(super) fn search_json_rows_with_occurrences(
+/// Like `search_json_rows`; with `options.occurrences` each row lists its matched title and
+/// body text with source positions, and `options.index` selects the FTS index.
+pub(super) fn search_json_rows_with_options(
     scope: CliSearchScope,
     expression: &str,
     config_path: Option<&Path>,
-    occurrences: bool,
+    options: SearchOptions,
 ) -> Result<Vec<SearchJsonRow>, CliError> {
     let config = load_cli_config(config_path)?;
-    search_json_rows_for_config_with_occurrences(scope, expression, &config, occurrences)
+    search_json_rows_for_config_with_options(scope, expression, &config, options)
 }
 
-fn search_json_rows_for_config_with_occurrences(
+fn search_json_rows_for_config_with_options(
     scope: CliSearchScope,
     expression: &str,
     config: &Config,
-    occurrences: bool,
+    options: SearchOptions,
 ) -> Result<Vec<SearchJsonRow>, CliError> {
     // Validate purely syntactic usage before opening the configured database.
     // This preserves the CLI error contract for invalid input even when the
@@ -72,9 +99,10 @@ fn search_json_rows_for_config_with_occurrences(
     let _ = compile_search_expression(scope, expression)?;
     let connection =
         open_existing_database_read_only(&config.db_path).map_err(CliError::Database)?;
-    let mut rows = production_search_rows_with_connection(&connection, scope, expression, config)?;
-    if occurrences {
-        attach_occurrences(&connection, scope, expression, &mut rows)?;
+    let mut rows =
+        production_search_rows_in_index(&connection, scope, expression, config, options.index)?;
+    if options.occurrences {
+        attach_occurrences(&connection, scope, expression, options.index, &mut rows)?;
     }
     Ok(rows)
 }
@@ -83,12 +111,18 @@ fn attach_occurrences(
     connection: &Connection,
     scope: CliSearchScope,
     expression: &str,
+    index: SearchIndex,
     rows: &mut [SearchJsonRow],
 ) -> Result<(), CliError> {
     let compiled_expression = compile_search_expression(scope, expression)?;
     let heading_ids = rows.iter().map(|row| row.heading.id).collect::<Vec<_>>();
-    let mut found = occurrences::load_occurrences(connection, &compiled_expression, &heading_ids)
-        .map_err(map_search_occurrence_error)?;
+    let mut found = occurrences::load_occurrences(
+        connection,
+        index.table(),
+        &compiled_expression,
+        &heading_ids,
+    )
+    .map_err(map_search_occurrence_error)?;
     for row in rows {
         row.occurrences = Some(found.remove(&row.heading.id).unwrap_or_default());
     }
@@ -105,11 +139,12 @@ fn map_search_occurrence_error(source: rusqlite::Error) -> CliError {
     })
 }
 
-pub(super) fn production_search_rows_with_connection(
+fn production_search_rows_in_index(
     connection: &Connection,
     scope: CliSearchScope,
     expression: &str,
     config: &Config,
+    index: SearchIndex,
 ) -> Result<Vec<SearchJsonRow>, CliError> {
     if expression.trim().is_empty() {
         return Err(CliError::InvalidSearchUsage(
@@ -134,7 +169,12 @@ pub(super) fn production_search_rows_with_connection(
     if scope == CliSearchScope::Body && !trust.body_indexed {
         return Err(CliError::Search(SearchError::BodyScopeUnavailable));
     }
-    let search_rows = DbReader::search_headings(connection, &compiled_expression)
+    if index == SearchIndex::Substring
+        && !(config.search.substring_search && trust.substring_indexed)
+    {
+        return Err(CliError::Search(SearchError::SubstringIndexUnavailable));
+    }
+    let search_rows = DbReader::search_headings(connection, index.table(), &compiled_expression)
         .map_err(map_search_db_read_error)?;
     let heading_ids = search_rows
         .iter()
@@ -342,8 +382,25 @@ pub(super) fn inspect_search_backend_state(
         return Err(CliError::Search(SearchError::IncompatibleIndexSchema));
     }
 
+    let substring_indexed = load_metadata_value(connection, DB_METADATA_FTS_SUBSTRING_INDEXED_KEY)
+        .map_err(|source| {
+            CliError::Search(SearchError::Inspect {
+                operation: "load fts_substring_indexed",
+                source,
+            })
+        })?
+        .as_deref()
+        == Some("1")
+        && table_exists(connection, "heading_trigram_fts").map_err(|source| {
+            CliError::Search(SearchError::Inspect {
+                operation: "inspect heading_trigram_fts existence",
+                source,
+            })
+        })?;
+
     Ok(SearchBackendState {
         body_indexed: fts_body_indexed == "1",
+        substring_indexed,
     })
 }
 
@@ -412,6 +469,7 @@ pub(super) fn sqlite_error_message(error: &rusqlite::Error) -> Option<&str> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct SearchBackendState {
     pub(super) body_indexed: bool,
+    pub(super) substring_indexed: bool,
 }
 
 #[derive(Debug)]
@@ -423,6 +481,7 @@ pub(super) enum SearchError {
     MissingTrustedIndex,
     IncompatibleIndexSchema,
     BodyScopeUnavailable,
+    SubstringIndexUnavailable,
     ScopedColumnFilter {
         scope: &'static str,
     },
@@ -472,6 +531,10 @@ impl fmt::Display for SearchError {
                 f,
                 "body search is unavailable because the stored FTS index was built without body text; rebuild with body indexing enabled"
             ),
+            Self::SubstringIndexUnavailable => write!(
+                f,
+                "substring search is unavailable because the database has no substring index; set [search].substring_search = true and run orgfdb rebuild"
+            ),
             Self::ScopedColumnFilter { scope } => write!(
                 f,
                 "invalid SQLite FTS5 search expression: explicit column filters are not allowed with --{scope}"
@@ -507,6 +570,7 @@ impl Error for SearchError {
             | Self::MissingTrustedIndex
             | Self::IncompatibleIndexSchema
             | Self::BodyScopeUnavailable
+            | Self::SubstringIndexUnavailable
             | Self::ScopedColumnFilter { .. }
             | Self::ScopedUnbalancedParentheses { .. }
             | Self::InvalidExpression { .. } => None,

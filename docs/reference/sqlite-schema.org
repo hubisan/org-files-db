@@ -35,6 +35,7 @@ Derived tables, rebuilt when a file is reparsed:
 - ~effective_properties~ and ~effective_tags~: inherited projections of the direct facts.
 - ~outline_path~: materialized outline paths.
 - ~heading_fts~: optional FTS5 search index.
+- ~heading_trigram_fts~: optional FTS5 trigram index over the same content, only with ~search.substring_search~. Its state is the ~db_metadata~ key ~fts_substring_indexed~.
 
 Bookkeeping:
 

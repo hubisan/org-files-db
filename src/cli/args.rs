@@ -149,6 +149,11 @@ pub(super) enum Command {
             help = "Add each matched title and body text with its source position and snippet"
         )]
         occurrences: bool,
+        #[arg(
+            long,
+            help = "Match substrings of at least three characters (needs [search].substring_search)"
+        )]
+        substring: bool,
         #[arg(long)]
         config: Option<PathBuf>,
         #[arg(help = "Raw SQLite FTS5 MATCH expression")]

@@ -344,7 +344,7 @@ fn search_orders_equal_rank_results_deterministically_by_heading_id() {
 }
 
 mod occurrences {
-    use super::super::{search_json_rows_with_occurrences, SearchJsonRow};
+    use super::super::{search_json_rows_with_options, SearchIndex, SearchJsonRow, SearchOptions};
     use super::*;
     use crate::cli::search::occurrences::OccurrenceField;
 
@@ -369,8 +369,16 @@ nichts
     fn search(expression: &str) -> Vec<SearchJsonRow> {
         let (_test_dir, config_path, _db_path) =
             build_search_fixture("search-occurrences", &[("notes.org", CONTENT)], true);
-        search_json_rows_with_occurrences(CliSearchScope::All, expression, Some(&config_path), true)
-            .expect("search should succeed")
+        search_json_rows_with_options(
+            CliSearchScope::All,
+            expression,
+            Some(&config_path),
+            SearchOptions {
+                occurrences: true,
+                index: SearchIndex::Words,
+            },
+        )
+        .expect("search should succeed")
     }
 
     /// Every located occurrence covers `expected` in the source, and its line and character
@@ -457,5 +465,63 @@ nichts
             .expect("search should succeed");
         let json = serde_json::to_value(&rows).expect("rows should serialize");
         assert!(json[0].get("occurrences").is_none());
+    }
+
+    fn substring_search(
+        name: &str,
+        substring_search: bool,
+        expression: &str,
+    ) -> Result<Vec<SearchJsonRow>, CliError> {
+        let test_dir = TestDir::new(name);
+        let config_path = test_dir.path().join("config.toml");
+        write_file(&test_dir.path().join("notes.org"), CONTENT);
+        write_file(
+            &config_path,
+            &format!(
+                "db_path = \"./db.sqlite\"\nfiles = [\"notes.org\"]\n\n[search]\nfts5_enabled = true\nindex_body_text = true\nsubstring_search = {substring_search}\n"
+            ),
+        );
+        rebuild(&config_path).expect("rebuild should succeed");
+        search_json_rows_with_options(
+            CliSearchScope::All,
+            expression,
+            Some(&config_path),
+            SearchOptions {
+                occurrences: true,
+                index: SearchIndex::Substring,
+            },
+        )
+    }
+
+    #[test]
+    fn substring_index_matches_inside_words_and_ignores_diacritics() {
+        let rows = substring_search("search-substring", true, "ambel").expect("search");
+        assert_located(&rows, "ambel");
+        assert_eq!(
+            lines(row(&rows, "Root Grüße"), OccurrenceField::Body),
+            vec![2]
+        );
+
+        let rows = substring_search("search-substring-diacritics", true, "praam").expect("search");
+        assert_located(&rows, "Präam");
+
+        let rows = substring_search("search-substring-words", true, "\"ide\" AND \"ige\"")
+            .expect("search");
+        assert_eq!(rows.len(), 0);
+        let rows =
+            substring_search("search-substring-and", true, "\"ide\" AND \"est\"").expect("search");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].heading.title, "Videos");
+    }
+
+    #[test]
+    fn substring_search_needs_the_configured_index() {
+        let error = substring_search("search-substring-off", false, "ambel")
+            .expect_err("substring search should need the index");
+        assert!(matches!(
+            error,
+            CliError::Search(SearchError::SubstringIndexUnavailable)
+        ));
+        assert!(error.to_string().contains("substring_search = true"));
     }
 }

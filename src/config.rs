@@ -111,6 +111,7 @@ impl Config {
         let search = search.unwrap_or(RawSearchConfig {
             fts5_enabled: None,
             index_body_text: None,
+            substring_search: None,
         });
         let query = query.unwrap_or(RawQueryConfig { timezone: None });
         let journal_retention_generations =
@@ -151,6 +152,7 @@ impl Config {
             search: SearchConfig {
                 fts5_enabled: search.fts5_enabled.unwrap_or(true),
                 index_body_text: search.index_body_text.unwrap_or(false),
+                substring_search: search.substring_search.unwrap_or(false),
             },
             query: QueryConfig {
                 timezone: query_timezone,
@@ -199,6 +201,8 @@ impl TodoConfig {
 pub struct SearchConfig {
     pub fts5_enabled: bool,
     pub index_body_text: bool,
+    /// Also build a trigram index for `orgfdb search --substring`.
+    pub substring_search: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -264,6 +268,7 @@ impl Default for SearchConfig {
         Self {
             fts5_enabled: true,
             index_body_text: false,
+            substring_search: false,
         }
     }
 }
@@ -445,6 +450,7 @@ struct RawTodoConfig {
 struct RawSearchConfig {
     fts5_enabled: Option<bool>,
     index_body_text: Option<bool>,
+    substring_search: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1776,6 +1782,7 @@ exclude = ["archive/**"]
             search: Some(RawSearchConfig {
                 fts5_enabled: None,
                 index_body_text: None,
+                substring_search: None,
             }),
             query: Some(RawQueryConfig { timezone: None }),
             index: None,
