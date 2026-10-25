@@ -36,7 +36,28 @@
       "level": 0,
       "title": "Title can span multiple lines, even here",
       "title_raw": "Title can span multiple lines, even here",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 9,
+          "line": 1,
+          "column": 9
+        },
+        {
+          "text_start": 15,
+          "byte_start": 33,
+          "line": 2,
+          "column": 9
+        },
+        {
+          "text_start": 31,
+          "byte_start": 105,
+          "line": 7,
+          "column": 9
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -62,7 +83,16 @@
       "level": 1,
       "title": "Unfortunately Everywhere",
       "title_raw": "Unfortunately Everywhere",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 70,
+          "line": 5,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -88,7 +118,16 @@
       "level": 1,
       "title": "Plain Heading",
       "title_raw": "Plain Heading",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 127,
+          "line": 10,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,

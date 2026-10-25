@@ -16,7 +16,16 @@
       "level": 0,
       "title": "Planning Entries",
       "title_raw": "Planning Entries",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 9,
+          "line": 1,
+          "column": 9
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -42,7 +51,16 @@
       "level": 1,
       "title": "Entries after other text",
       "title_raw": "Entries after other text",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 28,
+          "line": 2,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -119,7 +137,16 @@
       "level": 1,
       "title": "Date range",
       "title_raw": "Date range",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 115,
+          "line": 4,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -171,7 +198,23 @@
       "level": 1,
       "title": "Timestamp must follow the keyword",
       "title_raw": "Timestamp must follow the keyword",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 174,
+          "line": 6,
+          "column": 2
+        }
+      ],
       "body_text": "Body four.",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 240,
+          "line": 8,
+          "column": 0
+        }
+      ],
       "body_byte_start": 240,
       "body_byte_end": 250,
       "todo_keyword": null,
@@ -197,7 +240,23 @@
       "level": 1,
       "title": "Last",
       "title_raw": "Last",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 253,
+          "line": 9,
+          "column": 2
+        }
+      ],
       "body_text": "# classification: org-special-case\n# note: Org searches the planning line for every keyword, a timestamp has to follow its keyword directly, and a range is one timestamp. A planning line holds no other timestamps.",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 258,
+          "line": 10,
+          "column": 0
+        }
+      ],
       "body_byte_start": 258,
       "body_byte_end": 471,
       "todo_keyword": null,

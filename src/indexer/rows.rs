@@ -325,6 +325,15 @@ pub(in crate::indexer) fn index_document(
     DbWriter::insert_effective_properties(connection, &projection)?;
     DbWriter::insert_outline_path(connection, &outline_rows)?;
     DbWriter::insert_heading_bodies(connection, &body_rows)?;
+    let segment_rows = document
+        .headings
+        .iter()
+        .enumerate()
+        .flat_map(|(index, heading)| {
+            heading_text_segment_records(heading_ids[index], heading, index_body_text)
+        })
+        .collect::<Vec<_>>();
+    DbWriter::insert_heading_text_segments(connection, &segment_rows)?;
     DbWriter::insert_links(connection, &link_rows)?;
     let timestamp_ids = DbWriter::insert_timestamps(connection, &timestamp_rows)?;
     let timestamp_repeater_rows = document
@@ -650,4 +659,31 @@ pub(in crate::indexer) fn heading_body_record(
 
 pub(in crate::indexer) fn db_write_invalid_input(message: &'static str) -> DbWriteError {
     DbWriteError::InvalidInput(message)
+}
+
+/// Title segments always, body segments only when body text is indexed.
+pub(in crate::indexer) fn heading_text_segment_records(
+    heading_id: i64,
+    heading: &ParsedHeading,
+    index_body_text: bool,
+) -> Vec<HeadingTextSegmentRecord> {
+    let body: &[_] = if index_body_text && heading.body_text.is_some() {
+        &heading.body_segments
+    } else {
+        &[]
+    };
+    heading
+        .title_segments
+        .iter()
+        .map(|segment| (0, segment))
+        .chain(body.iter().map(|segment| (1, segment)))
+        .map(|(field, segment)| HeadingTextSegmentRecord {
+            heading_id,
+            field,
+            text_start: segment.text_start as i64,
+            byte_start: segment.byte_start as i64,
+            line: i64::from(segment.line),
+            column: i64::from(segment.column),
+        })
+        .collect()
 }

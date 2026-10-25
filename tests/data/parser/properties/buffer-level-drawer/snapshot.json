@@ -16,7 +16,16 @@
       "level": 0,
       "title": "Buffer Property Drawer",
       "title_raw": "Buffer Property Drawer",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 123,
+          "line": 6,
+          "column": 9
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -64,7 +73,16 @@
       "level": 1,
       "title": "Heading level 1",
       "title_raw": "Heading level 1",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 149,
+          "line": 8,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,

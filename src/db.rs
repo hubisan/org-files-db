@@ -25,8 +25,8 @@ pub use schema::{
 pub use writer::DbWriteError;
 pub(crate) use writer::{
     DbWriter, EffectivePropertyRecord, EffectiveTagRecord, FileRecordInput, HeadingBodyRecord,
-    HeadingRecord, KeywordRecord, LinkRecord, OutlinePathRecord, PropertyRecord, TagRecord,
-    TimestampRecord, TimestampRepeaterRecord, TodoKeywordRecord,
+    HeadingRecord, HeadingTextSegmentRecord, KeywordRecord, LinkRecord, OutlinePathRecord,
+    PropertyRecord, TagRecord, TimestampRecord, TimestampRepeaterRecord, TodoKeywordRecord,
 };
 
 pub const DB_METADATA_BODY_TEXT_AVAILABLE_KEY: &str = "body_text_available";
@@ -42,7 +42,7 @@ pub const DB_METADATA_INDEXING_DERIVED_SEARCH_FINGERPRINT_KEY: &str =
     "indexing_derived_search_fingerprint";
 pub const DB_METADATA_SOURCE_ROOT_EVIDENCE_VERSION_KEY: &str = "source_root_evidence_version";
 pub const DB_METADATA_SOURCE_ROOT_EVIDENCE_KEY: &str = "source_root_evidence";
-pub const FTS_SCHEMA_CONTRACT_VERSION: &str = "3";
+pub const FTS_SCHEMA_CONTRACT_VERSION: &str = "4";
 
 #[cfg(test)]
 const IN_MEMORY_DATABASE: &str = ":memory:";
@@ -1703,20 +1703,26 @@ PRAGMA user_version = 12;
                 |row| row.get(0),
             )
             .expect("fts query should succeed");
-        let stored_row: (Option<String>, Option<String>) = connection
+        let stored_row: Option<(Option<String>, Option<String>)> = connection
             .query_row(
                 "SELECT title, body FROM heading_fts WHERE rowid = 1",
                 [],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
-            .expect("contentless row should be readable as null payload");
+            .map(Some)
+            .or_else(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                other => Err(other),
+            })
+            .expect("external content lookup should succeed");
 
         assert_eq!(match_count, 1);
-        assert_eq!(stored_row, (None, None));
+        // No heading row backs rowid 1, so the external content has no payload.
+        assert_eq!(stored_row, None);
     }
 
     #[test]
-    fn contentless_fts_schema_is_rendered_when_enabled() {
+    fn external_content_fts_schema_is_rendered_when_enabled() {
         let probe = Connection::open_in_memory().expect("probe connection should open");
         if !sqlite_supports_fts5(&probe).expect("fts5 probe should run") {
             return;
@@ -1734,7 +1740,7 @@ PRAGMA user_version = 12;
             )
             .expect("heading_fts sql should load");
 
-        assert!(sql.contains("content = ''"));
+        assert!(sql.contains("content = 'heading_fts_content'"));
         assert!(sql.contains("tokenize = 'unicode61'"));
     }
 

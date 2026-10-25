@@ -546,12 +546,14 @@ fn parses_rebuild_and_headings_arguments() {
             format,
             title,
             body,
+            occurrences,
             config,
             expression,
         } => {
             assert!(format.json);
             assert!(!title);
             assert!(!body);
+            assert!(!occurrences);
             assert_eq!(config, None);
             assert_eq!(expression, "sqlite");
         }
@@ -563,6 +565,7 @@ fn parses_rebuild_and_headings_arguments() {
         "search",
         "--json",
         "--title",
+        "--occurrences",
         "--config",
         "config.toml",
         "\"sqlite phrase\"",
@@ -573,12 +576,14 @@ fn parses_rebuild_and_headings_arguments() {
             format,
             title,
             body,
+            occurrences,
             config,
             expression,
         } => {
             assert!(format.json);
             assert!(title);
             assert!(!body);
+            assert!(occurrences);
             assert_eq!(config, Some(PathBuf::from("config.toml")));
             assert_eq!(expression, "\"sqlite phrase\"");
         }

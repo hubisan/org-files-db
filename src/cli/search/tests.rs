@@ -125,7 +125,7 @@ fn search_rejects_tampered_trust_state() {
     let cases: Vec<(&str, Vec<String>, ErrorCheck, bool)> = vec![
         (
             "non-current numeric FTS contract versions are stale",
-            ["0", "1", "2", "4"]
+            ["0", "1", "2", "3", "5"]
                 .iter()
                 .map(|v| set_version(v))
                 .collect(),
@@ -340,5 +340,122 @@ fn search_orders_equal_rank_results_deterministically_by_heading_id() {
     assert!(rows[0].rank <= rows[1].rank);
     if (rows[0].rank - rows[1].rank).abs() < f64::EPSILON {
         assert!(rows[0].heading.id < rows[1].heading.id);
+    }
+}
+
+mod occurrences {
+    use super::super::{search_json_rows_with_occurrences, SearchJsonRow};
+    use super::*;
+    use crate::cli::search::occurrences::OccurrenceField;
+
+    const CONTENT: &str = "#+TITLE: Root Grüße
+Präambel test zeile.
+
+* Videos
+:PROPERTIES:
+:ID: videos
+:END:
+Ein test hier und noch ein test.
+
+#+AUTHOR: Jane
+
+Ünïcode =Code test= mit Markup.
+** Kind test
+Kind body.
+* Anderes
+nichts
+";
+
+    fn search(expression: &str) -> Vec<SearchJsonRow> {
+        let (_test_dir, config_path, _db_path) =
+            build_search_fixture("search-occurrences", &[("notes.org", CONTENT)], true);
+        search_json_rows_with_occurrences(CliSearchScope::All, expression, Some(&config_path), true)
+            .expect("search should succeed")
+    }
+
+    /// Every located occurrence covers `expected` in the source, and its line and character
+    /// column agree with the source text.
+    fn assert_located(rows: &[SearchJsonRow], expected: &str) {
+        for row in rows {
+            for occurrence in row.occurrences.as_ref().expect("occurrences requested") {
+                let start = occurrence.byte_start.expect("occurrence should be located");
+                let end = occurrence.byte_end.expect("occurrence should be located");
+                assert!(CONTENT[start..end].eq_ignore_ascii_case(expected));
+                let line_start = CONTENT[..start].rfind('\n').map_or(0, |index| index + 1);
+                let line = CONTENT[..start].matches('\n').count() as u32 + 1;
+                let column = CONTENT[line_start..start].chars().count() as u32;
+                assert_eq!(occurrence.line, Some(line), "{occurrence:?}");
+                assert_eq!(occurrence.column, Some(column), "{occurrence:?}");
+                let snippet_match = occurrence
+                    .snippet
+                    .chars()
+                    .skip(occurrence.snippet_start)
+                    .take(occurrence.snippet_end - occurrence.snippet_start)
+                    .collect::<String>();
+                assert!(snippet_match.eq_ignore_ascii_case(expected));
+            }
+        }
+    }
+
+    fn lines(row: &SearchJsonRow, field: OccurrenceField) -> Vec<u32> {
+        row.occurrences
+            .as_ref()
+            .expect("occurrences requested")
+            .iter()
+            .filter(|occurrence| occurrence.field == field)
+            .filter_map(|occurrence| occurrence.line)
+            .collect()
+    }
+
+    fn row<'a>(rows: &'a [SearchJsonRow], title: &str) -> &'a SearchJsonRow {
+        rows.iter()
+            .find(|row| row.heading.title == title)
+            .unwrap_or_else(|| panic!("no row titled {title}"))
+    }
+
+    #[test]
+    fn title_body_root_and_nested_matches_are_located() {
+        let rows = search("test");
+        assert_located(&rows, "test");
+        assert_eq!(rows.len(), 3);
+
+        let videos = row(&rows, "Videos");
+        assert!(lines(videos, OccurrenceField::Title).is_empty());
+        assert_eq!(lines(videos, OccurrenceField::Body), vec![8, 8, 12]);
+        assert_eq!(videos.heading.location.line, Some(4));
+
+        let child = row(&rows, "Kind test");
+        assert_eq!(lines(child, OccurrenceField::Title), vec![13]);
+        assert!(lines(child, OccurrenceField::Body).is_empty());
+
+        let root = row(&rows, "Root Grüße");
+        assert_eq!(lines(root, OccurrenceField::Body), vec![2]);
+    }
+
+    #[test]
+    fn phrase_and_prefix_queries_mark_their_token_runs() {
+        let rows = search("\"noch ein\"");
+        assert_located(&rows, "noch ein");
+        assert_eq!(lines(row(&rows, "Videos"), OccurrenceField::Body), vec![8]);
+
+        let rows = search("Grü*");
+        assert_located(&rows, "Grüße");
+        assert_eq!(
+            lines(row(&rows, "Root Grüße"), OccurrenceField::Title),
+            vec![1]
+        );
+
+        let rows = search("ünïcode");
+        assert_located(&rows, "Ünïcode");
+    }
+
+    #[test]
+    fn occurrences_are_absent_unless_requested() {
+        let (_test_dir, config_path, _db_path) =
+            build_search_fixture("search-no-occurrences", &[("notes.org", CONTENT)], true);
+        let rows = search_json_rows(CliSearchScope::All, "test", Some(&config_path))
+            .expect("search should succeed");
+        let json = serde_json::to_value(&rows).expect("rows should serialize");
+        assert!(json[0].get("occurrences").is_none());
     }
 }

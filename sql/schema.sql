@@ -849,6 +849,41 @@ CREATE TABLE IF NOT EXISTS links (
   body_byte_start / body_byte_end:
     UTF-8 byte offsets for the body range when available.
 */
+/*
+  heading_text_segments:
+    Source positions of the indexed heading title (field 0) and body text
+    (field 1). Each row maps the byte offset text_start of the indexed text to
+    the source byte_start, its 1-based line and 0-based character column. A
+    piece runs to the next row's text_start of the same heading and field.
+    Search uses it to locate occurrences.
+*/
+CREATE TABLE IF NOT EXISTS heading_text_segments (
+    heading_id          INTEGER NOT NULL,
+    field               INTEGER NOT NULL CHECK (field IN (0, 1)),
+    text_start          INTEGER NOT NULL,
+    byte_start          INTEGER NOT NULL,
+    line                INTEGER NOT NULL,
+    column_number       INTEGER NOT NULL,
+    PRIMARY KEY (heading_id, field, text_start),
+    FOREIGN KEY (heading_id)
+        REFERENCES headings(id)
+        ON DELETE CASCADE
+) WITHOUT ROWID;
+
+/*
+  heading_fts_content:
+    External content of heading_fts: the indexed title and body text per
+    heading. FTS5 reads it for highlight() when search locates occurrences.
+    It must match the values rebuild_heading_fts inserts.
+*/
+CREATE VIEW IF NOT EXISTS heading_fts_content AS
+SELECT headings.id AS id,
+       COALESCE(headings.title_raw, headings.title) AS title,
+       COALESCE(heading_bodies.body_text, '') AS body
+FROM headings
+LEFT JOIN heading_bodies
+  ON heading_bodies.heading_id = headings.id;
+
 CREATE TABLE IF NOT EXISTS heading_bodies (
     heading_id          INTEGER PRIMARY KEY,
     body_text           TEXT NOT NULL,

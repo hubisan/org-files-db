@@ -16,7 +16,16 @@
       "level": 0,
       "title": "Nesting",
       "title_raw": "Nesting",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 9,
+          "line": 1,
+          "column": 9
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -42,7 +51,16 @@
       "level": 1,
       "title": "A",
       "title_raw": "A",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 19,
+          "line": 2,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -68,7 +86,16 @@
       "level": 3,
       "title": "C skips a level",
       "title_raw": "C skips a level",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 25,
+          "line": 3,
+          "column": 4
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -94,7 +121,16 @@
       "level": 2,
       "title": "B",
       "title_raw": "B",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 44,
+          "line": 4,
+          "column": 3
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -120,7 +156,16 @@
       "level": 4,
       "title": "D",
       "title_raw": "D",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 51,
+          "line": 5,
+          "column": 5
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -146,7 +191,16 @@
       "level": 1,
       "title": "E",
       "title_raw": "E",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 55,
+          "line": 6,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,

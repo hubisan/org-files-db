@@ -16,7 +16,16 @@
       "level": 0,
       "title": "Planning Garbage and Generic Drawers",
       "title_raw": "Planning Garbage and Generic Drawers",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 9,
+          "line": 1,
+          "column": 9
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -42,7 +51,23 @@
       "level": 1,
       "title": "Garbage planning keeps the drawer",
       "title_raw": "Garbage planning keeps the drawer",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 48,
+          "line": 2,
+          "column": 2
+        }
+      ],
       "body_text": "Body one.",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 133,
+          "line": 7,
+          "column": 0
+        }
+      ],
       "body_byte_start": 133,
       "body_byte_end": 142,
       "todo_keyword": null,
@@ -76,7 +101,16 @@
       "level": 1,
       "title": "Bare keyword keeps the drawer",
       "title_raw": "Bare keyword keeps the drawer",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 145,
+          "line": 8,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -110,7 +144,23 @@
       "level": 1,
       "title": "Drawer with a comment row has no properties",
       "title_raw": "Drawer with a comment row has no properties",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 214,
+          "line": 13,
+          "column": 2
+        }
+      ],
       "body_text": ":PROPERTIES:\n# note\n:ID: hidden\n:END:\nBody three.",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 258,
+          "line": 14,
+          "column": 0
+        }
+      ],
       "body_byte_start": 258,
       "body_byte_end": 307,
       "todo_keyword": null,
@@ -136,7 +186,23 @@
       "level": 1,
       "title": "Key with a colon",
       "title_raw": "Key with a colon",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 310,
+          "line": 19,
+          "column": 2
+        }
+      ],
       "body_text": "# classification: org-special-case\n# note: An empty or garbage planning line is still a planning element, so the drawer after it counts. A drawer with a row that is no property is a generic drawer without properties. A key is the token up to its last colon.",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 354,
+          "line": 23,
+          "column": 0
+        }
+      ],
       "body_byte_start": 354,
       "body_byte_end": 611,
       "todo_keyword": null,

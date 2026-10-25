@@ -194,13 +194,27 @@ pub struct ParsedLink {
     pub line: u32,
 }
 
+/// Start of one source piece of an indexed text (a heading title or body). `text_start` is the
+/// byte offset in the indexed text, `byte_start` the byte offset in the source file, `line` the
+/// 1-based source line and `column` the 0-based character column of `byte_start`. The piece
+/// runs to the next segment's `text_start` or the end of the text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct TextSegment {
+    pub text_start: usize,
+    pub byte_start: usize,
+    pub line: u32,
+    pub column: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ParsedHeading {
     pub file_path: PathBuf,
     pub level: u32,
     pub title: String,
     pub title_raw: Option<String>,
+    pub title_segments: Vec<TextSegment>,
     pub body_text: Option<String>,
+    pub body_segments: Vec<TextSegment>,
     pub body_byte_start: Option<usize>,
     pub body_byte_end: Option<usize>,
     pub todo_keyword: Option<String>,
@@ -232,7 +246,9 @@ impl ParsedHeading {
             level,
             title_raw: Some(title.clone()),
             title,
+            title_segments: Vec::new(),
             body_text: None,
+            body_segments: Vec::new(),
             body_byte_start: None,
             body_byte_end: None,
             todo_keyword: None,

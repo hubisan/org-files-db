@@ -27,6 +27,7 @@ Core facts, written by the parser:
 - ~keywords~, ~properties~, ~tags~, ~links~: direct facts attached to headings.
 - ~timestamps~ and ~timestamp_repeaters~: parsed timestamps and their repeaters.
 - ~heading_bodies~: canonical body text of headings.
+- ~heading_text_segments~: source byte, line and column of each piece of the indexed title (~field~ 0) and body text (~field~ 1). Body rows exist only with ~search.index_body_text~. Search uses them for ~--occurrences~.
 - ~todo_keywords~: the TODO keyword configuration used per file.
 
 Derived tables, rebuilt when a file is reparsed:
@@ -46,7 +47,7 @@ Bookkeeping:
 - *Byte offsets:* ~byte_start~ and ~byte_end~ are UTF-8 byte offsets into the original file, not character positions.
 - *TODO keywords:* files without their own ~#+TODO~ style lines use the configured defaults (see [[../config.org][Configuration Reference]], ~[todo]~ section). ~todo_keywords~ records how ~headings.todo_keyword~ was interpreted. Its ~source_kind~ is ~config_default~ or ~org_keyword~; for ~org_keyword~ rows ~source_keyword~ and ~source_line_number~ point at the source line.
 - *Direct vs effective:* ~properties~ and ~tags~ hold only what is written on a heading (FILETAGS sit on the level 0 heading). ~effective_properties~ and ~effective_tags~ include inherited values. Property inheritance never crosses file boundaries. In ~effective_properties~, ~local_value~ is NULL when the heading has no local definition.
-- *FTS5 is optional:* ~heading_fts~ exists only when the database was built with FTS enabled and SQLite supports FTS5. When disabled, all other tables are unaffected, and an on-disk ~heading_fts~ must not be trusted. Check ~db_metadata~ keys ~fts_available~, ~fts_body_indexed~ and ~fts_schema_version~. The table is contentless and its rowid matches ~headings.id~; only headings with level above 0 are indexed.
+- *FTS5 is optional:* ~heading_fts~ exists only when the database was built with FTS enabled and SQLite supports FTS5. When disabled, all other tables are unaffected, and an on-disk ~heading_fts~ must not be trusted. Check ~db_metadata~ keys ~fts_available~, ~fts_body_indexed~ and ~fts_schema_version~. Its rowid matches ~headings.id~, root rows included. It is an external-content table over the view ~heading_fts_content~ (indexed title and body per heading), so ~highlight()~ can mark matches.
 - *Custom SQL functions:* ~orgfdb~ registers ~orgfdb_lower(text)~ and ~orgfdb_regexp(pattern, text)~ on its own connections. They are *not* available in a plain ~sqlite3~ shell, so queries or indexes that use them fail there. Use ~lower()~ or a ~LIKE~ pattern instead.
 
 * Read-only use

@@ -16,7 +16,23 @@
       "level": 0,
       "title": "Übersicht 🚀 Größe",
       "title_raw": "Übersicht 🚀 Größe",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 9,
+          "line": 1,
+          "column": 9
+        }
+      ],
       "body_text": "Präambel mit Umlauten: äöü und Emoji 🚀.",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 34,
+          "line": 3,
+          "column": 0
+        }
+      ],
       "body_byte_start": 34,
       "body_byte_end": 80,
       "todo_keyword": null,
@@ -42,7 +58,23 @@
       "level": 1,
       "title": "Überschrift ÄÖÜ Link ß",
       "title_raw": "Überschrift ÄÖÜ [[https://example.org/ä][Link ß]]",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 84,
+          "line": 5,
+          "column": 2
+        }
+      ],
       "body_text": "Text nach „Anführungszeichen“ und 日本語 mit [[file:sub/äöü.org][Verweis]].",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 147,
+          "line": 7,
+          "column": 0
+        }
+      ],
       "body_byte_start": 147,
       "body_byte_end": 233,
       "todo_keyword": null,
@@ -70,7 +102,23 @@
       "level": 2,
       "title": "Zweite Ebene 🚀 Emoji",
       "title_raw": "Zweite Ebene 🚀 Emoji",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 238,
+          "line": 9,
+          "column": 3
+        }
+      ],
       "body_text": "[2026-03-20 Fr] Körper mit Zeitstempel und https://example.org/ü.",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 263,
+          "line": 11,
+          "column": 0
+        }
+      ],
       "body_byte_start": 263,
       "body_byte_end": 330,
       "todo_keyword": null,
@@ -110,7 +158,16 @@
       "level": 1,
       "title": "日本語の見出し",
       "title_raw": "日本語の見出し",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 334,
+          "line": 13,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,

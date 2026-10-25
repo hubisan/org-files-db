@@ -16,7 +16,16 @@
       "level": 0,
       "title": "Heading Property Drawer",
       "title_raw": "Heading Property Drawer",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 9,
+          "line": 1,
+          "column": 9
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -42,7 +51,23 @@
       "level": 1,
       "title": "Task",
       "title_raw": "Task",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 35,
+          "line": 2,
+          "column": 2
+        }
+      ],
       "body_text": "Body text",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 113,
+          "line": 9,
+          "column": 0
+        }
+      ],
       "body_byte_start": 113,
       "body_byte_end": 122,
       "todo_keyword": null,

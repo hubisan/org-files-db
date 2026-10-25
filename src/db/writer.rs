@@ -139,6 +139,17 @@ pub(crate) struct OutlinePathRecord {
     pub breadcrumbs_json: String,
 }
 
+/// Source position of one piece of an indexed heading title (`field` 0) or body (`field` 1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HeadingTextSegmentRecord {
+    pub heading_id: i64,
+    pub field: i64,
+    pub text_start: i64,
+    pub byte_start: i64,
+    pub line: i64,
+    pub column: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HeadingBodyRecord {
     pub heading_id: i64,
@@ -880,6 +891,38 @@ impl DbWriter {
                 operation: "rebuild_heading_fts.populate",
                 source,
             })?;
+        Ok(())
+    }
+
+    pub(crate) fn insert_heading_text_segments(
+        connection: &Connection,
+        rows: &[HeadingTextSegmentRecord],
+    ) -> Result<(), DbWriteError> {
+        let mut statement = connection
+            .prepare(
+                "INSERT INTO heading_text_segments
+                     (heading_id, field, text_start, byte_start, line, column_number)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "insert_heading_text_segments.prepare",
+                source,
+            })?;
+        for row in rows {
+            statement
+                .execute(params![
+                    row.heading_id,
+                    row.field,
+                    row.text_start,
+                    row.byte_start,
+                    row.line,
+                    row.column
+                ])
+                .map_err(|source| DbWriteError::Write {
+                    operation: "insert_heading_text_segments",
+                    source,
+                })?;
+        }
         Ok(())
     }
 

@@ -14,7 +14,7 @@ use super::{
     DB_METADATA_FTS_SCHEMA_VERSION_KEY,
 };
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 13;
+pub const CURRENT_SCHEMA_VERSION: u32 = 14;
 /// Oldest schema version that can still be upgraded in place. The database is
 /// a rebuildable cache, so older files must be deleted and rebuilt.
 pub const MIN_SUPPORTED_SCHEMA_VERSION: u32 = 10;
@@ -28,7 +28,8 @@ USING fts5(
     title,
     body,
     tokenize = 'unicode61',
-    content = ''
+    content = 'heading_fts_content',
+    content_rowid = 'id'
 )
 "#;
 const HEADING_FTS_MARKER: &str = "/*__HEADING_FTS__*/";
