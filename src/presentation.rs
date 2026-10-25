@@ -715,6 +715,7 @@ impl PresentationSpec {
     ) -> Result<PresentationLayoutPlan, PresentationLayoutError> {
         let mut natural_widths = vec![0; self.columns.len()];
         let mut prepared_rows = Vec::with_capacity(rows.len());
+        let home = self.display_home();
 
         for (row_index, mut row) in rows.into_iter().enumerate() {
             let result = results.get(row.result_index).ok_or_else(|| {
@@ -727,7 +728,7 @@ impl PresentationSpec {
 
             for (column_index, column) in self.columns.iter().enumerate() {
                 let extracted = column
-                    .extract_value(result, row.row_context.as_ref())
+                    .extract_display_value(result, row.row_context.as_ref(), home.as_deref())
                     .map_err(|source| {
                         PresentationLayoutError::new(format!(
                             "failed to extract columns[{column_index}] `{}` for row {row_index}: {source}",
@@ -759,6 +760,7 @@ impl PresentationSpec {
         results: &[QueryResultNode],
         rows: Vec<PresentationRow>,
     ) -> Result<PresentationLayoutPlan, PresentationLayoutError> {
+        let home = self.display_home();
         let prepared = rows
             .into_par_iter()
             .enumerate()
@@ -774,7 +776,7 @@ impl PresentationSpec {
 
                 for (column_index, column) in self.columns.iter().enumerate() {
                     let extracted = column
-                        .extract_value(result, row.row_context.as_ref())
+                        .extract_display_value(result, row.row_context.as_ref(), home.as_deref())
                         .map_err(|source| {
                             PresentationLayoutError::new(format!(
                                 "failed to extract columns[{column_index}] `{}` for row {row_index}: {source}",
@@ -846,6 +848,15 @@ impl PresentationSpec {
             .par_iter_mut()
             .for_each(|row| self.format_row(row, widths));
         plan.rows
+    }
+
+    fn display_home(&self) -> Option<String> {
+        if !self.columns.iter().any(|column| column.abbreviate_home) {
+            return None;
+        }
+        std::env::var_os("HOME")
+            .and_then(|home| home.into_string().ok())
+            .filter(|home| !home.is_empty())
     }
 
     fn format_row(&self, row: &mut PresentationRow, widths: &[usize]) {
@@ -1019,6 +1030,12 @@ impl PresentationSpec {
                 column.name.as_str()
             )));
         }
+        if column.abbreviate_home && !column.name.definition().options.abbreviate_home {
+            return Err(PresentationSpecError::Invalid(format!(
+                "columns[{index}].abbreviate_home is not supported by column `{}`",
+                column.name.as_str()
+            )));
+        }
         Ok(())
     }
 
@@ -1055,6 +1072,8 @@ pub struct PresentationColumnSpec {
     pub truncate: Option<PresentationTruncationSpec>,
     #[serde(default)]
     pub outline_path: Option<PresentationOutlinePathSpec>,
+    #[serde(default)]
+    pub abbreviate_home: bool,
 }
 
 impl PresentationColumnSpec {
@@ -1070,6 +1089,25 @@ impl PresentationColumnSpec {
             .outline_path
             .then(|| self.outline_path.clone().unwrap_or_default());
         extract_registered_value(self.name, result, row_context, outline_path.as_ref())
+    }
+
+    /// Extracts the value shown in a cell. Unlike `extract_value`, which also feeds sorting,
+    /// this applies display-only transformations such as home abbreviation.
+    fn extract_display_value(
+        &self,
+        result: &QueryResultNode,
+        row_context: Option<&PresentationRowContext>,
+        home: Option<&str>,
+    ) -> Result<PresentationExtractedValue, PresentationValueError> {
+        let mut extracted = self.extract_value(result, row_context)?;
+        if self.abbreviate_home {
+            if let (PresentationValue::Text(text), Some(home)) = (&mut extracted.value, home) {
+                if let Some(abbreviated) = abbreviate_home(text, home) {
+                    *text = abbreviated;
+                }
+            }
+        }
+        Ok(extracted)
     }
 }
 
@@ -1095,6 +1133,7 @@ pub enum PresentationColumn {
     ClosedRaw,
     FileTitle,
     FileName,
+    FileDir,
     FilePath,
     LineNumber,
     LinkType,
@@ -1125,6 +1164,7 @@ impl PresentationColumn {
             Self::ClosedRaw => "closed-raw",
             Self::FileTitle => "file-title",
             Self::FileName => "file-name",
+            Self::FileDir => "file-dir",
             Self::FilePath => "file-path",
             Self::LineNumber => "line-number",
             Self::LinkType => "link-type",
@@ -1150,8 +1190,16 @@ impl PresentationColumn {
 
         let common = PresentationColumnOptionSupport {
             outline_path: false,
+            abbreviate_home: false,
         };
-        let outline = PresentationColumnOptionSupport { outline_path: true };
+        let outline = PresentationColumnOptionSupport {
+            outline_path: true,
+            abbreviate_home: false,
+        };
+        let path = PresentationColumnOptionSupport {
+            outline_path: false,
+            abbreviate_home: true,
+        };
 
         match self {
             Column::Title => PresentationColumnDefinition::new(
@@ -1247,7 +1295,15 @@ impl PresentationColumn {
                 PresentationIncludeRule::None,
                 Value::FilePath,
                 Role::Static(SemanticRole::FilePath),
-                common,
+                path,
+                None,
+            ),
+            Column::FileDir => PresentationColumnDefinition::new(
+                FILE_LOCATION_RESULTS,
+                PresentationIncludeRule::None,
+                Value::FileDir,
+                Role::Static(SemanticRole::FilePath),
+                path,
                 None,
             ),
             Column::LineNumber => PresentationColumnDefinition::new(
@@ -1398,6 +1454,7 @@ pub enum PresentationValueSource {
     ClosedRaw,
     FileTitle,
     FileName,
+    FileDir,
     FilePath,
     LineNumber,
     LinkType,
@@ -1818,6 +1875,7 @@ impl PresentationValueSource {
             },
             Self::FileTitle => extract_file_title(column, result)?,
             Self::FileName => extract_file_name(result),
+            Self::FileDir => Value::Text(file_dir(result_file_path(result))),
             Self::FilePath => Value::Text(result_file_path(result).to_string()),
             Self::LineNumber => result_line(result)
                 .map(Value::Integer)
@@ -1893,6 +1951,30 @@ fn result_file_path(result: &QueryResultNode) -> &str {
         QueryResultNode::File(node) => &node.location.file_path,
         QueryResultNode::Heading(node) => &node.location.file_path,
         QueryResultNode::Link(node) => &node.location.file_path,
+    }
+}
+
+/// Returns the directory part of `path` with a trailing slash, like Emacs
+/// `file-name-directory`.
+fn file_dir(path: &str) -> String {
+    match path.rfind('/') {
+        Some(index) => path[..=index].to_string(),
+        None => String::new(),
+    }
+}
+
+/// Replaces a leading `home` directory in `path` by `~`. Matches whole path components only,
+/// so `/home/user2` is not abbreviated for home `/home/user`.
+fn abbreviate_home(path: &str, home: &str) -> Option<String> {
+    let home = home.trim_end_matches('/');
+    if home.is_empty() {
+        return None;
+    }
+    let rest = path.strip_prefix(home)?;
+    if rest.is_empty() || rest.starts_with('/') {
+        Some(format!("~{rest}"))
+    } else {
+        None
     }
 }
 
@@ -2141,6 +2223,7 @@ impl PresentationRoleRule {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PresentationColumnOptionSupport {
     pub outline_path: bool,
+    pub abbreviate_home: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4267,5 +4350,103 @@ mod tests {
             error.to_string(),
             "invalid presentation specification: columns must contain at least one column"
         );
+    }
+
+    #[test]
+    fn file_dir_keeps_the_directory_with_trailing_slash() {
+        assert_eq!(
+            super::file_dir("/notes/Focaccia-ai-Pomodorini.org"),
+            "/notes/"
+        );
+        assert_eq!(super::file_dir("/home/user/a.org"), "/home/user/");
+        assert_eq!(super::file_dir("/root.org"), "/");
+        assert_eq!(
+            super::file_dir("/notes/küche/rezept-ä.org"),
+            "/notes/küche/"
+        );
+        assert_eq!(super::file_dir("relative.org"), "");
+    }
+
+    #[test]
+    fn abbreviate_home_matches_whole_path_components() {
+        use super::abbreviate_home;
+        for home in ["/home/user", "/home/user/"] {
+            assert_eq!(
+                abbreviate_home("/home/user/notes/a/", home).as_deref(),
+                Some("~/notes/a/")
+            );
+            assert_eq!(
+                abbreviate_home("/home/user/notes/a", home).as_deref(),
+                Some("~/notes/a")
+            );
+            assert_eq!(abbreviate_home("/home/user/", home).as_deref(), Some("~/"));
+            assert_eq!(
+                abbreviate_home("/home/user/a.org", home).as_deref(),
+                Some("~/a.org")
+            );
+            assert_eq!(abbreviate_home("/home/user", home).as_deref(), Some("~"));
+            assert_eq!(abbreviate_home("/home/user2/a.org", home), None);
+            assert_eq!(abbreviate_home("/srv/notes/", home), None);
+            assert_eq!(abbreviate_home("/", home), None);
+        }
+        assert_eq!(abbreviate_home("/home/user/a.org", "/"), None);
+        assert_eq!(abbreviate_home("/home/user/a.org", ""), None);
+    }
+
+    #[test]
+    fn file_dir_column_extracts_the_parent_directory_for_files_and_headings() {
+        let spec = PresentationSpec::parse_json(
+            r#"{"columns":[{"name":"file-dir","abbreviate_home":true},{"name":"file-name"}]}"#,
+        )
+        .expect("file-dir spec should parse");
+        spec.validate_for_query_target(QueryTarget::Files)
+            .expect("file-dir should support files");
+        spec.validate_for_query_target(QueryTarget::Headings)
+            .expect("file-dir should support headings");
+
+        let extracted = spec
+            .extract_value(PresentationColumn::FileDir, &file_result(1, "alpha"), None)
+            .expect("file-dir should extract");
+        assert_eq!(
+            extracted.value,
+            PresentationValue::Text("/notes/".to_string())
+        );
+        assert_eq!(extracted.role, Some(PresentationRole::FilePath));
+        let heading = spec
+            .extract_value(PresentationColumn::FileDir, &heading_result(), None)
+            .expect("file-dir should extract for headings");
+        assert!(
+            matches!(heading.value, PresentationValue::Text(ref dir) if dir.ends_with('/')),
+            "unexpected heading dir {:?}",
+            heading.value
+        );
+
+        let column = &spec.columns[0];
+        let display = column
+            .extract_display_value(&file_result(1, "alpha"), None, Some("/notes"))
+            .expect("display value should extract");
+        assert_eq!(display.value, PresentationValue::Text("~/".to_string()));
+        let sort_value = column
+            .extract_value(&file_result(1, "alpha"), None)
+            .expect("sort value should extract");
+        assert_eq!(
+            sort_value.value,
+            PresentationValue::Text("/notes/".to_string())
+        );
+    }
+
+    #[test]
+    fn abbreviate_home_is_rejected_for_non_path_columns() {
+        let error = PresentationSpec::parse_json(
+            r#"{"columns":[{"name":"file-name","abbreviate_home":true}]}"#,
+        )
+        .expect_err("abbreviate_home should be rejected");
+        assert!(error
+            .to_string()
+            .contains("columns[0].abbreviate_home is not supported by column `file-name`"));
+        PresentationSpec::parse_json(
+            r#"{"columns":[{"name":"file-path","abbreviate_home":true}]}"#,
+        )
+        .expect("file-path should accept abbreviate_home");
     }
 }

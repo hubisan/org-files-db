@@ -171,6 +171,8 @@ A displayed column can use this shape:
 
 ~outline_path~ is valid only for outline-path columns.
 
+~abbreviate_home~ is optional and valid only for ~file-path~ and ~file-dir~.
+
 ** Width specification
 
 The supported width modes are:
@@ -226,6 +228,16 @@ The defaults are:
 The separator affects rendered text.
 
 It does not affect outline sorting.
+
+** Home abbreviation
+
+~"abbreviate_home": true~ on a ~file-path~ or ~file-dir~ column displays a path under the current user's home directory (~HOME~) with =~/=, for example =~/notes/recipes/= instead of ~/home/user/notes/recipes/~.
+
+The default is ~false~.
+
+Only whole path components match, so ~/home/user2/a.org~ is not abbreviated for the home ~/home/user~. Paths outside the home directory, and all paths when ~HOME~ is unset, empty or ~/~, stay unchanged.
+
+The abbreviation affects only ~search_text~ and ~display_text~ of the cell and the width computed from them. Sorting, action records and the ~files~ table keep the full absolute paths.
 
 ** Sort specification
 
@@ -285,6 +297,7 @@ The inferred include column shows data that Rust adds to the query automatically
 | ~file-title~ | headings, files | ~path~ for headings | ~title~ | none |
 | ~file-name~ | headings, files, links | none | ~file-name~ | none |
 | ~file-path~ | headings, files, links | none | ~file-path~ | none |
+| ~file-dir~ | headings, files, links | none | ~file-path~ | none |
 | ~line-number~ | headings, files, links | none | none | none |
 | ~link-type~ | links | none | none | none |
 | ~link-target~ | links | none | none | none |
@@ -317,6 +330,7 @@ The main value rules are:
 - ~file-title~ uses the source file title.
 - ~file-name~ uses the owning file name.
 - ~file-path~ uses the owning file path.
+- ~file-dir~ uses the directory of the owning file path with a trailing ~/~, like Emacs ~file-name-directory~; a file in the root directory gives ~/~.
 - ~line-number~ keeps numeric ordering before text conversion.
 - ~link-target~ uses the authored ~raw_target~ value.
 - ~link-description~ uses ~raw_description~.
