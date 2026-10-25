@@ -15,7 +15,7 @@ use super::line_index::LineIndex;
 use super::link_scanner::{plain_link_protocol_set, scan_links, LinkScanContext};
 use super::model::{
     OrgParserCore, ParseOptions, ParsedHeading, ParsedKeyword, ParsedLink, ParsedLinkSourceContext,
-    ParsedOrgDocument, ParsedTimestampRole, TodoKeywordConfig,
+    ParsedOrgDocument, ParsedTimestampRole, TextSegment, TodoKeywordConfig,
 };
 use super::properties::{file_level_properties_from_keywords, file_level_tags_from_keywords};
 use super::structure_scanner::{
@@ -91,7 +91,8 @@ impl OrgParserCore for OrgizeAdapter {
             .map(|drawer| drawer.range.clone())
             .collect();
         excluded.extend(top_level_keyword_lines(&structure, 0..preamble_end));
-        populate_body(content, 0..preamble_end, &excluded, &mut level_zero);
+        populate_body(content, &lines, 0..preamble_end, &excluded, &mut level_zero);
+        level_zero.title_segments = document_title_segments(content, &lines, &structure);
         if let Some(drawer) = &structure.file_properties {
             level_zero.properties.extend(drawer.rows.iter().cloned());
         }
@@ -311,6 +312,9 @@ fn parse_heading(node: &HeadingNode, sources: &HeadingSources) -> ParsedHeading 
     let title = normalize_title_text(&title_raw[parts.text_start..], protocols);
 
     let mut parsed = ParsedHeading::new(path, node.level as u32, title, start, node.subtree.end);
+    if !title_raw.is_empty() {
+        parsed.title_segments = vec![text_segment(content, lines, 0, source_title.range.start)];
+    }
     parsed.title_raw = Some(title_raw);
     parsed.todo_type = parts
         .todo_keyword
@@ -369,7 +373,7 @@ fn parse_heading(node: &HeadingNode, sources: &HeadingSources) -> ParsedHeading 
         .collect();
     excluded.extend(node.properties.iter().map(|drawer| drawer.range.clone()));
     excluded.extend(top_level_keyword_lines(structure, node.section.clone()));
-    populate_body(content, node.section.clone(), &excluded, &mut parsed);
+    populate_body(content, lines, node.section.clone(), &excluded, &mut parsed);
     parsed
 }
 
@@ -425,6 +429,7 @@ fn source_document_title(document_title: Option<&str>) -> Option<String> {
 /// only when the kept text is one piece of the source.
 fn populate_body(
     content: &str,
+    lines: &LineIndex,
     section: Range<usize>,
     excluded: &[Range<usize>],
     parsed: &mut ParsedHeading,
@@ -451,6 +456,20 @@ fn populate_body(
     let trailing_trim = without_leading.len() - trimmed.len();
     let first_start = included_ranges[0].0;
     let last_end = included_ranges[included_ranges.len() - 1].1;
+    let mut raw_start = 0;
+    for (start, end) in &included_ranges {
+        let raw_end = raw_start + (end - start);
+        let text_start = raw_start.max(leading_trim);
+        if text_start < raw_end && text_start - leading_trim < trimmed.len() {
+            parsed.body_segments.push(text_segment(
+                content,
+                lines,
+                text_start - leading_trim,
+                start + (text_start - raw_start),
+            ));
+        }
+        raw_start = raw_end;
+    }
     parsed.body_text = Some(trimmed.to_string());
     if content[first_start..last_end] == raw {
         parsed.body_byte_start = Some(first_start + leading_trim);
@@ -498,4 +517,52 @@ fn subtract_ranges(range: (usize, usize), excluded: &[Range<usize>]) -> Vec<(usi
             .collect();
     }
     pieces
+}
+
+/// Segment for the indexed text offset `text_start` that starts at source byte `byte_start`.
+fn text_segment(
+    content: &str,
+    lines: &LineIndex,
+    text_start: usize,
+    byte_start: usize,
+) -> TextSegment {
+    let line_start = content[..byte_start]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    TextSegment {
+        text_start,
+        byte_start,
+        line: lines.line_for(byte_start),
+        column: content[line_start..byte_start].chars().count() as u32,
+    }
+}
+
+/// Segments of the document title: the trimmed non-empty `#+TITLE` values joined with one
+/// space, as `combined_document_title` builds it.
+fn document_title_segments(
+    content: &str,
+    lines: &LineIndex,
+    structure: &Structure,
+) -> Vec<TextSegment> {
+    let mut segments = Vec::new();
+    let mut text_start = 0;
+    for keyword in &structure.keywords {
+        if !content[keyword.key.clone()].eq_ignore_ascii_case("TITLE") {
+            continue;
+        }
+        let value = &content[keyword.value.clone()];
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let leading = value.len() - value.trim_start().len();
+        segments.push(text_segment(
+            content,
+            lines,
+            text_start,
+            keyword.value.start + leading,
+        ));
+        text_start += trimmed.len() + 1;
+    }
+    segments
 }

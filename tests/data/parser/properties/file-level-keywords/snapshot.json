@@ -36,7 +36,16 @@
       "level": 0,
       "title": "File Property Keywords",
       "title_raw": "File Property Keywords",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 9,
+          "line": 1,
+          "column": 9
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -91,7 +100,16 @@
       "level": 1,
       "title": "Task",
       "title_raw": "Task",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 34,
+          "line": 2,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,

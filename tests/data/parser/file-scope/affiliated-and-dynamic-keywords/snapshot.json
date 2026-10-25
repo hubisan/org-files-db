@@ -46,7 +46,29 @@
       "level": 0,
       "title": "Affiliated and Dynamic Keywords",
       "title_raw": "Affiliated and Dynamic Keywords",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 9,
+          "line": 1,
+          "column": 9
+        }
+      ],
       "body_text": "#+BEGIN: clocktable :scope file\n#+K1: inside a dynamic block\n#+END:\n#+BEGIN: unclosed\n:LOG:\n#+K3: inside a drawer\n:END:",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 72,
+          "line": 4,
+          "column": 0
+        },
+        {
+          "text_start": 86,
+          "byte_start": 243,
+          "line": 12,
+          "column": 0
+        }
+      ],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -72,7 +94,29 @@
       "level": 1,
       "title": "Heading",
       "title_raw": "Heading",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 279,
+          "line": 15,
+          "column": 2
+        }
+      ],
       "body_text": "#+begin_SRC\n#+K4: hidden in a block\n#+End_src\n# classification: org-special-case\n# note: Affiliated keywords belong to the next element and are no document keywords, except when nothing follows them. A dynamic block ends at #+END: or #+END; its begin line without an end is text. A block name matches in any case.",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 287,
+          "line": 16,
+          "column": 0
+        },
+        {
+          "text_start": 46,
+          "byte_start": 347,
+          "line": 20,
+          "column": 0
+        }
+      ],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,

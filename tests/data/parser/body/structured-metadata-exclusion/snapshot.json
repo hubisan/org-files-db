@@ -21,7 +21,23 @@
       "level": 0,
       "title": "Body Metadata Fixture",
       "title_raw": "Body Metadata Fixture",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 65,
+          "line": 4,
+          "column": 9
+        }
+      ],
       "body_text": "Intro before heading.",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 87,
+          "line": 5,
+          "column": 0
+        }
+      ],
       "body_byte_start": 87,
       "body_byte_end": 108,
       "todo_keyword": null,
@@ -55,7 +71,29 @@
       "level": 1,
       "title": "Task",
       "title_raw": "Task",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 112,
+          "line": 7,
+          "column": 2
+        }
+      ],
       "body_text": "Real body text.\n\nBody after keyword.",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 176,
+          "line": 12,
+          "column": 0
+        },
+        {
+          "text_start": 17,
+          "byte_start": 213,
+          "line": 16,
+          "column": 0
+        }
+      ],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -115,7 +153,23 @@
       "level": 2,
       "title": "Child",
       "title_raw": "Child",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 237,
+          "line": 18,
+          "column": 3
+        }
+      ],
       "body_text": "Child body.",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 243,
+          "line": 19,
+          "column": 0
+        }
+      ],
       "body_byte_start": 243,
       "body_byte_end": 254,
       "todo_keyword": null,
@@ -141,7 +195,23 @@
       "level": 1,
       "title": "Diary Planning",
       "title_raw": "Diary Planning",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 258,
+          "line": 21,
+          "column": 2
+        }
+      ],
       "body_text": "Body after planning.",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 307,
+          "line": 23,
+          "column": 0
+        }
+      ],
       "body_byte_start": 307,
       "body_byte_end": 327,
       "todo_keyword": null,

@@ -16,7 +16,16 @@
       "level": 0,
       "title": "Inline objects Fixture",
       "title_raw": "Inline objects Fixture",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 9,
+          "line": 1,
+          "column": 9
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -42,7 +51,23 @@
       "level": 1,
       "title": "Range and time",
       "title_raw": "Range and time",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 35,
+          "line": 3,
+          "column": 2
+        }
+      ],
       "body_text": "[2024-11-20 Wed]--[2024-11-21 Thu 10:00] and <2024-11-22 Fri 9:00>",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 50,
+          "line": 4,
+          "column": 0
+        }
+      ],
       "body_byte_start": 50,
       "body_byte_end": 116,
       "todo_keyword": null,
@@ -95,7 +120,23 @@
       "level": 1,
       "title": "Repeater with a deadline part",
       "title_raw": "Repeater with a deadline part",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 120,
+          "line": 6,
+          "column": 2
+        }
+      ],
       "body_text": "<2024-11-20 Wed .+1m/2m>",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 150,
+          "line": 7,
+          "column": 0
+        }
+      ],
       "body_byte_start": 150,
       "body_byte_end": 174,
       "todo_keyword": null,
@@ -144,7 +185,23 @@
       "level": 1,
       "title": "Hidden by code, verbatim, inline source and snippet",
       "title_raw": "Hidden by code, verbatim, inline source and snippet",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 178,
+          "line": 9,
+          "column": 2
+        }
+      ],
       "body_text": "=verbatim <2024-11-20 Wed>= and ~code <2024-11-21 Thu>~ and src_sh{<2024-11-22 Fri>} and @@html:<2024-11-23 Sat>@@",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 230,
+          "line": 10,
+          "column": 0
+        }
+      ],
       "body_byte_start": 230,
       "body_byte_end": 344,
       "todo_keyword": null,
@@ -170,7 +227,23 @@
       "level": 1,
       "title": "Shown inside emphasis, footnotes, tables and lists",
       "title_raw": "Shown inside emphasis, footnotes, tables and lists",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 348,
+          "line": 12,
+          "column": 2
+        }
+      ],
       "body_text": "*bold <2024-11-24 Sun>* and [fn:1:<2024-11-25 Mon>]\n| cell <2024-11-26 Tue> | =code <2024-11-27 Wed>= |\n- <2024-11-28 Thu> :: <2024-11-29 Fri>",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 399,
+          "line": 13,
+          "column": 0
+        }
+      ],
       "body_byte_start": 399,
       "body_byte_end": 541,
       "todo_keyword": null,
@@ -262,7 +335,23 @@
       "level": 1,
       "title": "Hidden by what is not a timestamp",
       "title_raw": "Hidden by what is not a timestamp",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 545,
+          "line": 17,
+          "column": 2
+        }
+      ],
       "body_text": "[[a][<2024-12-01 Sun>]]\n+---+\n| <2024-12-02 Mon> |\n+---+",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 579,
+          "line": 18,
+          "column": 0
+        }
+      ],
       "body_byte_start": 579,
       "body_byte_end": 635,
       "todo_keyword": null,
@@ -288,7 +377,16 @@
       "level": 1,
       "title": "Title <2024-12-03 Tue> x <2024-12-04 Wed>",
       "title_raw": "Title <2024-12-03 Tue> =x <2024-12-04 Wed>=",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 639,
+          "line": 23,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,

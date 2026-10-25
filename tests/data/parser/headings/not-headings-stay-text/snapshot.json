@@ -16,7 +16,23 @@
       "level": 0,
       "title": "Text Edge Cases",
       "title_raw": "Text Edge Cases",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 9,
+          "line": 1,
+          "column": 9
+        }
+      ],
       "body_text": "*not a heading\n * indented star",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 25,
+          "line": 2,
+          "column": 0
+        }
+      ],
       "body_byte_start": 25,
       "body_byte_end": 56,
       "todo_keyword": null,
@@ -42,7 +58,16 @@
       "level": 1,
       "title": "TODOX not a keyword",
       "title_raw": "TODOX not a keyword",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 59,
+          "line": 4,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -68,7 +93,23 @@
       "level": 2,
       "title": "todo lowercase is title",
       "title_raw": "todo lowercase is title",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 82,
+          "line": 5,
+          "column": 3
+        }
+      ],
       "body_text": "Body line.",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 106,
+          "line": 6,
+          "column": 0
+        }
+      ],
       "body_byte_start": 106,
       "body_byte_end": 116,
       "todo_keyword": null,

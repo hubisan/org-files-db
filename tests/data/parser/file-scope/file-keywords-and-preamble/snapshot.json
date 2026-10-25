@@ -26,7 +26,23 @@
       "level": 0,
       "title": "File Scope Fixture",
       "title_raw": "File Scope Fixture",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 9,
+          "line": 1,
+          "column": 9
+        }
+      ],
       "body_text": "Intro paragraph before the first headline.",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 89,
+          "line": 5,
+          "column": 0
+        }
+      ],
       "body_byte_start": 89,
       "body_byte_end": 131,
       "todo_keyword": null,
@@ -63,7 +79,16 @@
       "level": 1,
       "title": "Heading",
       "title_raw": "Heading",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 135,
+          "line": 7,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,

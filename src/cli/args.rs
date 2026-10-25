@@ -144,6 +144,11 @@ pub(super) enum Command {
         title: bool,
         #[arg(long, conflicts_with = "title")]
         body: bool,
+        #[arg(
+            long,
+            help = "Add each matched title and body text with its source position and snippet"
+        )]
+        occurrences: bool,
         #[arg(long)]
         config: Option<PathBuf>,
         #[arg(help = "Raw SQLite FTS5 MATCH expression")]

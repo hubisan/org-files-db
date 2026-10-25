@@ -13,6 +13,8 @@ use crate::{
     query::{shape_matched_heading_nodes, HeadingResultNode},
 };
 
+pub(crate) use occurrences::SearchOccurrence;
+
 use super::{error::CliError, load_cli_config};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,19 +34,32 @@ pub(super) fn cli_search_scope(title: bool, body: bool) -> CliSearchScope {
     }
 }
 
+#[cfg(test)]
 pub(super) fn search_json_rows(
     scope: CliSearchScope,
     expression: &str,
     config_path: Option<&Path>,
 ) -> Result<Vec<SearchJsonRow>, CliError> {
-    let config = load_cli_config(config_path)?;
-    search_json_rows_for_config(scope, expression, &config)
+    search_json_rows_with_occurrences(scope, expression, config_path, false)
 }
 
-pub(super) fn search_json_rows_for_config(
+/// Like `search_json_rows`; with `occurrences` each row lists its matched title and body
+/// text with source positions.
+pub(super) fn search_json_rows_with_occurrences(
+    scope: CliSearchScope,
+    expression: &str,
+    config_path: Option<&Path>,
+    occurrences: bool,
+) -> Result<Vec<SearchJsonRow>, CliError> {
+    let config = load_cli_config(config_path)?;
+    search_json_rows_for_config_with_occurrences(scope, expression, &config, occurrences)
+}
+
+fn search_json_rows_for_config_with_occurrences(
     scope: CliSearchScope,
     expression: &str,
     config: &Config,
+    occurrences: bool,
 ) -> Result<Vec<SearchJsonRow>, CliError> {
     // Validate purely syntactic usage before opening the configured database.
     // This preserves the CLI error contract for invalid input even when the
@@ -57,7 +72,37 @@ pub(super) fn search_json_rows_for_config(
     let _ = compile_search_expression(scope, expression)?;
     let connection =
         open_existing_database_read_only(&config.db_path).map_err(CliError::Database)?;
-    production_search_rows_with_connection(&connection, scope, expression, config)
+    let mut rows = production_search_rows_with_connection(&connection, scope, expression, config)?;
+    if occurrences {
+        attach_occurrences(&connection, scope, expression, &mut rows)?;
+    }
+    Ok(rows)
+}
+
+fn attach_occurrences(
+    connection: &Connection,
+    scope: CliSearchScope,
+    expression: &str,
+    rows: &mut [SearchJsonRow],
+) -> Result<(), CliError> {
+    let compiled_expression = compile_search_expression(scope, expression)?;
+    let heading_ids = rows.iter().map(|row| row.heading.id).collect::<Vec<_>>();
+    let mut found = occurrences::load_occurrences(connection, &compiled_expression, &heading_ids)
+        .map_err(map_search_occurrence_error)?;
+    for row in rows {
+        row.occurrences = Some(found.remove(&row.heading.id).unwrap_or_default());
+    }
+    Ok(())
+}
+
+fn map_search_occurrence_error(source: rusqlite::Error) -> CliError {
+    if is_expected_fts5_expression_error(&source) {
+        return CliError::Search(SearchError::InvalidExpression { expression: None });
+    }
+    CliError::Search(SearchError::Execute {
+        operation: "load search occurrences",
+        source,
+    })
 }
 
 pub(super) fn production_search_rows_with_connection(
@@ -281,7 +326,7 @@ pub(super) fn inspect_search_backend_state(
     let normalized = normalize_sql_definition(&table_sql);
     if !normalized.contains("createvirtualtable")
         || !normalized.contains("usingfts5")
-        || !normalized.contains("content=''")
+        || !normalized.contains("content='heading_fts_content'")
         || !normalized.contains("tokenize='unicode61'")
     {
         return Err(CliError::Search(SearchError::IncompatibleIndexSchema));
@@ -475,13 +520,20 @@ pub(super) struct SearchJsonRow {
     #[serde(flatten)]
     pub(super) heading: HeadingResultNode,
     pub(super) rank: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) occurrences: Option<Vec<SearchOccurrence>>,
 }
 
 impl SearchJsonRow {
     pub(super) fn from_parts(heading: HeadingResultNode, rank: f64) -> Self {
-        Self { heading, rank }
+        Self {
+            heading,
+            rank,
+            occurrences: None,
+        }
     }
 }
 
+mod occurrences;
 #[cfg(test)]
 mod tests;

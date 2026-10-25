@@ -16,7 +16,23 @@
       "level": 0,
       "title": "Orgize Link Compatibility",
       "title_raw": "Orgize Link Compatibility",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 9,
+          "line": 1,
+          "column": 9
+        }
+      ],
       "body_text": "[[https://medium.com/@Graphling/intro-to-brazilian-jiu-jitsu-modeling-language-bjjml-9dd689ddd048][Intro to Brazilian Jiu-Jitsu Modeling Language [BJJML] | by Graphling | Medium]]\n\n[[file:../notes/gesundheit/leiden/leiden.org::#3b8e6503-ec59-463b-8f86-66a07d356afc][[2026-03-21 Sa] (circa) Rechte Ferse bei Bouldern angeschlagen]]",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 36,
+          "line": 3,
+          "column": 0
+        }
+      ],
       "body_byte_start": 36,
       "body_byte_end": 366,
       "todo_keyword": null,
@@ -42,7 +58,16 @@
       "level": 1,
       "title": "Prefix description [with brackets] suffix",
       "title_raw": "Prefix [[https://example.org][description [with brackets]]] suffix",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 370,
+          "line": 7,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -68,7 +93,23 @@
       "level": 1,
       "title": "Actual [2026-03-20 Fr] [2026-03-21 Sa] Note [2026-03-22 So]",
       "title_raw": "Actual [2026-03-20 Fr] [[file:notes.org::#id][[2026-03-21 Sa] Note]] [2026-03-22 So]",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 440,
+          "line": 9,
+          "column": 2
+        }
+      ],
       "body_text": "- [[test.org::Heading]]\n- [[test.org::#1]]\n- Term :: Description\n- Link example :: [[test.org::#1]]",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 526,
+          "line": 11,
+          "column": 0
+        }
+      ],
       "body_byte_start": 526,
       "body_byte_end": 625,
       "todo_keyword": null,
@@ -121,7 +162,16 @@
       "level": 3,
       "title": "Übung 🚀 Unicode Überblick [grün]",
       "title_raw": "Übung 🚀 Unicode [[file:sub/äöü.txt::target][Überblick [grün]]]",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 631,
+          "line": 16,
+          "column": 4
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,

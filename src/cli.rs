@@ -36,7 +36,7 @@ use query::{
     parse_query_presentation_spec, presentation_response_with_restriction,
     query_response_with_restriction, read_restricted_file_paths, IndexStateGuard,
 };
-use search::{cli_search_scope, search_json_rows};
+use search::{cli_search_scope, search_json_rows_with_occurrences};
 use view::run_view_command;
 
 pub fn run() -> ExitCode {
@@ -221,14 +221,16 @@ where
             format,
             title,
             body,
+            occurrences,
             config,
             expression,
         } => {
             let output_format = format.selected();
-            let rows = search_json_rows(
+            let rows = search_json_rows_with_occurrences(
                 cli_search_scope(title, body),
                 &expression,
                 config.as_deref(),
+                occurrences,
             )?;
             write_output(output_format, writer, &rows)
         }

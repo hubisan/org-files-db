@@ -46,7 +46,16 @@
       "level": 0,
       "title": "Testing local keywords",
       "title_raw": "Testing local keywords",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 9,
+          "line": 1,
+          "column": 9
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -72,7 +81,16 @@
       "level": 1,
       "title": "TODO invalid keyword, even though it is a default it is overwritten",
       "title_raw": "TODO invalid keyword, even though it is a default it is overwritten",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 141,
+          "line": 7,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -98,7 +116,16 @@
       "level": 1,
       "title": "DONE invalid keyword, even though it is a default it is overwritten",
       "title_raw": "DONE invalid keyword, even though it is a default it is overwritten",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 211,
+          "line": 8,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -124,7 +151,16 @@
       "level": 1,
       "title": "valid, type open",
       "title_raw": "one valid, type open",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 282,
+          "line": 10,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": "one",
@@ -150,7 +186,16 @@
       "level": 1,
       "title": "valid, type open",
       "title_raw": "two valid, type open",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 305,
+          "line": 11,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": "two",
@@ -176,7 +221,16 @@
       "level": 1,
       "title": "valid, type closed",
       "title_raw": "three valid, type closed",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 328,
+          "line": 12,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": "three",
@@ -202,7 +256,16 @@
       "level": 1,
       "title": "valid, type closed",
       "title_raw": "four valid, type closed",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 355,
+          "line": 13,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": "four",
@@ -228,7 +291,16 @@
       "level": 1,
       "title": "valid, type open",
       "title_raw": "FIVE valid, type open",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 381,
+          "line": 14,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": "FIVE",
@@ -254,7 +326,16 @@
       "level": 1,
       "title": "valid, type open",
       "title_raw": "SIX valid, type open",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 405,
+          "line": 15,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": "SIX",
@@ -280,7 +361,16 @@
       "level": 1,
       "title": "valid, type open",
       "title_raw": "seven valid, type open",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 428,
+          "line": 16,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": "seven",
@@ -306,7 +396,16 @@
       "level": 1,
       "title": "valid, type closed",
       "title_raw": "eight valid, type closed",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 453,
+          "line": 17,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": "eight",
@@ -332,7 +431,16 @@
       "level": 1,
       "title": "valid, type open",
       "title_raw": "nine valid, type open",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 525,
+          "line": 22,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": "nine",
@@ -358,7 +466,16 @@
       "level": 1,
       "title": "valid, type closed",
       "title_raw": "ten valid, type closed",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 549,
+          "line": 23,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": "ten",
@@ -384,7 +501,16 @@
       "level": 1,
       "title": "valid, type closed",
       "title_raw": "eleven valid, type closed",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 574,
+          "line": 24,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": "eleven",

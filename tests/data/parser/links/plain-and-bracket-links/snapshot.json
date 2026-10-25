@@ -16,7 +16,16 @@
       "level": 0,
       "title": "Link Edge Cases",
       "title_raw": "Link Edge Cases",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 9,
+          "line": 1,
+          "column": 9
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -42,7 +51,23 @@
       "level": 1,
       "title": "Links",
       "title_raw": "Links",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 27,
+          "line": 2,
+          "column": 2
+        }
+      ],
       "body_text": "Plain link with punctuation: https://orgmode.org.\nBracket link: [[https://orgmode.org][Org mode]]\nInternal custom-id link: [[#local-target]]",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 33,
+          "line": 3,
+          "column": 0
+        }
+      ],
       "body_byte_start": 33,
       "body_byte_end": 173,
       "todo_keyword": null,
@@ -68,7 +93,16 @@
       "level": 2,
       "title": "Local Target",
       "title_raw": "Local Target",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 177,
+          "line": 6,
+          "column": 3
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,

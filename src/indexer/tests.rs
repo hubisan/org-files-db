@@ -4815,13 +4815,19 @@ index_body_text = true
             [indexed_rowid],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
-        .expect("contentless payload should load as null");
+        .expect("external content payload should load");
 
     assert_eq!(row_count, 2);
     assert_eq!(match_count, 1);
     assert_eq!(body_match_count, 1);
     assert_eq!(root_match_count, 1);
-    assert_eq!(stored_payload, (None, None));
+    assert_eq!(
+        stored_payload,
+        (
+            Some("TODO Searchable Heading".to_string()),
+            Some("Body phrase for full text search.".to_string())
+        )
+    );
 }
 
 #[test]

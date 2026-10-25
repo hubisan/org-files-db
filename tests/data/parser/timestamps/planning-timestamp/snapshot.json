@@ -21,7 +21,16 @@
       "level": 0,
       "title": "Planning timestamp Fixture",
       "title_raw": "Planning timestamp Fixture",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 9,
+          "line": 1,
+          "column": 9
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -47,7 +56,16 @@
       "level": 1,
       "title": "Planning",
       "title_raw": "Planning",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 58,
+          "line": 4,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -73,7 +91,16 @@
       "level": 2,
       "title": "Simple scheduled",
       "title_raw": "Simple scheduled",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 71,
+          "line": 6,
+          "column": 3
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -125,7 +152,16 @@
       "level": 2,
       "title": "Simple deadline",
       "title_raw": "Simple deadline",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 120,
+          "line": 9,
+          "column": 3
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -177,7 +213,16 @@
       "level": 2,
       "title": "Simple closed",
       "title_raw": "Simple closed",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 167,
+          "line": 12,
+          "column": 3
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -229,7 +274,16 @@
       "level": 2,
       "title": "All on one planning line",
       "title_raw": "All on one planning line",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 210,
+          "line": 15,
+          "column": 3
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -331,7 +385,16 @@
       "level": 2,
       "title": "With time",
       "title_raw": "With time",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 319,
+          "line": 18,
+          "column": 3
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -383,7 +446,16 @@
       "level": 2,
       "title": "Time range same day",
       "title_raw": "Time range same day",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 367,
+          "line": 21,
+          "column": 3
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -435,7 +507,16 @@
       "level": 2,
       "title": "Date range",
       "title_raw": "Date range",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 431,
+          "line": 24,
+          "column": 3
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -487,7 +568,16 @@
       "level": 2,
       "title": "Repeater",
       "title_raw": "Repeater",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 491,
+          "line": 27,
+          "column": 3
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -557,7 +647,16 @@
       "level": 2,
       "title": "Repeater with deadline and warning",
       "title_raw": "Repeater with deadline and warning",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 536,
+          "line": 30,
+          "column": 3
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -643,7 +742,16 @@
       "level": 2,
       "title": "Warning only all",
       "title_raw": "Warning only all",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 615,
+          "line": 33,
+          "column": 3
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -713,7 +821,16 @@
       "level": 2,
       "title": "Warning only first",
       "title_raw": "Warning only first",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 667,
+          "line": 36,
+          "column": 3
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -783,7 +900,16 @@
       "level": 2,
       "title": "Diary expression",
       "title_raw": "Diary expression",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 722,
+          "line": 39,
+          "column": 3
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -835,7 +961,16 @@
       "level": 2,
       "title": "Not valid",
       "title_raw": "Not valid",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 777,
+          "line": 42,
+          "column": 3
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -861,7 +996,23 @@
       "level": 3,
       "title": "Multiple planning lines",
       "title_raw": "Multiple planning lines",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 792,
+          "line": 44,
+          "column": 4
+        }
+      ],
       "body_text": "DEADLINE: <2024-12-01 Sun>\nCLOSED: [2024-11-21 Thu]",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 844,
+          "line": 46,
+          "column": 0
+        }
+      ],
       "body_byte_start": 844,
       "body_byte_end": 895,
       "todo_keyword": null,
@@ -939,7 +1090,23 @@
       "level": 3,
       "title": "Planning not immediately after headline",
       "title_raw": "Planning not immediately after headline",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 901,
+          "line": 49,
+          "column": 4
+        }
+      ],
       "body_text": "Some body text first.\nSCHEDULED: <2024-11-20 Wed>",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 941,
+          "line": 50,
+          "column": 0
+        }
+      ],
       "body_byte_start": 941,
       "body_byte_end": 990,
       "todo_keyword": null,
@@ -979,7 +1146,23 @@
       "level": 3,
       "title": "Looks like planning in body",
       "title_raw": "Looks like planning in body",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 996,
+          "line": 53,
+          "column": 4
+        }
+      ],
       "body_text": "This mentions DEADLINE: <2024-12-01 Sun> inside text.",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 1024,
+          "line": 54,
+          "column": 0
+        }
+      ],
       "body_byte_start": 1024,
       "body_byte_end": 1077,
       "todo_keyword": null,
@@ -1019,7 +1202,16 @@
       "level": 3,
       "title": "Lowercase keyword is planning (Org matches case-insensitively)",
       "title_raw": "Lowercase keyword is planning (Org matches case-insensitively)",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 1083,
+          "line": 56,
+          "column": 4
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -1071,7 +1263,16 @@
       "level": 3,
       "title": "Multiple same keyword",
       "title_raw": "Multiple same keyword",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 1179,
+          "line": 59,
+          "column": 4
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -1136,7 +1337,16 @@
       "level": 1,
       "title": "Body timestamps",
       "title_raw": "Body timestamps",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 1260,
+          "line": 62,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -1162,7 +1372,23 @@
       "level": 2,
       "title": "Task",
       "title_raw": "Task",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 1280,
+          "line": 64,
+          "column": 3
+        }
+      ],
       "body_text": "<2026-06-23 Tue>",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 1285,
+          "line": 65,
+          "column": 0
+        }
+      ],
       "body_byte_start": 1285,
       "body_byte_end": 1301,
       "todo_keyword": null,
@@ -1202,7 +1428,23 @@
       "level": 2,
       "title": "Another Task",
       "title_raw": "Another Task",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 1306,
+          "line": 67,
+          "column": 3
+        }
+      ],
       "body_text": "Some Text.\n<2026-06-23 Tue>\n\nSome more Text:\n<2026-06-24 Wed>",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 1320,
+          "line": 69,
+          "column": 0
+        }
+      ],
       "body_byte_start": 1320,
       "body_byte_end": 1381,
       "todo_keyword": null,

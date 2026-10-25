@@ -26,7 +26,16 @@
       "level": 0,
       "title": "Org Tests for Headings",
       "title_raw": "Org Tests for Headings",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 9,
+          "line": 1,
+          "column": 9
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -52,7 +61,16 @@
       "level": 1,
       "title": "Priortiy",
       "title_raw": "Priortiy",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 108,
+          "line": 5,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -78,7 +96,16 @@
       "level": 1,
       "title": "Planning Info",
       "title_raw": "Planning Info",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 120,
+          "line": 7,
+          "column": 2
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -104,7 +131,23 @@
       "level": 2,
       "title": "Each on one Line",
       "title_raw": "Each on one Line",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 138,
+          "line": 9,
+          "column": 3
+        }
+      ],
       "body_text": "DEADLINE: <2023-11-12>\nCLOSED: [2023-11-10 Fri 14:00]",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 179,
+          "line": 11,
+          "column": 0
+        }
+      ],
       "body_byte_start": 179,
       "body_byte_end": 232,
       "todo_keyword": null,

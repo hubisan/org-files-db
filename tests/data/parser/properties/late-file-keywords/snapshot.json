@@ -91,7 +91,22 @@
       "level": 0,
       "title": "Keyword and Property Normalization Fixture Later Title",
       "title_raw": "Keyword and Property Normalization Fixture Later Title",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 9,
+          "line": 1,
+          "column": 9
+        },
+        {
+          "text_start": 43,
+          "byte_start": 575,
+          "line": 21,
+          "column": 9
+        }
+      ],
       "body_text": null,
+      "body_segments": [],
       "body_byte_start": null,
       "body_byte_end": null,
       "todo_keyword": null,
@@ -188,7 +203,23 @@
       "level": 1,
       "title": "First heading",
       "title_raw": "First heading",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 139,
+          "line": 6,
+          "column": 2
+        }
+      ],
       "body_text": "This heading has body text before later keywords.",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 153,
+          "line": 7,
+          "column": 0
+        }
+      ],
       "body_byte_start": 153,
       "body_byte_end": 202,
       "todo_keyword": null,
@@ -214,7 +245,23 @@
       "level": 2,
       "title": "Child heading",
       "title_raw": "Child heading",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 447,
+          "line": 18,
+          "column": 3
+        }
+      ],
       "body_text": "This child should not directly receive keyword or property rows created from later file-level keywords.",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 461,
+          "line": 19,
+          "column": 0
+        }
+      ],
       "body_byte_start": 461,
       "body_byte_end": 564,
       "todo_keyword": null,
@@ -240,7 +287,23 @@
       "level": 1,
       "title": "Second heading",
       "title_raw": "Second heading",
+      "title_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 628,
+          "line": 24,
+          "column": 2
+        }
+      ],
       "body_text": "This heading appears after later keywords.",
+      "body_segments": [
+        {
+          "text_start": 0,
+          "byte_start": 643,
+          "line": 25,
+          "column": 0
+        }
+      ],
       "body_byte_start": 643,
       "body_byte_end": 685,
       "todo_keyword": null,

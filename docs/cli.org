@@ -666,7 +666,7 @@ Search is separate from the structural query language.
 ** Synopsis
 
 #+begin_src shell
-orgfdb search [--title | --body] [--config PATH] [--format json | --json] EXPRESSION
+orgfdb search [--title | --body] [--occurrences] [--config PATH] [--format json | --json] EXPRESSION
 #+end_src
 
 The expression must not be empty.
@@ -743,6 +743,35 @@ Each search row uses the canonical heading/root result shape and adds ~rank~.
 ~kind~ is ~heading~ for real headings and ~root~ for synthetic file roots.
 
 Search returns normalized structural heading fields. It does not return structural query includes.
+
+~location~ is always the position of the owning heading, also for a match in its body.
+
+** Occurrences
+
+~--occurrences~ adds an ~occurrences~ array to each row. Without it the output is unchanged. Each entry is one matched token run, in title order and then body order:
+
+#+begin_src json
+{
+  "field": "body",
+  "line": 8,
+  "column": 4,
+  "byte_start": 112,
+  "byte_end": 116,
+  "snippet": "Ein test hier und noch ein test.",
+  "snippet_start": 4,
+  "snippet_end": 8
+}
+#+end_src
+
+- ~field~ is ~title~ or ~body~.
+- ~line~ is the 1-based source line and ~column~ the 0-based character column of the match start.
+- ~byte_start~ and ~byte_end~ are UTF-8 byte offsets of the match in the source file.
+- ~snippet~ is the indexed text line that holds the match. A line longer than 200 characters is cut to 200 characters around the match.
+- ~snippet_start~ and ~snippet_end~ are character offsets of the match in ~snippet~.
+
+SQLite FTS5 decides what matched, with its own tokenizer and query rules: a phrase is one run, a prefix query marks each whole token it matched, and terms only under ~NOT~ are not marked. FTS5 matches tokens, so markup around a word (~=Code test=~) does not hide it and the run covers the word only. One row can have several occurrences, and a row of a heading whose body matched lists only the body occurrences.
+
+The positions are those of the last index run. If the file changed after that, they can be wrong until the watcher or ~orgfdb rebuild~ indexes it again. A file title taken from the file name has no source position: ~line~, ~column~, ~byte_start~ and ~byte_end~ are ~null~ there. Body occurrences need an index built with ~search.index_body_text = true~.
 
 * Exit codes
 
