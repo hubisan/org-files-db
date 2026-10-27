@@ -212,7 +212,7 @@ impl CliError {
                 | ConfigError::InvalidTodoKeyword { path, .. }
                 | ConfigError::InvalidExclusionPattern { path, .. },
             )
-            | Self::Database(DbError::Open { path, .. })
+            | Self::Database(DbError::Open { path, .. } | DbError::CreateDirectory { path, .. })
             | Self::CanonicalizeDatabasePath { path, .. } => Some(path),
             _ => None,
         }
