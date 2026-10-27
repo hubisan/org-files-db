@@ -2,7 +2,7 @@ use std::{
     cell::RefCell,
     collections::HashMap,
     error::Error,
-    fmt,
+    fmt, fs, io,
     path::{Path, PathBuf},
 };
 
@@ -64,6 +64,15 @@ pub(crate) fn open_database_with_schema(
 ) -> Result<Connection, DbError> {
     let path = path.as_ref();
     let target = path.display().to_string();
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent).map_err(|source| DbError::CreateDirectory {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    }
     let mut connection = Connection::open(path).map_err(|source| DbError::Open {
         path: path.to_path_buf(),
         source,
@@ -283,6 +292,10 @@ fn validate_schema_version(
 
 #[derive(Debug)]
 pub enum DbError {
+    CreateDirectory {
+        path: PathBuf,
+        source: io::Error,
+    },
     Open {
         path: PathBuf,
         source: rusqlite::Error,
@@ -323,6 +336,14 @@ pub enum DbError {
 impl fmt::Display for DbError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::CreateDirectory { path, source } => {
+                write!(
+                    f,
+                    "failed to create database directory {}: {}",
+                    path.display(),
+                    source
+                )
+            }
             Self::Open { path, source } => {
                 write!(
                     f,
@@ -381,6 +402,7 @@ impl fmt::Display for DbError {
 impl Error for DbError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::CreateDirectory { source, .. } => Some(source),
             Self::Open { source, .. }
             | Self::OpenInMemory { source }
             | Self::Initialize { source, .. }
@@ -737,6 +759,16 @@ PRAGMA user_version = 12;
                 "expected {expected_index} in metadata plan: {plan:?}"
             );
         }
+    }
+
+    #[test]
+    fn open_database_creates_missing_parent_directories() {
+        let test_dir = TestDir::new("missing-parent-directories");
+        let db_path = test_dir.path().join("nested").join("dir").join("db.sqlite");
+
+        open_database(&db_path).expect("database should open in a new directory");
+
+        assert!(db_path.is_file());
     }
 
     #[test]
