@@ -1036,6 +1036,12 @@ impl PresentationSpec {
                 column.name.as_str()
             )));
         }
+        if column.strip_extension && !column.name.definition().options.strip_extension {
+            return Err(PresentationSpecError::Invalid(format!(
+                "columns[{index}].strip_extension is not supported by column `{}`",
+                column.name.as_str()
+            )));
+        }
         Ok(())
     }
 
@@ -1074,6 +1080,8 @@ pub struct PresentationColumnSpec {
     pub outline_path: Option<PresentationOutlinePathSpec>,
     #[serde(default)]
     pub abbreviate_home: bool,
+    #[serde(default)]
+    pub strip_extension: bool,
 }
 
 impl PresentationColumnSpec {
@@ -1105,6 +1113,11 @@ impl PresentationColumnSpec {
                 if let Some(abbreviated) = abbreviate_home(text, home) {
                     *text = abbreviated;
                 }
+            }
+        }
+        if self.strip_extension {
+            if let PresentationValue::Text(text) = &mut extracted.value {
+                text.truncate(file_stem_len(text));
             }
         }
         Ok(extracted)
@@ -1191,14 +1204,22 @@ impl PresentationColumn {
         let common = PresentationColumnOptionSupport {
             outline_path: false,
             abbreviate_home: false,
+            strip_extension: false,
         };
         let outline = PresentationColumnOptionSupport {
             outline_path: true,
             abbreviate_home: false,
+            strip_extension: false,
         };
         let path = PresentationColumnOptionSupport {
             outline_path: false,
             abbreviate_home: true,
+            strip_extension: false,
+        };
+        let name = PresentationColumnOptionSupport {
+            outline_path: false,
+            abbreviate_home: false,
+            strip_extension: true,
         };
 
         match self {
@@ -1287,7 +1308,7 @@ impl PresentationColumn {
                 PresentationIncludeRule::None,
                 Value::FileName,
                 Role::Static(SemanticRole::FileName),
-                common,
+                name,
                 None,
             ),
             Column::FilePath => PresentationColumnDefinition::new(
@@ -1963,6 +1984,16 @@ fn file_dir(path: &str) -> String {
     }
 }
 
+/// Returns the length of `name` without its last extension, like Emacs
+/// `file-name-sans-extension`: `notes.org` gives `notes` and `notes.` gives
+/// `notes`, while a name starting with its only dot (`.emacs`) stays whole.
+fn file_stem_len(name: &str) -> usize {
+    match name.rfind('.') {
+        Some(index) if index > 0 => index,
+        _ => name.len(),
+    }
+}
+
 /// Replaces a leading `home` directory in `path` by `~`. Matches whole path components only,
 /// so `/home/user2` is not abbreviated for home `/home/user`.
 fn abbreviate_home(path: &str, home: &str) -> Option<String> {
@@ -2224,6 +2255,7 @@ impl PresentationRoleRule {
 pub struct PresentationColumnOptionSupport {
     pub outline_path: bool,
     pub abbreviate_home: bool,
+    pub strip_extension: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4365,6 +4397,59 @@ mod tests {
             "/notes/küche/"
         );
         assert_eq!(super::file_dir("relative.org"), "");
+    }
+
+    #[test]
+    fn file_stem_len_strips_the_last_extension_like_emacs() {
+        use super::file_stem_len;
+        let stem = |name: &str| name[..file_stem_len(name)].to_string();
+        assert_eq!(stem("notes.org"), "notes");
+        assert_eq!(stem("archive.tar.gz"), "archive.tar");
+        assert_eq!(stem("rezept-ä.org"), "rezept-ä");
+        assert_eq!(stem("notes."), "notes");
+        assert_eq!(stem(".emacs"), ".emacs");
+        assert_eq!(stem("README"), "README");
+    }
+
+    #[test]
+    fn strip_extension_applies_only_to_file_name_and_only_to_display() {
+        let spec = PresentationSpec::parse_json(
+            r#"{"columns":[{"name":"file-name","strip_extension":true}]}"#,
+        )
+        .expect("strip_extension spec should parse");
+        spec.validate_for_query_target(QueryTarget::Files)
+            .expect("file-name should accept strip_extension");
+        let column = &spec.columns[0];
+        let display = column
+            .extract_display_value(&file_result(1, "alpha"), None, None)
+            .expect("display value should extract");
+        let PresentationValue::Text(text) = &display.value else {
+            panic!("unexpected value {:?}", display.value);
+        };
+        assert!(!text.ends_with(".org"), "extension kept in {text:?}");
+        let sorted = spec
+            .extract_value(PresentationColumn::FileName, &file_result(1, "alpha"), None)
+            .expect("sort value should extract");
+        assert!(
+            matches!(sorted.value, PresentationValue::Text(ref name) if name.ends_with(".org")),
+            "sort value lost the extension: {:?}",
+            sorted.value
+        );
+
+        let error = PresentationSpec::parse_json(
+            r#"{"columns":[{"name":"file-path","strip_extension":true}]}"#,
+        )
+        .and_then(|spec| {
+            spec.validate_for_query_target(QueryTarget::Files)
+                .map(|_| spec)
+        })
+        .expect_err("file-path should reject strip_extension");
+        assert!(
+            error
+                .to_string()
+                .contains("strip_extension is not supported"),
+            "unexpected error {error}"
+        );
     }
 
     #[test]

@@ -173,6 +173,8 @@ A displayed column can use this shape:
 
 ~abbreviate_home~ is optional and valid only for ~file-path~ and ~file-dir~.
 
+~strip_extension~ is optional and valid only for ~file-name~.
+
 ** Width specification
 
 The supported width modes are:
@@ -238,6 +240,14 @@ The default is ~false~.
 Only whole path components match, so ~/home/user2/a.org~ is not abbreviated for the home ~/home/user~. Paths outside the home directory, and all paths when ~HOME~ is unset, empty or ~/~, stay unchanged.
 
 The abbreviation affects only ~search_text~ and ~display_text~ of the cell and the width computed from them. Sorting, action records and the ~files~ table keep the full absolute paths.
+
+** Extension stripping
+
+~"strip_extension": true~ on a ~file-name~ column displays the name without its last extension, like Emacs ~file-name-sans-extension~: ~notes.org~ shows as ~notes~ and ~archive.tar.gz~ as ~archive.tar~. A name whose only dot is its first character, such as ~.emacs~, stays whole.
+
+The default is ~false~.
+
+Like home abbreviation, it affects only ~search_text~ and ~display_text~ of the cell and the width computed from them. Sorting, action records and the ~files~ table keep the full file name.
 
 ** Sort specification
 
