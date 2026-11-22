@@ -175,6 +175,8 @@ A displayed column can use this shape:
 
 ~strip_extension~ is optional and valid only for ~file-name~.
 
+~depth~ is optional and valid only for ~file-path~ and ~file-dir~.
+
 ** Width specification
 
 The supported width modes are:
@@ -248,6 +250,14 @@ The abbreviation affects only ~search_text~ and ~display_text~ of the cell and t
 The default is ~false~.
 
 Like home abbreviation, it affects only ~search_text~ and ~display_text~ of the cell and the width computed from them. Sorting, action records and the ~files~ table keep the full file name.
+
+** Path depth
+
+~"depth": N~ on a ~file-path~ or ~file-dir~ column shows only the first ~N~ directory components of the path. ~N~ is an integer of at least ~1~.
+
+Components count after a leading =~/= (see home abbreviation) or after the root ~/~. With ~"abbreviate_home": true~ and ~"depth": 2~, =~/memento/path/sub/deeper/= shows as =~/memento/path/=, and the file path =~/memento/path/sub/deeper/a.org= shows as =~/memento/path/…/a.org=. A ~file-path~ keeps its file name behind a ~…~ component; a ~file-dir~ keeps its trailing ~/~. A path with at most ~N~ directory components is shown unchanged.
+
+Unlike home abbreviation, ~depth~ is a display transformation like truncation: it changes only ~display_text~ and the width computed from it. ~search_text~ keeps the complete path, so a client still matches the hidden components. Sorting, action records and the ~files~ table keep the full path.
 
 ** Sort specification
 
