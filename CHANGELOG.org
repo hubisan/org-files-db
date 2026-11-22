@@ -4,6 +4,7 @@ This file records completed changes.
 
 * Unreleased
 
+- =ADDED= ~depth~ option for the ~file-path~ and ~file-dir~ presentation columns shows only the first N directory components: ~"depth": 2~ turns =~/memento/path/sub/a.org= into =~/memento/path/…/a.org= (~file-path~ keeps the file name) and a directory into =~/memento/path/=. It changes only ~display_text~ and the column width; ~search_text~, sorting and action records keep the complete path. See ~docs/reference/presentation.org~.
 - =ADDED= ~strip_extension~ option for the ~file-name~ presentation column shows the name without its last extension.
 - =FIXED= Indexing commands such as ~orgfdb rebuild~ create the missing parent directories of the database path, e.g. =~/.local/share/orgfdb/= on first use, instead of failing with ~unable to open database file~. Read-only commands still require an existing database.
 - =ADDED= Substring search (#122): with ~[search].substring_search = true~ indexing also builds ~heading_trigram_fts~, an FTS5 ~trigram~ index over the same title and body text, and ~orgfdb search --substring~ uses it, so ~zept~ finds "Rezept". Terms need at least three characters; case and diacritics are ignored. It works with ~--title~, ~--body~ and ~--occurrences~. The index is off by default and is roughly three times the indexed text in size. Without it ~--substring~ fails with ~index-not-trusted~. See ~docs/config.org~ and ~docs/cli.org~.

@@ -736,11 +736,18 @@ impl PresentationSpec {
                         ))
                     })?;
                 let search_text = extracted.search_text();
+                // Until layout finishes, a non-empty `display_text` is the shortened source.
+                let display_text = column.depth_display_text(&search_text).unwrap_or_default();
+                let shown = if display_text.is_empty() {
+                    &search_text
+                } else {
+                    &display_text
+                };
                 natural_widths[column_index] =
-                    natural_widths[column_index].max(presentation_text_width(&search_text));
+                    natural_widths[column_index].max(presentation_text_width(shown));
                 cells.push(PresentationCell {
                     search_text,
-                    display_text: String::new(),
+                    display_text,
                     role: extracted.role,
                 });
             }
@@ -784,10 +791,16 @@ impl PresentationSpec {
                             ))
                         })?;
                     let search_text = extracted.search_text();
-                    row_widths.push(presentation_text_width(&search_text));
+                    let display_text = column.depth_display_text(&search_text).unwrap_or_default();
+                    let shown = if display_text.is_empty() {
+                        &search_text
+                    } else {
+                        &display_text
+                    };
+                    row_widths.push(presentation_text_width(shown));
                     cells.push(PresentationCell {
                         search_text,
-                        display_text: String::new(),
+                        display_text,
                         role: extracted.role,
                     });
                 }
@@ -861,8 +874,13 @@ impl PresentationSpec {
 
     fn format_row(&self, row: &mut PresentationRow, widths: &[usize]) {
         for (column_index, cell) in row.cells.iter_mut().enumerate() {
+            let source = if cell.display_text.is_empty() {
+                &cell.search_text
+            } else {
+                &cell.display_text
+            };
             cell.display_text = fit_cell_text(
-                &cell.search_text,
+                source,
                 widths[column_index],
                 self.columns[column_index].truncate.as_ref(),
             );
@@ -1042,6 +1060,19 @@ impl PresentationSpec {
                 column.name.as_str()
             )));
         }
+        if let Some(depth) = column.depth {
+            if !column.name.definition().options.depth {
+                return Err(PresentationSpecError::Invalid(format!(
+                    "columns[{index}].depth is not supported by column `{}`",
+                    column.name.as_str()
+                )));
+            }
+            if depth == 0 {
+                return Err(PresentationSpecError::Invalid(format!(
+                    "columns[{index}].depth must be at least 1"
+                )));
+            }
+        }
         Ok(())
     }
 
@@ -1082,6 +1113,8 @@ pub struct PresentationColumnSpec {
     pub abbreviate_home: bool,
     #[serde(default)]
     pub strip_extension: bool,
+    #[serde(default)]
+    pub depth: Option<usize>,
 }
 
 impl PresentationColumnSpec {
@@ -1121,6 +1154,14 @@ impl PresentationColumnSpec {
             }
         }
         Ok(extracted)
+    }
+
+    /// Returns the shortened text a cell shows for the `depth` option, or `None` when the cell
+    /// shows its complete value. Display only: `search_text` always keeps the complete value.
+    fn depth_display_text(&self, search_text: &str) -> Option<String> {
+        let depth = self.depth?;
+        let keep_file_name = matches!(self.name, PresentationColumn::FilePath);
+        limit_path_depth(search_text, depth, keep_file_name)
     }
 }
 
@@ -1205,21 +1246,25 @@ impl PresentationColumn {
             outline_path: false,
             abbreviate_home: false,
             strip_extension: false,
+            depth: false,
         };
         let outline = PresentationColumnOptionSupport {
             outline_path: true,
             abbreviate_home: false,
             strip_extension: false,
+            depth: false,
         };
         let path = PresentationColumnOptionSupport {
             outline_path: false,
             abbreviate_home: true,
             strip_extension: false,
+            depth: true,
         };
         let name = PresentationColumnOptionSupport {
             outline_path: false,
             abbreviate_home: false,
             strip_extension: true,
+            depth: false,
         };
 
         match self {
@@ -2009,6 +2054,32 @@ fn abbreviate_home(path: &str, home: &str) -> Option<String> {
     }
 }
 
+/// Keeps the first `depth` directory components of `path`. A file path keeps its file name
+/// behind a `…` component; a directory keeps a trailing `/`. Components count after a leading
+/// `~/` or `/`. Returns `None` when the path has at most `depth` directory components.
+fn limit_path_depth(path: &str, depth: usize, keep_file_name: bool) -> Option<String> {
+    let (prefix, rest) = if let Some(rest) = path.strip_prefix("~/") {
+        ("~/", rest)
+    } else {
+        ("/", path.strip_prefix('/')?)
+    };
+    let mut components: Vec<&str> = rest.split('/').collect();
+    let file_name = components.pop().unwrap_or_default();
+    if !keep_file_name && !file_name.is_empty() {
+        components.push(file_name);
+    }
+    components.retain(|component| !component.is_empty());
+    if components.len() <= depth {
+        return None;
+    }
+    let kept = components[..depth].join("/");
+    if keep_file_name {
+        Some(format!("{prefix}{kept}/…/{file_name}"))
+    } else {
+        Some(format!("{prefix}{kept}/"))
+    }
+}
+
 fn result_line(result: &QueryResultNode) -> Option<i64> {
     match result {
         QueryResultNode::File(node) => node.location.line,
@@ -2256,6 +2327,7 @@ pub struct PresentationColumnOptionSupport {
     pub outline_path: bool,
     pub abbreviate_home: bool,
     pub strip_extension: bool,
+    pub depth: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4533,5 +4605,87 @@ mod tests {
             r#"{"columns":[{"name":"file-path","abbreviate_home":true}]}"#,
         )
         .expect("file-path should accept abbreviate_home");
+    }
+    #[test]
+    fn limit_path_depth_keeps_leading_components_and_the_file_name() {
+        use super::limit_path_depth;
+        let cases = [
+            (
+                "~/memento/path/sub/deeper/a.org",
+                2,
+                true,
+                Some("~/memento/path/…/a.org"),
+            ),
+            (
+                "~/memento/path/sub/deeper/",
+                2,
+                false,
+                Some("~/memento/path/"),
+            ),
+            ("~/memento/path/a.org", 2, true, None),
+            ("~/memento/a.org", 2, true, None),
+            ("~/memento/path/", 2, false, None),
+            ("~/a.org", 2, true, None),
+            ("~/", 2, false, None),
+            (
+                "/home/user/notes/a.org",
+                2,
+                true,
+                Some("/home/user/…/a.org"),
+            ),
+            ("/home/user/notes/", 2, false, Some("/home/user/")),
+            ("/a.org", 1, true, None),
+            ("/", 1, false, None),
+            ("~", 1, false, None),
+        ];
+        for (path, depth, keep_file_name, expected) in cases {
+            assert_eq!(
+                limit_path_depth(path, depth, keep_file_name).as_deref(),
+                expected,
+                "{path} depth {depth}"
+            );
+        }
+    }
+
+    #[test]
+    fn depth_is_validated_and_limited_to_path_columns() {
+        for column in ["file-path", "file-dir"] {
+            PresentationSpec::parse_json(&format!(
+                r#"{{"columns":[{{"name":"{column}","depth":2}}]}}"#
+            ))
+            .expect("path column should accept depth");
+        }
+        let error = PresentationSpec::parse_json(r#"{"columns":[{"name":"file-name","depth":2}]}"#)
+            .expect_err("file-name should reject depth");
+        assert!(error
+            .to_string()
+            .contains("columns[0].depth is not supported by column `file-name`"));
+        let error = PresentationSpec::parse_json(r#"{"columns":[{"name":"file-dir","depth":0}]}"#)
+            .expect_err("depth 0 should be rejected");
+        assert!(error.to_string().contains("depth must be at least 1"));
+    }
+
+    #[test]
+    fn depth_shortens_display_text_but_keeps_search_text_complete() {
+        let spec = PresentationSpec::parse_json(
+            r#"{"columns":[{"name":"file-path","depth":1,"width":{"mode":"auto"}}]}"#,
+        )
+        .expect("depth spec should parse");
+        let results = vec![file_result(1, "alpha")];
+        let rows = spec.expand_rows(&results).expect("rows should expand");
+        let rows = spec
+            .layout_rows(&results, rows)
+            .expect("layout should succeed");
+        let cell = &rows[0].cells[0];
+        let full = cell.search_text.clone();
+        let components = full.trim_start_matches('/').split('/').count();
+        if components > 2 {
+            assert!(cell.display_text.contains("/…/"), "{:?}", cell.display_text);
+        }
+        assert!(
+            full.ends_with(".org"),
+            "search text lost the file: {full:?}"
+        );
+        assert!(!full.contains('…'), "search text was shortened: {full:?}");
     }
 }
