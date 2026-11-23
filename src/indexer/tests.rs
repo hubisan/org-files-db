@@ -2473,6 +2473,18 @@ recursive = true
     assert!(!discovery.indexed_universe.contains(&target));
     assert!(!discovery.filesystem_entries.contains_key(&target));
     assert!(!discovery.filesystem_entries.contains_key(&org_only));
+    assert!(discovery
+        .filesystem_symlinks
+        .contains_key(&aliases.join("linked")));
+    assert!(!discovery
+        .filesystem_symlinks
+        .contains_key(&external.join("excluded.txt")));
+    assert_eq!(
+        discovery
+            .globally_excluded_filesystem_symlinks
+            .get(&aliases.join("linked/excluded.txt")),
+        Some(&org_only)
+    );
 }
 
 #[cfg(unix)]
@@ -2519,6 +2531,9 @@ recursive = true
     assert!(discovery
         .filesystem_entries
         .contains_key(&fs::canonicalize(&target).unwrap()));
+    assert!(!discovery
+        .filesystem_symlinks
+        .contains_key(&aliases.join("linked")));
 }
 
 #[test]

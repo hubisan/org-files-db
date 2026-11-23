@@ -13,11 +13,12 @@ use crate::{
     config::{normalize_syntactic_path, Config, ConfigError},
     db::{
         advance_index_generation, open_database_with_schema, sqlite_supports_fts5, AffectedFile,
-        DbError, DbWriteError, DbWriter, EffectivePropertyRecord, EffectiveTagRecord,
-        FileRecordInput, HeadingBodyRecord, HeadingRecord, HeadingTextSegmentRecord,
-        IndexGenerationChange, KeywordRecord, LinkRecord, OutlinePathRecord, PropertyRecord,
-        SchemaDefinition, TagRecord, TimestampRecord, TimestampRepeaterRecord, TodoKeywordRecord,
-        CURRENT_SCHEMA_VERSION, DB_METADATA_BODY_TEXT_AVAILABLE_KEY, DB_METADATA_FTS_AVAILABLE_KEY,
+        AffectedFileAction, DbError, DbWriteError, DbWriter, EffectivePropertyRecord,
+        EffectiveTagRecord, FileRecordInput, HeadingBodyRecord, HeadingRecord,
+        HeadingTextSegmentRecord, IndexGenerationChange, KeywordRecord, LinkRecord,
+        OutlinePathRecord, PropertyRecord, SchemaDefinition, TagRecord, TimestampRecord,
+        TimestampRepeaterRecord, TodoKeywordRecord, CURRENT_SCHEMA_VERSION,
+        DB_METADATA_BODY_TEXT_AVAILABLE_KEY, DB_METADATA_FTS_AVAILABLE_KEY,
         DB_METADATA_FTS_BODY_INDEXED_KEY, DB_METADATA_FTS_SCHEMA_VERSION_KEY,
         DB_METADATA_FTS_SUBSTRING_INDEXED_KEY, FTS_SCHEMA_CONTRACT_VERSION,
     },
@@ -46,6 +47,7 @@ use crate::{
 mod candidate;
 mod discovery;
 mod filesystem;
+mod filesystem_reconcile;
 mod plan;
 mod rows;
 mod snapshot;
@@ -121,7 +123,16 @@ where
         connection: &mut Connection,
         config: &Config,
     ) -> Result<ChangeApplicationResult, IndexerError> {
-        let planning = self.plan_changes(connection, config)?;
+        let planning = if config.dirs.is_empty() {
+            self.plan_changes(connection, config)?
+        } else {
+            self.plan_changes_for_scope(
+                connection,
+                config,
+                ChangePlanningOptions::default(),
+                PlanningScope::WatchRecovery,
+            )?
+        };
         self.apply_planning_result(connection, config, planning)
     }
 
@@ -265,7 +276,20 @@ where
                 .ensure_unchanged(&current)
                 .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
         }
-        if discovery.files.is_empty() && !discovery.had_exclusion_match && !options.allow_empty {
+        let invalidations = match context_comparison {
+            IndexingContextComparison::Compatible => IndexInvalidationSet::default(),
+            IndexingContextComparison::Invalidations(invalidations) => invalidations,
+            IndexingContextComparison::FullRebuildRequired => unreachable!("handled above"),
+        };
+        // Full watcher recovery can observe the last Org file being removed.
+        // The committed roots were verified above and the source scope must agree.
+        let allow_empty_recovery = matches!(scope, PlanningScope::WatchRecovery)
+            && !invalidations.contains(IndexInvalidationSet::RECONCILE_SOURCE_UNIVERSE_AND_LINKS);
+        if discovery.files.is_empty()
+            && !discovery.had_exclusion_match
+            && !options.allow_empty
+            && !allow_empty_recovery
+        {
             let existing_indexed_files = existing_indexed_file_count(connection)?;
             if existing_indexed_files > 0 {
                 return Err(IndexerError::RefusedEmptyRebuild {
@@ -273,12 +297,6 @@ where
                 });
             }
         }
-
-        let invalidations = match context_comparison {
-            IndexingContextComparison::Compatible => IndexInvalidationSet::default(),
-            IndexingContextComparison::Invalidations(invalidations) => invalidations,
-            IndexingContextComparison::FullRebuildRequired => unreachable!("handled above"),
-        };
         let reparse_all = invalidations.contains(IndexInvalidationSet::REPARSE_ALL_FILES);
         if reparse_all && matches!(&scope, PlanningScope::Candidates(_)) {
             return self.plan_changes_for_scope(connection, config, options, PlanningScope::All);
@@ -298,6 +316,7 @@ where
         discovery_files
             .sort_by(|left, right| left.identity.as_bytes().cmp(right.identity.as_bytes()));
         let mut plan = ChangePlan {
+            scope: scope.clone(),
             invalidations,
             planning_context: context,
             fts_backend_available,
@@ -456,7 +475,13 @@ where
                 ChangeApplicationRejection::Stale,
             ));
         }
+        let filesystem_generation = filesystem_reconcile::generation(connection)?;
         let rediscovery = discover_org_files(config)?;
+        let filesystem_changes = filesystem_reconcile::FilesystemReconciliation::prepare(
+            connection,
+            &rediscovery.filesystem_entries,
+            &plan.scope,
+        )?;
         if let Some(expected) = plan.source_root_evidence.as_ref() {
             let current = SourceRootEvidenceSet::capture(config)
                 .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
@@ -484,7 +509,9 @@ where
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|source| IndexerError::Write(DbWriteError::Transaction { source }))?;
-        if !plan_baseline_matches(&tx, &plan)? {
+        if filesystem_reconcile::generation(&tx)? != filesystem_generation
+            || !plan_baseline_matches(&tx, &plan)?
+        {
             return Ok(ChangeApplicationResult::Rejected(
                 ChangeApplicationRejection::Stale,
             ));
@@ -527,36 +554,42 @@ where
         for file in &plan.deleted {
             DbWriter::delete_file(&tx, file.file_id).map_err(IndexerError::Write)?;
         }
-        if config.search.fts5_enabled {
-            DbWriter::rebuild_heading_fts(&tx, config.search.index_body_text)
+        let changed_source_paths = if plan.scope.is_all() || should_optimize_planner_statistics {
+            if config.search.fts5_enabled {
+                DbWriter::rebuild_heading_fts(&tx, config.search.index_body_text)
+                    .map_err(IndexerError::Write)?;
+                DbWriter::rebuild_heading_trigram_fts(&tx, config.search.substring_search)
+                    .map_err(IndexerError::Write)?;
+                persist_search_trust_metadata(
+                    &tx,
+                    true,
+                    config.search.index_body_text,
+                    config.search.substring_search,
+                )
                 .map_err(IndexerError::Write)?;
-            DbWriter::rebuild_heading_trigram_fts(&tx, config.search.substring_search)
-                .map_err(IndexerError::Write)?;
-            persist_search_trust_metadata(
-                &tx,
-                true,
-                config.search.index_body_text,
-                config.search.substring_search,
-            )
+            } else {
+                DbWriter::rebuild_heading_trigram_fts(&tx, false).map_err(IndexerError::Write)?;
+                persist_search_trust_metadata(&tx, false, false, false)
+                    .map_err(IndexerError::Write)?;
+            }
+            // Index invalidations can change how every link resolves, so they take the full pass.
+            let resolution_report = if plan.invalidations.is_empty() {
+                LinkResolver::resolve_scoped(
+                    &tx,
+                    &rediscovery.indexed_universe,
+                    &ResolutionScope { affected_file_ids },
+                )
+            } else {
+                LinkResolver::resolve_all(&tx, &rediscovery.indexed_universe)
+            }
             .map_err(IndexerError::Write)?;
+            current_context.persist(&tx).map_err(IndexerError::Write)?;
+            resolution_report.changed_source_paths
         } else {
-            DbWriter::rebuild_heading_trigram_fts(&tx, false).map_err(IndexerError::Write)?;
-            persist_search_trust_metadata(&tx, false, false, false).map_err(IndexerError::Write)?;
-        }
-        // Index invalidations can change how every link resolves, so they take the full pass.
-        let resolution_report = if plan.invalidations.is_empty() {
-            LinkResolver::resolve_scoped(
-                &tx,
-                &rediscovery.indexed_universe,
-                &ResolutionScope { affected_file_ids },
-            )
-        } else {
-            LinkResolver::resolve_all(&tx, &rediscovery.indexed_universe)
-        }
-        .map_err(IndexerError::Write)?;
-        IndexingContext::from_config(config, fts_available)
-            .persist(&tx)
-            .map_err(IndexerError::Write)?;
+            BTreeSet::new()
+        };
+        let mut generation_change = generation_change_for_plan(&plan, &changed_source_paths);
+        filesystem_changes.apply(&tx, &mut generation_change)?;
         before_final_root_validation();
         if let Some(expected) = plan.source_root_evidence.as_ref() {
             let current = SourceRootEvidenceSet::capture(config)
@@ -568,8 +601,6 @@ where
                 .persist(&tx)
                 .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
         }
-        let generation_change =
-            generation_change_for_plan(&plan, &resolution_report.changed_source_paths);
         if !generation_change.is_empty() {
             advance_index_generation(
                 &tx,

@@ -27,6 +27,8 @@ Cycle detection prevents recursive directory loops inside one configured root. O
 
 Discovery keeps this logical provenance until exclusion rules finish. Canonical identity performs final deduplication.
 
+The same traversal also discovers canonical filesystem entries for ~[[dirs]]~. File metadata is captured independently of Org parsing. Rebuild and full reconciliation prepare metadata for the complete discovery, and ordinary file notifications prepare it for the affected paths. Both indexes publish their changes in the same transaction.
+
 Read [[../config.org][Configuration Reference]] for user-facing discovery and exclusion rules.
 
 * Missing sources and discovery errors
@@ -200,7 +202,7 @@ Shutdown stops new event intake and flushes work that the controller already acc
 
 The ~notify~ crate observes configured inputs. Source eligibility and database decisions remain in the indexer.
 
-Configured directories keep their recursive mode. Parent watches help detect replacement of configured roots.
+Configured directories keep their recursive mode. Parent watches help detect replacement of configured roots. The watcher registers external symlink target parents and the nearest existing parents of missing direct targets. Changes to intermediate links outside registered paths are picked up during startup or full reconciliation.
 
 Explicit files also use parent observation. This supports editor save patterns that replace a file.
 

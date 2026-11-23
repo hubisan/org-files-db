@@ -1,14 +1,15 @@
 use super::*;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(in crate::indexer) enum PlanningScope {
     All,
+    WatchRecovery,
     Candidates(BTreeSet<PathBuf>),
 }
 
 impl PlanningScope {
     pub(in crate::indexer) fn is_all(&self) -> bool {
-        matches!(self, Self::All)
+        matches!(self, Self::All | Self::WatchRecovery)
     }
 
     pub(in crate::indexer) fn includes(
@@ -18,7 +19,7 @@ impl PlanningScope {
         persisted: Option<&PersistedFileSnapshot>,
     ) -> bool {
         match self {
-            Self::All => true,
+            Self::All | Self::WatchRecovery => true,
             Self::Candidates(candidates) => {
                 candidates.contains(path)
                     || identity
@@ -31,7 +32,7 @@ impl PlanningScope {
 
     pub(in crate::indexer) fn includes_persisted(&self, persisted: &PersistedFileSnapshot) -> bool {
         match self {
-            Self::All => true,
+            Self::All | Self::WatchRecovery => true,
             Self::Candidates(candidates) => persisted
                 .identity
                 .as_ref()
@@ -66,6 +67,7 @@ pub(crate) enum ChangePlanningResult {
 
 #[derive(Debug)]
 pub(crate) struct ChangePlan {
+    pub(in crate::indexer) scope: PlanningScope,
     pub(crate) invalidations: IndexInvalidationSet,
     pub(in crate::indexer) planning_context: IndexingContext,
     pub(in crate::indexer) fts_backend_available: bool,

@@ -731,6 +731,25 @@ mod tests {
     }
 
     #[test]
+    fn removing_directory_with_a_file_alias_requests_reconciliation() {
+        let test_dir = TestDir::new("removed-aliased-directory");
+        let config = recursive_config(&test_dir);
+        let directory = test_dir.path().join("notes/subtree");
+        fs::create_dir(&directory).expect("subtree should be created");
+        let target = test_dir.path().join("outside.pdf");
+        write_file(&target, "report");
+        std::os::unix::fs::symlink(&target, directory.join("alias.pdf"))
+            .expect("alias should be created");
+        let normalizer = WatcherBatchNormalizer::from_config(&config).expect("normalizer");
+        fs::remove_dir_all(&directory).expect("subtree should be removed");
+
+        assert_eq!(
+            normalizer.normalize([paths(WatcherPathEventKind::Remove, [directory])]),
+            NormalizedWatcherBatch::Reconcile
+        );
+    }
+
+    #[test]
     fn removed_configured_root_still_requests_reconciliation() {
         let test_dir = TestDir::new("removed-root");
         let notes = test_dir.path().join("notes");
@@ -847,6 +866,35 @@ mod tests {
     }
 
     #[test]
+    fn removing_a_globally_excluded_alias_reconciles_its_filesystem_identity() {
+        let test_dir = TestDir::new("removed-globally-excluded-alias");
+        let report = test_dir.path().join("notes/report.pdf");
+        let alias = test_dir.path().join("notes/excluded.pdf");
+        write_file(&report, "report");
+        let config = load_config(
+            &test_dir,
+            "db_path = \"db.sqlite\"\nfiles_exclude = [\"notes/excluded.pdf\"]\n[[dirs]]\npath = \"notes\"\nrecursive = true\n",
+        );
+        let normalizer = WatcherBatchNormalizer::from_config(&config).expect("normalizer");
+        std::os::unix::fs::symlink(&report, &alias).expect("alias should be created");
+        assert_eq!(
+            normalizer.normalize([paths(WatcherPathEventKind::Create, [alias.clone()])]),
+            NormalizedWatcherBatch::Reconcile
+        );
+
+        let normalizer = WatcherBatchNormalizer::from_config(&config).expect("normalizer");
+        assert_eq!(
+            normalizer.normalize([paths(WatcherPathEventKind::Modify, [report, alias.clone()])]),
+            NormalizedWatcherBatch::Candidates(Vec::new())
+        );
+        fs::remove_file(&alias).expect("alias should be removed");
+        assert_eq!(
+            normalizer.normalize([paths(WatcherPathEventKind::Remove, [alias])]),
+            NormalizedWatcherBatch::Reconcile
+        );
+    }
+
+    #[test]
     fn non_recursive_roots_ignore_nested_candidates() {
         let test_dir = TestDir::new("non-recursive");
         fs::create_dir_all(test_dir.path().join("notes/nested")).unwrap();
@@ -866,6 +914,61 @@ mod tests {
         )]);
 
         assert_eq!(candidates(batch), vec![fs::canonicalize(direct).unwrap()]);
+    }
+
+    #[test]
+    fn non_recursive_roots_reconcile_eligible_immediate_directories() {
+        let test_dir = TestDir::new("non-recursive-directories");
+        fs::create_dir(test_dir.path().join("notes")).unwrap();
+        let config = load_config(
+            &test_dir,
+            "db_path = \"db.sqlite\"\nfiles_exclude = [\"notes/immediate\"]\n[[dirs]]\npath = \"notes\"\nrecursive = false\nexclude = [\"ignored/\"]\n[search]\nfts5_enabled = false\n",
+        );
+        let normalizer = WatcherBatchNormalizer::from_config(&config).expect("normalizer");
+        let immediate = test_dir.path().join("notes/immediate");
+        let nested = immediate.join("nested");
+        let ignored = test_dir.path().join("notes/ignored");
+        fs::create_dir_all(&nested).unwrap();
+        fs::create_dir(&ignored).unwrap();
+
+        assert_eq!(
+            normalizer.normalize([paths(WatcherPathEventKind::Create, [nested, ignored])]),
+            NormalizedWatcherBatch::Candidates(Vec::new())
+        );
+        assert_eq!(
+            normalizer.normalize([paths(WatcherPathEventKind::Create, [immediate.clone()])]),
+            NormalizedWatcherBatch::Reconcile
+        );
+
+        let normalizer = WatcherBatchNormalizer::from_config(&config).expect("normalizer");
+        fs::remove_dir_all(&immediate).unwrap();
+        assert_eq!(
+            normalizer.normalize([paths(WatcherPathEventKind::Remove, [immediate.clone()])]),
+            NormalizedWatcherBatch::Candidates(vec![immediate])
+        );
+    }
+
+    #[test]
+    fn ordinary_file_events_produce_bounded_candidates() {
+        let test_dir = TestDir::new("ordinary-file-events");
+        let config = recursive_config(&test_dir);
+        let normalizer = WatcherBatchNormalizer::from_config(&config).expect("normalizer");
+        let file = test_dir.path().join("notes/report.pdf");
+        write_file(&file, "report");
+        let expected = NormalizedWatcherBatch::Candidates(vec![file.clone()]);
+
+        for kind in [WatcherPathEventKind::Create, WatcherPathEventKind::Modify] {
+            assert_eq!(
+                normalizer.normalize([paths(kind, [file.clone()])]),
+                expected
+            );
+        }
+
+        fs::remove_file(&file).expect("report should be removed");
+        assert_eq!(
+            normalizer.normalize([paths(WatcherPathEventKind::Remove, [file])]),
+            expected
+        );
     }
 
     #[test]
@@ -968,7 +1071,7 @@ mod tests {
     }
 
     #[test]
-    fn deleted_symlink_sources_keep_their_canonical_indexed_identity() {
+    fn deleted_indexed_symlink_sources_request_reconciliation() {
         use std::os::unix::fs::symlink;
 
         let test_dir = TestDir::new("deleted-symlink");
@@ -977,13 +1080,44 @@ mod tests {
         let alias = test_dir.path().join("notes/alias.org");
         write_file(&target, "* Target\n");
         symlink(&target, &alias).expect("file symlink should be created");
-        let canonical = fs::canonicalize(&alias).unwrap();
         let normalizer = WatcherBatchNormalizer::from_config(&config).expect("normalizer");
         fs::remove_file(&alias).expect("symlink should be removed");
 
         let batch = normalizer.normalize([paths(WatcherPathEventKind::Remove, [alias])]);
 
-        assert_eq!(candidates(batch), vec![canonical]);
+        assert_eq!(batch, NormalizedWatcherBatch::Reconcile);
+    }
+
+    #[test]
+    fn external_file_symlink_targets_remain_bounded_through_recreation() {
+        let test_dir = TestDir::new("external-file-events");
+        let config = recursive_config(&test_dir);
+        let target = test_dir.path().join("external/report.pdf");
+        let alias = test_dir.path().join("notes/alias.pdf");
+        write_file(&target, "report");
+        std::os::unix::fs::symlink(&target, &alias).expect("alias should be created");
+        let normalizer = WatcherBatchNormalizer::from_config(&config).expect("normalizer");
+        let expected = NormalizedWatcherBatch::Candidates(vec![target.clone()]);
+
+        for kind in [
+            WatcherPathEventKind::Modify,
+            WatcherPathEventKind::Remove,
+            WatcherPathEventKind::Create,
+        ] {
+            match kind {
+                WatcherPathEventKind::Remove => fs::remove_file(&target).unwrap(),
+                _ => write_file(&target, "updated report"),
+            }
+            assert_eq!(
+                normalizer.normalize([paths(kind, [target.clone()])]),
+                expected
+            );
+        }
+        fs::remove_file(&alias).expect("alias should be removed");
+        assert_eq!(
+            normalizer.normalize([paths(WatcherPathEventKind::Remove, [alias])]),
+            NormalizedWatcherBatch::Reconcile
+        );
     }
 
     #[test]

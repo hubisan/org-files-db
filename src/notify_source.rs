@@ -1158,6 +1158,96 @@ mod tests {
     }
 
     #[test]
+    fn filesystem_symlinks_watch_external_parents_without_entering_nonrecursive_directories() {
+        let test_dir = TestDir::new("filesystem-symlink-watch-target");
+        let notes = test_dir.path().join("notes");
+        let outside = test_dir.path().join("external/targets");
+        let directory = outside.join("directory");
+        let file = outside.join("report.pdf");
+        fs::create_dir(&notes).unwrap();
+        fs::create_dir_all(&directory).unwrap();
+        write_file(&file, "report");
+        std::os::unix::fs::symlink(&file, notes.join("report.pdf")).unwrap();
+        std::os::unix::fs::symlink(&directory, notes.join("directory")).unwrap();
+        let config = load_config(
+            &test_dir,
+            "db_path = \"db.sqlite\"\n[[dirs]]\npath = \"notes\"\nrecursive = false\n[search]\nfts5_enabled = false\n",
+        );
+
+        let targets = notify_watch_targets(&config).expect("watch targets");
+
+        assert!(targets.iter().any(|target| {
+            target.path() == outside && target.mode() == NotifyWatchMode::NonRecursive
+        }));
+        assert!(!targets.iter().any(|target| target.path() == directory));
+    }
+
+    #[test]
+    fn a_dangling_filesystem_symlink_watches_for_its_targets_parent_to_appear() {
+        let test_dir = TestDir::new("dangling-filesystem-symlink");
+        let notes = test_dir.path().join("notes");
+        let outside = test_dir.path().join("outside");
+        let target_parent = outside.join("missing");
+        fs::create_dir(&notes).unwrap();
+        fs::create_dir(&outside).unwrap();
+        std::os::unix::fs::symlink(target_parent.join("report.pdf"), notes.join("report.pdf"))
+            .unwrap();
+        let config = load_config(
+            &test_dir,
+            "db_path = \"db.sqlite\"\n[[dirs]]\npath = \"notes\"\nrecursive = true\n[search]\nfts5_enabled = false\n",
+        );
+        let mut source = NotifyWatcherSource::from_config(&config).expect("notify source");
+        let normalizer = WatcherBatchNormalizer::from_config(&config).expect("normalizer");
+        assert!(source.watch_targets().iter().any(|target| {
+            target.path() == outside && target.mode() == NotifyWatchMode::NonRecursive
+        }));
+
+        write_file(&target_parent.join("report.pdf"), "report");
+        let directory_created =
+            Event::new(EventKind::Create(CreateKind::Folder)).add_path(target_parent.clone());
+        assert_eq!(
+            normalizer.normalize([input(translate_notify_result(Ok(directory_created)))]),
+            NormalizedWatcherBatch::Reconcile
+        );
+        source.refresh_watches().expect("refresh watches");
+        assert!(source
+            .watch_targets()
+            .iter()
+            .any(|target| target.path() == target_parent));
+    }
+
+    #[test]
+    fn filesystem_events_follow_a_second_directory_alias_with_distinct_exclusions() {
+        let test_dir = TestDir::new("filesystem-second-alias");
+        let notes = test_dir.path().join("notes");
+        let outside = test_dir.path().join("outside");
+        let external = test_dir.path().join("external");
+        for directory in [&notes, &outside, &external] {
+            fs::create_dir(directory).unwrap();
+        }
+        std::os::unix::fs::symlink(&outside, notes.join("a")).unwrap();
+        std::os::unix::fs::symlink(&outside, notes.join("z")).unwrap();
+        std::os::unix::fs::symlink(&external, outside.join("linked")).unwrap();
+        let config = load_config(
+            &test_dir,
+            "db_path = \"db.sqlite\"\n[[dirs]]\npath = \"notes\"\nrecursive = true\nexclude = [\"a/linked/**\"]\n[search]\nfts5_enabled = false\n",
+        );
+        let targets = notify_watch_targets(&config).expect("watch targets");
+        assert!(targets.iter().any(|target| {
+            target.path() == external && target.mode() == NotifyWatchMode::Recursive
+        }));
+        let normalizer = WatcherBatchNormalizer::from_config(&config).expect("normalizer");
+
+        let report = external.join("report.pdf");
+        write_file(&report, "report");
+        let created = Event::new(EventKind::Create(CreateKind::File)).add_path(report.clone());
+        assert_eq!(
+            normalizer.normalize([input(translate_notify_result(Ok(created)))]),
+            NormalizedWatcherBatch::Candidates(vec![report])
+        );
+    }
+
+    #[test]
     fn refresh_drops_an_obsolete_external_symlink_target() {
         use std::os::unix::fs::symlink;
 
@@ -1256,25 +1346,27 @@ mod tests {
     fn translated_unrelated_and_sqlite_events_are_filtered_by_candidate_normalizer() {
         let test_dir = TestDir::new("candidate-filter");
         fs::create_dir_all(test_dir.path().join("notes")).expect("notes root");
+        let wal = test_dir.path().join("notes/db.sqlite-wal");
+        let alias = test_dir.path().join("notes/wal-alias.data");
+        write_file(&wal, "sqlite state");
+        std::os::unix::fs::symlink(&wal, &alias).expect("symlink to sidecar");
         let config = load_config(
             &test_dir,
             "db_path = \"notes/db.sqlite\"\n[[dirs]]\npath = \"notes\"\nrecursive = true\n[search]\nfts5_enabled = false\n",
         );
         let normalizer = WatcherBatchNormalizer::from_config(&config).expect("normalizer");
         let inputs = [
+            test_dir.path().join("notes/db.sqlite"),
+            wal,
+            alias,
+            test_dir.path().join("outside.org"),
+        ]
+        .map(|path| {
             input(translate_notify_result(Ok(Event::new(EventKind::Modify(
                 ModifyKind::Any,
             ))
-            .add_path(test_dir.path().join("notes/db.sqlite"))))),
-            input(translate_notify_result(Ok(Event::new(EventKind::Modify(
-                ModifyKind::Any,
-            ))
-            .add_path(test_dir.path().join("notes/db.sqlite-wal"))))),
-            input(translate_notify_result(Ok(Event::new(EventKind::Modify(
-                ModifyKind::Any,
-            ))
-            .add_path(test_dir.path().join("outside.org"))))),
-        ];
+            .add_path(path))))
+        });
 
         assert_eq!(
             normalizer.normalize(inputs),

@@ -114,7 +114,9 @@ Exclusions that intentionally remove all sources follow their documented exclusi
 
 * ~orgfdb watch~
 
-~watch~ keeps the configured index current with filesystem notifications and incremental reconciliation.
+~watch~ keeps the Org index and filesystem metadata current with notifications and incremental reconciliation.
+
+File notifications update affected filesystem rows. Directory topology changes and uncertain events use the existing recovery path to reconcile the configured sources. The source-root checks apply before either index is changed. Startup also populates filesystem metadata after a schema upgrade. Full recovery can remove the last Org result when the configured directory roots and source settings still match the committed index.
 
 ** Synopsis
 
