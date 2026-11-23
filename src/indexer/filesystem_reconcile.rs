@@ -24,7 +24,7 @@ pub(super) struct FilesystemReconciliation {
 impl FilesystemReconciliation {
     pub(super) fn prepare(
         connection: &Connection,
-        discovered: &BTreeMap<PathBuf, FilesystemKind>,
+        discovered: &BTreeMap<PathBuf, DiscoveredFilesystemEntry>,
         scope: &PlanningScope,
     ) -> Result<Self, IndexerError> {
         if let PlanningScope::Candidates(paths) = scope {
@@ -32,8 +32,8 @@ impl FilesystemReconciliation {
                 let mut upserts = Vec::new();
                 let mut deletions = Vec::new();
                 for path in paths {
-                    if let Some(kind) = discovered.get(path) {
-                        upserts.push(read_current_entry(path, *kind)?);
+                    if let Some(discovered_entry) = discovered.get(path) {
+                        upserts.push(read_current_entry(path, *discovered_entry)?);
                     } else {
                         deletions.push(display_path(path));
                     }
@@ -56,8 +56,8 @@ impl FilesystemReconciliation {
                 })
             })?;
         let mut upserts = Vec::with_capacity(discovered.len());
-        for (path, kind) in discovered {
-            let entry = read_current_entry(path, *kind)?;
+        for (path, discovered_entry) in discovered {
+            let entry = read_current_entry(path, *discovered_entry)?;
             stale.remove(&entry.path);
             upserts.push(entry);
         }
@@ -105,14 +105,16 @@ impl FilesystemReconciliation {
 
 fn includes_directory_candidate(
     connection: &Connection,
-    discovered: &BTreeMap<PathBuf, FilesystemKind>,
+    discovered: &BTreeMap<PathBuf, DiscoveredFilesystemEntry>,
     candidates: &BTreeSet<PathBuf>,
 ) -> Result<bool, IndexerError> {
     let mut stored_directory = connection
         .prepare("SELECT EXISTS(SELECT 1 FROM filesystem_entries WHERE path = ?1 AND kind = 'directory')")
         .map_err(directory_read_error)?;
     for path in candidates {
-        if discovered.get(path) == Some(&FilesystemKind::Directory)
+        if discovered
+            .get(path)
+            .is_some_and(|entry| entry.kind == FilesystemKind::Directory)
             || stored_directory
                 .query_row([display_path(path)], |row| row.get(0))
                 .map_err(directory_read_error)?
@@ -123,8 +125,11 @@ fn includes_directory_candidate(
     Ok(false)
 }
 
-fn read_current_entry(path: &Path, kind: FilesystemKind) -> Result<FilesystemEntry, IndexerError> {
-    FilesystemEntry::read(path, kind)?.ok_or_else(|| IndexerError::ReadFile {
+fn read_current_entry(
+    path: &Path,
+    discovered: DiscoveredFilesystemEntry,
+) -> Result<FilesystemEntry, IndexerError> {
+    FilesystemEntry::read(path, discovered)?.ok_or_else(|| IndexerError::ReadFile {
         path: path.to_path_buf(),
         source: io::Error::new(
             io::ErrorKind::NotFound,

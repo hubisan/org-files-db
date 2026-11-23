@@ -4,6 +4,7 @@ This file records completed changes.
 
 * Unreleased
 
+- =CHANGED= Filesystem queries and registered views hide dot entries by default in JSON and presentation output (#142). Use ~query --hidden~ or ~view register --hidden~ to include them. An eligible visible route makes a canonical path visible, and configured roots are always visible. Normal indexing fills schema version ~16~ visibility metadata after upgrade.
 - =ADDED= ~orgfdb watch~ keeps filesystem queries current. File events apply bounded row changes, and startup and recovery reconcile the configured directory trees. A changed filesystem result advances the committed index generation in the same transaction as any Org updates.
 - =ADDED= ~orgfdb rebuild~ indexes filesystem metadata from ~[[dirs]]~ alongside Org content. Query all eligible files with ~(fs-files)~ and directories, including roots and empty directories, with ~(fs-dirs)~. Both targets support JSON and ~presentation-json~. Schema version ~15~ adds this metadata separately from the Org tables. See ~docs/reference/query-language.org~ and ~docs/config.org~.
 

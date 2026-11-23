@@ -16,9 +16,16 @@ impl FilesystemKind {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct DiscoveredFilesystemEntry {
+    pub(super) kind: FilesystemKind,
+    pub(super) visible: bool,
+}
+
 pub(super) struct FilesystemEntry {
     pub(super) path: String,
     pub(super) kind: FilesystemKind,
+    pub(super) visible: bool,
     pub(super) name: String,
     pub(super) parent: Option<String>,
     pub(super) extension: Option<String>,
@@ -27,7 +34,11 @@ pub(super) struct FilesystemEntry {
 }
 
 impl FilesystemEntry {
-    pub(super) fn read(path: &Path, kind: FilesystemKind) -> Result<Option<Self>, IndexerError> {
+    pub(super) fn read(
+        path: &Path,
+        discovered: DiscoveredFilesystemEntry,
+    ) -> Result<Option<Self>, IndexerError> {
+        let DiscoveredFilesystemEntry { kind, visible } = discovered;
         let metadata = match fs::symlink_metadata(path) {
             Ok(metadata) => metadata,
             Err(source)
@@ -58,6 +69,7 @@ impl FilesystemEntry {
         Ok(Some(Self {
             path: display_path(path),
             kind,
+            visible,
             name: display_path(path.file_name().map_or(path, Path::new)),
             parent: path.parent().map(display_path),
             extension,
@@ -69,14 +81,16 @@ impl FilesystemEntry {
     pub(super) fn prepare_upsert(connection: &Connection) -> Result<Statement<'_>, IndexerError> {
         connection
             .prepare(
-                "INSERT INTO filesystem_entries (path, kind, name, parent, extension, size, mtime_ns)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                "INSERT INTO filesystem_entries (path, kind, name, parent, extension, size, mtime_ns, visible)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                  ON CONFLICT(path) DO UPDATE SET
                    kind = excluded.kind, name = excluded.name, parent = excluded.parent,
-                   extension = excluded.extension, size = excluded.size, mtime_ns = excluded.mtime_ns
+                   extension = excluded.extension, size = excluded.size, mtime_ns = excluded.mtime_ns,
+                   visible = excluded.visible
                  WHERE kind IS NOT excluded.kind OR name IS NOT excluded.name
                     OR parent IS NOT excluded.parent OR extension IS NOT excluded.extension
-                    OR size IS NOT excluded.size OR mtime_ns IS NOT excluded.mtime_ns",
+                    OR size IS NOT excluded.size OR mtime_ns IS NOT excluded.mtime_ns
+                    OR visible IS NOT excluded.visible",
             )
             .map_err(map_upsert_error)
     }
@@ -91,6 +105,7 @@ impl FilesystemEntry {
                 self.extension,
                 self.size,
                 self.mtime_ns,
+                self.visible,
             ])
             .map(|rows| rows > 0)
             .map_err(map_upsert_error)

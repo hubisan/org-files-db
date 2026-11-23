@@ -45,6 +45,7 @@ pub struct QueryExecutionOptions {
     pub query_timezone: Option<String>,
     pub now_utc: Option<DateTime<Utc>>,
     pub restricted_file_paths: Option<Vec<String>>,
+    pub show_hidden: bool,
 }
 
 impl Default for QueryExecutionOptions {
@@ -55,6 +56,7 @@ impl Default for QueryExecutionOptions {
             query_timezone: None,
             now_utc: None,
             restricted_file_paths: None,
+            show_hidden: false,
         }
     }
 }

@@ -31,6 +31,7 @@ pub(super) fn run_view_command(
             config,
             output,
             include,
+            hidden,
             presentation_spec_json,
             name,
             query,
@@ -42,6 +43,7 @@ pub(super) fn run_view_command(
                 query,
                 output,
                 &include,
+                hidden,
                 &presentation_spec_json,
             )?;
             let registration =
@@ -117,6 +119,7 @@ pub(super) fn presentation_view_definition(
     query: String,
     output: CliQueryOutput,
     includes: &[CliQueryInclude],
+    show_hidden: bool,
     presentation_spec_json: &str,
 ) -> Result<PresentationViewDefinition, CliError> {
     if name.trim().is_empty() {
@@ -154,6 +157,7 @@ pub(super) fn presentation_view_definition(
             .collect(),
         query_timezone: config.query.timezone.clone(),
         relative_date_dependent: query_depends_on_relative_dates(&validated),
+        show_hidden: show_hidden && validated.target().is_filesystem(),
         presentation_spec,
     })
 }

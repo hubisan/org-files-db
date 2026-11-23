@@ -144,6 +144,7 @@ fn parses_presentation_view_commands() {
         "register",
         "--config",
         "config.toml",
+        "--hidden",
         "--output",
         "outline",
         "--include",
@@ -162,12 +163,14 @@ fn parses_presentation_view_commands() {
                     config,
                     output,
                     include,
+                    hidden,
                     presentation_spec_json,
                     name,
                     query,
                 },
         } => {
             assert_eq!(config, PathBuf::from("config.toml"));
+            assert!(hidden);
             assert_eq!(output, CliQueryOutput::Outline);
             assert_eq!(
                 include,
@@ -242,6 +245,7 @@ fn presentation_view_definition_uses_query_and_presentation_validation() {
         "(headings (todo \"NEXT\"))".to_string(),
         CliQueryOutput::Flat,
         &[CliQueryInclude::Properties, CliQueryInclude::Path],
+        false,
         r#"{"columns":[{"name":"title"}],"sort":[{"column":"title","direction":"asc"}]}"#,
     )
     .expect("valid view definition should pass validation");
@@ -269,6 +273,7 @@ fn presentation_view_definition_marks_relative_date_queries() {
         "(headings (scheduled :on today))".to_string(),
         CliQueryOutput::Flat,
         &[],
+        false,
         r#"{"columns":[{"name":"title"}]}"#,
     )
     .expect("relative-date view definition should validate");
@@ -289,6 +294,7 @@ fn presentation_view_definition_rejects_invalid_target_columns() {
         "(headings)".to_string(),
         CliQueryOutput::Flat,
         &[],
+        false,
         r#"{"columns":[{"name":"link-target"}]}"#,
     )
     .expect_err("link-only column should fail for heading view");
@@ -511,6 +517,7 @@ fn parses_rebuild_and_headings_arguments() {
             format,
             output,
             include,
+            hidden,
             restrict_files_json,
             presentation_spec_json,
             expect_database_id,
@@ -519,6 +526,7 @@ fn parses_rebuild_and_headings_arguments() {
             query,
         } => {
             assert!(format.json);
+            assert!(!hidden);
             assert_eq!(expect_database_id, None);
             assert_eq!(expect_generation, None);
             assert_eq!(format.selected(), CliQueryOutputFormat::Json);
@@ -3944,6 +3952,89 @@ recursive = true
         run("(files)", true)["schemas"]["result_kinds"],
         serde_json::json!(["root", "heading", "file", "link"])
     );
+}
+
+#[test]
+fn filesystem_queries_can_include_hidden_entries_in_both_formats() {
+    let temp = TestDir::new("filesystem-query-hidden");
+    let root = temp.path().join("files");
+    fs::create_dir_all(root.join(".private")).unwrap();
+    write_file(&root.join("ordinary.org"), "* Ordinary\n");
+    write_file(&root.join(".dot.org"), "* Hidden\n");
+    let config_path = temp.path().join("config.toml");
+    write_file(
+        &config_path,
+        r#"
+db_path = "./db.sqlite"
+
+[search]
+fts5_enabled = false
+
+[[dirs]]
+path = "files"
+recursive = true
+"#,
+    );
+    rebuild(&config_path).unwrap();
+    let root = fs::canonicalize(root).unwrap();
+
+    let run = |query: &str, presentation: bool, show_hidden: bool| {
+        let mut args = vec![
+            "orgfdb",
+            "query",
+            "--config",
+            config_path.to_str().unwrap(),
+            query,
+        ];
+        if presentation {
+            args.extend([
+                "--format",
+                "presentation-json",
+                "--presentation-spec-json",
+                r#"{"columns":[{"name":"file-name"}]}"#,
+            ]);
+        }
+        if show_hidden {
+            args.push("--hidden");
+        }
+        let output = run_cli_output(args.into_iter().map(str::to_string).collect()).unwrap();
+        let value: Value = serde_json::from_slice(&output).unwrap();
+        let paths = if presentation {
+            value["files"].as_array().unwrap().clone()
+        } else {
+            value["results"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row["path"].clone())
+                .collect()
+        };
+        paths
+            .iter()
+            .map(|path| PathBuf::from(path.as_str().unwrap()))
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+
+    for presentation in [false, true] {
+        assert_eq!(
+            run("(fs-files)", presentation, false),
+            [root.join("ordinary.org")].into(),
+        );
+        assert_eq!(
+            run("(fs-files)", presentation, true),
+            [root.join("ordinary.org"), root.join(".dot.org")].into(),
+        );
+        assert_eq!(run("(fs-dirs)", presentation, false), [root.clone()].into());
+        assert_eq!(
+            run("(fs-dirs)", presentation, true),
+            [root.clone(), root.join(".private")].into(),
+        );
+    }
+    assert_eq!(
+        run("(files)", true, false),
+        [root.join("ordinary.org"), root.join(".dot.org")].into(),
+    );
+    assert_eq!(run("(files)", true, false), run("(files)", true, true));
 }
 
 #[test]

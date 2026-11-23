@@ -72,6 +72,8 @@ pub(crate) struct PresentationViewDefinition {
     pub includes: Vec<PresentationViewInclude>,
     pub query_timezone: Option<String>,
     pub relative_date_dependent: bool,
+    #[serde(default)]
+    pub show_hidden: bool,
     pub presentation_spec: Value,
 }
 
@@ -1085,6 +1087,7 @@ mod tests {
             ],
             query_timezone: Some("Europe/Zurich".to_string()),
             relative_date_dependent: false,
+            show_hidden: false,
             presentation_spec: json!({
                 "columns": [
                     {
@@ -1094,6 +1097,18 @@ mod tests {
                 ]
             }),
         }
+    }
+
+    #[test]
+    fn legacy_filesystem_view_definitions_hide_hidden_entries() {
+        let mut definition = definition("files", 40);
+        definition.query = "(fs-files)".to_string();
+        definition.presentation_spec = json!({"columns": [{"name": "file-name"}]});
+        let mut legacy = serde_json::to_value(&definition).unwrap();
+        legacy.as_object_mut().unwrap().remove("show_hidden");
+
+        let decoded: PresentationViewDefinition = serde_json::from_value(legacy).unwrap();
+        assert_eq!(decoded, definition);
     }
 
     #[test]

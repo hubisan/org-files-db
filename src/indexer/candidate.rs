@@ -1,4 +1,7 @@
 use super::*;
+use std::path::Component;
+
+const MAX_SYMLINK_HOPS: usize = 40;
 
 #[derive(Debug)]
 pub(crate) struct CandidatePathNormalizer {
@@ -9,7 +12,7 @@ pub(crate) struct CandidatePathNormalizer {
     filesystem_symlink_targets: BTreeMap<PathBuf, FilesystemKind>,
     globally_excluded_filesystem_symlinks: BTreeMap<PathBuf, PathBuf>,
     globally_excluded_filesystem_targets: BTreeSet<PathBuf>,
-    dangling_target_events: BTreeMap<PathBuf, PathBuf>,
+    filesystem_dependency_events: BTreeSet<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,13 +33,13 @@ impl CandidatePathNormalizer {
                 discovery
                     .filesystem_entries
                     .get(target)
-                    .map(|kind| (target.clone(), *kind))
+                    .map(|entry| (target.clone(), entry.kind))
             })
             .collect();
         let filesystem_directories = discovery
             .filesystem_entries
             .into_iter()
-            .filter_map(|(path, kind)| (kind == FilesystemKind::Directory).then_some(path))
+            .filter_map(|(path, entry)| (entry.kind == FilesystemKind::Directory).then_some(path))
             .collect();
         let dangling_filesystem_symlinks = discovery
             .dangling_filesystem_symlinks
@@ -47,17 +50,38 @@ impl CandidatePathNormalizer {
                 (!filesystem_internal_paths.contains(&target)).then_some((alias, target))
             })
             .collect::<BTreeMap<_, _>>();
-        let dangling_target_events = dangling_filesystem_symlinks
-            .values()
-            .filter_map(|target| first_missing_target_component(target))
-            .filter(|(event, _)| !filesystem_internal_paths.contains(event))
-            .collect();
         let globally_excluded_filesystem_targets = discovery
             .globally_excluded_filesystem_symlinks
             .values()
             .cloned()
             .collect();
         let mut filesystem_symlinks = discovery.filesystem_symlinks;
+        let mut filesystem_dependency_events = BTreeSet::new();
+        for alias in filesystem_symlinks
+            .keys()
+            .chain(&discovery.suppressed_filesystem_symlinks)
+            .chain(discovery.globally_excluded_filesystem_symlinks.keys())
+            .chain(dangling_filesystem_symlinks.keys())
+            .collect::<BTreeSet<_>>()
+        {
+            let mut events = BTreeSet::new();
+            let mut remaining_links = MAX_SYMLINK_HOPS;
+            collect_alias_dependencies(
+                alias,
+                &mut PathBuf::new(),
+                &mut remaining_links,
+                &mut events,
+            );
+            // Direct alias events already have their own handling.
+            if let Some(physical_alias) = path_with_canonical_parent(alias) {
+                events.remove(&physical_alias);
+            }
+            filesystem_dependency_events.extend(
+                events
+                    .into_iter()
+                    .filter(|path| !filesystem_internal_paths.contains(path)),
+            );
+        }
         filesystem_symlinks.extend(dangling_filesystem_symlinks);
         Ok(Self {
             indexed_universe: discovery.indexed_universe,
@@ -69,7 +93,7 @@ impl CandidatePathNormalizer {
                 discovery.globally_excluded_filesystem_symlinks,
             ),
             globally_excluded_filesystem_targets,
-            dangling_target_events,
+            filesystem_dependency_events,
         })
     }
 
@@ -80,8 +104,10 @@ impl CandidatePathNormalizer {
                 hints.entry(parent.to_path_buf()).or_insert(false);
             }
         }
-        for parent in self.dangling_target_events.values() {
-            hints.entry(parent.clone()).or_insert(false);
+        for path in &self.filesystem_dependency_events {
+            if let Some(parent) = path.parent() {
+                hints.entry(parent.to_path_buf()).or_insert(false);
+            }
         }
         hints.into_iter().collect()
     }
@@ -93,7 +119,7 @@ impl CandidatePathNormalizer {
         }
 
         if self.filesystem_symlinks.contains_key(&logical_path)
-            || self.dangling_target_events.contains_key(&logical_path)
+            || self.filesystem_dependency_events.contains(&logical_path)
         {
             return CandidatePathResolution::Reconcile;
         }
@@ -331,13 +357,68 @@ fn path_with_canonical_parent(path: &Path) -> Option<PathBuf> {
         .map(|parent| parent.join(name))
 }
 
-fn first_missing_target_component(target: &Path) -> Option<(PathBuf, PathBuf)> {
+// Follow links a component at a time. Canonicalizing the entire alias would
+// lose intermediate links and would give no target at all for a dangling alias.
+fn collect_alias_dependencies(
+    path: &Path,
+    resolved: &mut PathBuf,
+    remaining_links: &mut usize,
+    events: &mut BTreeSet<PathBuf>,
+) -> bool {
+    for component in path.components() {
+        let name = match component {
+            Component::Normal(name) => name,
+            Component::ParentDir => {
+                resolved.pop();
+                continue;
+            }
+            Component::CurDir => continue,
+            Component::Prefix(_) | Component::RootDir => {
+                resolved.push(component.as_os_str());
+                continue;
+            }
+        };
+        let candidate = resolved.join(name);
+        match fs::symlink_metadata(&candidate) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                let target = fs::read_link(&candidate);
+                events.insert(candidate);
+                let Ok(target) = target else {
+                    return false;
+                };
+                if *remaining_links == 0 {
+                    return false;
+                }
+                *remaining_links -= 1;
+                if !collect_alias_dependencies(&target, resolved, remaining_links, events) {
+                    return false;
+                }
+            }
+            Ok(_) => resolved.push(name),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+                ) =>
+            {
+                if let Some(event) = first_missing_target_component(&candidate) {
+                    events.insert(event);
+                }
+                return false;
+            }
+            Err(_) => return false,
+        }
+    }
+    true
+}
+
+fn first_missing_target_component(target: &Path) -> Option<PathBuf> {
     for ancestor in target.ancestors().skip(1) {
         if let Ok(canonical) = fs::canonicalize(ancestor) {
             if canonical.is_dir() {
                 // Only the first child is visible to a nonrecursive watch.
                 let next = target.strip_prefix(ancestor).ok()?.components().next()?;
-                return Some((canonical.join(next), canonical));
+                return Some(canonical.join(next));
             }
         }
     }

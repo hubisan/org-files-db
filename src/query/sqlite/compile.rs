@@ -3,12 +3,13 @@ use super::*;
 pub fn compile_sqlite_query(
     query: &ValidatedQuery,
 ) -> Result<CompiledSqlQuery, QueryExecutionError> {
-    compile_sqlite_query_with_file_restriction(query, false)
+    compile_sqlite_query_with_options(query, false, false)
 }
 
-pub(crate) fn compile_sqlite_query_with_file_restriction(
+pub(super) fn compile_sqlite_query_with_options(
     query: &ValidatedQuery,
     restrict_files: bool,
+    show_hidden: bool,
 ) -> Result<CompiledSqlQuery, QueryExecutionError> {
     ensure_relative_dates_resolved(query).map_err(|error| {
         QueryExecutionError::date_resolution(
@@ -169,10 +170,11 @@ pub(crate) fn compile_sqlite_query_with_file_restriction(
             "/* orgfdb:match-filesystem-entries params={bound_parameter_count} */
              SELECT path, name, parent, extension, size, mtime_ns
              FROM filesystem_entries AS {}
-             {}
+             {}{}
              ORDER BY path",
             scope.file_alias,
             render_where_clause(where_clause.as_ref()),
+            if show_hidden { "" } else { " AND visible = 1" },
         ),
     };
 

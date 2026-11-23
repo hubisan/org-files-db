@@ -14,11 +14,12 @@ use super::{
     DB_METADATA_FTS_SCHEMA_VERSION_KEY, DB_METADATA_FTS_SUBSTRING_INDEXED_KEY,
 };
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 15;
+pub const CURRENT_SCHEMA_VERSION: u32 = 16;
 /// Oldest schema version that can still be upgraded in place. The database is
 /// a rebuildable cache, so older files must be deleted and rebuilt.
 pub const MIN_SUPPORTED_SCHEMA_VERSION: u32 = 10;
 const EFFECTIVE_TAGS_SCHEMA_VERSION: u32 = 11;
+const FILESYSTEM_VISIBILITY_SCHEMA_VERSION: u32 = 16;
 const EFFECTIVE_TAGS_ORDER_BACKUP_TABLE: &str = "orgfdb_effective_tags_order_backup";
 
 const CORE_SCHEMA_SQL: &str = include_str!("../../sql/schema.sql");
@@ -108,6 +109,16 @@ impl SchemaDefinition {
         let repaired = repair_tables_depending_on_headings(connection)?;
         needs_effective_properties_backfill |= repaired.effective_properties;
         needs_effective_tags_backfill |= repaired.effective_tags;
+        if on_disk_version < FILESYSTEM_VISIBILITY_SCHEMA_VERSION
+            && table_exists(connection, "filesystem_entries")?
+            && !has_column(&table_columns(connection, "filesystem_entries")?, "visible")
+        {
+            // Only discovery can determine visibility across alternate logical routes.
+            connection.execute(
+                "ALTER TABLE filesystem_entries ADD COLUMN visible INTEGER CHECK (visible IN (0, 1))",
+                [],
+            )?;
+        }
         connection.execute_batch(&self.render_sql(connection))?;
         initialize_index_state_schema(connection, on_disk_version, migrated_populated_database)?;
         if needs_effective_properties_backfill {

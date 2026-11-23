@@ -4439,13 +4439,13 @@ fn filesystem_queries_filter_metadata_and_keep_files_and_directories_separate() 
     .expect("database should open");
     connection
         .execute_batch(
-            "INSERT INTO filesystem_entries (path, kind, name, parent, extension, size, mtime_ns)
+            "INSERT INTO filesystem_entries (path, kind, name, parent, extension, size, mtime_ns, visible)
              VALUES
-                 ('/work', 'directory', 'work', '/', NULL, NULL, NULL),
-                 ('/work/docs', 'directory', 'docs', '/work', NULL, NULL, NULL),
-                 ('/work/docs/Über 100%_draft.PDF', 'file', 'Über 100%_draft.PDF', '/work/docs', 'PDF', 3, 4),
-                 ('/work/docs/archive.tar.gz', 'file', 'archive.tar.gz', '/work/docs', 'gz', 5, 6),
-                 ('/work/README', 'file', 'README', '/work', NULL, 7, 8)",
+                 ('/work', 'directory', 'work', '/', NULL, NULL, NULL, 1),
+                 ('/work/docs', 'directory', 'docs', '/work', NULL, NULL, NULL, 1),
+                 ('/work/docs/Über 100%_draft.PDF', 'file', 'Über 100%_draft.PDF', '/work/docs', 'PDF', 3, 4, 1),
+                 ('/work/docs/archive.tar.gz', 'file', 'archive.tar.gz', '/work/docs', 'gz', 5, 6, 1),
+                 ('/work/README', 'file', 'README', '/work', NULL, 7, 8, 1)",
         )
         .expect("index fixture should seed");
     for (query, expected) in [

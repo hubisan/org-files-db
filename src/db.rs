@@ -458,6 +458,7 @@ mod tests {
             "idx_files_hash",
             "idx_files_mtime_size",
             "idx_files_path_lower",
+            "idx_filesystem_visibility_pending",
             "idx_headings_closed",
             "idx_headings_deadline",
             "idx_headings_parent_id",
@@ -685,6 +686,7 @@ mod tests {
 DROP INDEX idx_effective_properties_key_local_heading;
 DROP INDEX idx_effective_properties_key_effective_heading;
 DROP INDEX idx_keywords_keyword_value_heading;
+DROP INDEX idx_filesystem_visibility_pending;
 PRAGMA user_version = 12;
 "#,
                 )

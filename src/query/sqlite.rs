@@ -29,7 +29,6 @@ mod sql;
 mod tests;
 
 pub use self::compile::compile_sqlite_query;
-pub(crate) use self::compile::compile_sqlite_query_with_file_restriction;
 use self::compile::*;
 pub(crate) use self::execute::execute_sqlite_query_with_relation;
 pub use self::execute::{
