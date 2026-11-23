@@ -13,14 +13,19 @@ correction -> `make ci` -> commit -> PR.
 
 | Role | Claude Code | Codex |
 | --- | --- | --- |
-| Planner and reviewer | main session, Claude Opus, effort low | GPT Sol, effort high |
-| Implementer (default) | subagent `implementer`: Claude Sonnet, effort medium | GPT Luna, effort high |
-| Escalated implementer | subagent `implementer-escalated`: Claude Sonnet, effort high | GPT Sol, effort medium |
+| Planner and reviewer | main session; model and effort chosen in the session | main session; model and effort chosen in the session |
+| Implementer (default) | subagent `implementer`: Sonnet, effort medium | Luna, effort high (small, focused tickets); Sol, effort medium (complex tickets) |
+| Escalated implementer | subagent `implementer-escalated`: Sonnet, effort high | Sol, effort high (approval required) |
+
+Model names carry no version: the current model of that family is meant.
+For Codex, choose Luna high for small, well-scoped changes, tests and straightforward fixes.
+Choose Sol medium for cross-file features, complex logic and higher-risk implementation.
+Sol high is an escalation and requires explicit user approval. Planning and review
+continue to use the model and effort selected for the main session.
 
 - In Claude Code, the planner is the main session; the user selects its model and effort (`/model`,
-  `/effort`). Subagent model and effort are fixed in `.claude/agents/*.md`.
-- Model family names are intentionally versionless. Use the corresponding available model
-  and effort setting in each harness.
+  `/effort`). Claude subagent model and effort are fixed in `.claude/agents/*.md`.
+
 - The planner reads the issue, writes a short plan (owned files, seam, focused test
   command, relevant docs section), and delegates to `implementer`.
 - Use one implementer by default. Start several only for genuinely independent work with
