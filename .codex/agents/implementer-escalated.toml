@@ -1,0 +1,9 @@
+name = "implementer-escalated"
+description = "Implement an explicitly approved escalation; focus on review findings and tests."
+model = "gpt-6.2-sol"
+model_reasoning_effort = "high"
+
+developer_instructions = """
+Follow AGENTS.md and docs/agents/WORKFLOW.md. Implement an explicitly approved escalation; focus on review findings and tests.
+Report configured role/model/effort; runtime verification requires client evidence.
+"""
