@@ -5,39 +5,52 @@
 Prefer the most downstream existing artifact: `ticket > spec > conversation`. Do not
 repeat discovery that the active issue already settles.
 
-Normal flow: `/to-spec` -> `/to-tickets` (usually done by the user) -> planner plans one
-ticket -> `implementer` subagent -> focused tests -> planner review -> at most one
+Normal flow: `/to-spec` -> `/to-tickets` (usually done by the user) -> planning subagent -> `implementer` subagent -> focused tests -> independent review subagent -> at most one
 correction -> `make ci` -> commit -> PR.
 
 ## Roles and model routing
 
-| Role | Claude Code | Codex |
-| --- | --- | --- |
-| Planner and reviewer | main session; model and effort chosen in the session | main session; model and effort chosen in the session |
-| Implementer (default) | subagent `implementer`: Sonnet, effort medium | Luna, effort high (small, focused tickets); Sol, effort medium (complex tickets) |
-| Escalated implementer | subagent `implementer-escalated`: Sonnet, effort high | Sol, effort high (approval required) |
+The main session coordinates the workflow, Git and PRs. Choose a cost-effective
+session model. Delegate planning, implementation and behavior-changing reviews
+to fixed-model subagents. Route by risk before size: security, data writes,
+migrations, concurrency and architecture changes require the complex role.
 
-Model names carry no version: the current model of that family is meant.
-For Codex, choose Luna high for small, well-scoped changes, tests and straightforward fixes.
-Choose Sol medium for cross-file features, complex logic and higher-risk implementation.
-Sol high is an escalation and requires explicit user approval. Planning and review
-continue to use the model and effort selected for the main session.
+| Task | Subagent | Codex | Claude Code |
+| --- | --- | --- | --- |
+| Simple planning | `planner-light` | Luna max | Sonnet medium |
+| Complex or risky planning | `planner` | Sol medium | Opus medium |
+| Small implementation | `implementer-light` | Luna high | Sonnet low |
+| Normal implementation | `implementer` | Luna max | Sonnet medium |
+| Complex implementation | `implementer-complex` | Sol medium | Opus medium |
+| Optional focused test triage | `tester` | Luna high | Sonnet low |
+| Normal code review | `reviewer-light` | Luna max | Sonnet medium |
+| Complex or risky code review | `reviewer` | Sol medium | Opus medium |
+| Approved implementation escalation | `implementer-escalated` | Sol high | Sonnet high |
 
-- In Claude Code, the planner is the main session; the user selects its model and effort (`/model`,
-  `/effort`). Claude subagent model and effort are fixed in `.claude/agents/*.md`.
+Model and effort are configured in `.codex/agents/*.toml` and
+`.claude/agents/*.md`; those files, not this summary table, are authoritative.
+Haiku is not part of the default Claude workflow. Escalated implementation needs
+explicit user approval; Luna max is approved as a standard role.
 
-- The planner reads the issue, writes a short plan (owned files, seam, focused test
-  command, relevant docs section), and delegates to `implementer`.
-- Use one implementer by default. Start several only for genuinely independent work with
-  disjoint files.
-- The implementer fixes ordinary test failures itself and returns a compact report.
-- The planner reviews. For tickets that change transaction boundaries, change planning,
-  watcher recovery or the DB schema, the planner may raise its own effort to medium for
-  the review.
-- Escalated implementation and any `xhigh`/`max` effort require explicit user approval.
-- Git/GitHub housekeeping (branch, commit, push, PR, issues, labels) stays in the planner
-  session; delegating it costs more context than it saves.
-- Other harnesses keep the same three roles with their own models.
+**Routing steps:** delegate missing planning to `planner-light` or `planner`,
+then the appropriate implementer. Implementers run focused tests themselves;
+use `tester` only when separate execution or diagnosis is useful. Delegate
+behavior-changing code review independently to `reviewer-light` or `reviewer`.
+For docs-only, config-only and mechanical diffs, the coordinator can inspect
+the diff. Keep the repository's existing tests, review skills, correction budget,
+scope and completion requirements below. Do not rerun planning for a settled spec.
+Do not create unnecessary duplicate tests or review passes.
+
+**Model evidence:** Before first delegation, check client support and warn about
+unavailable or superseded model IDs when verifiable. Do not silently substitute
+models. For each phase actually run, report
+`phase / role / configured model / effort / status`.
+Use `configured` for config only, `spawn-confirmed` for a launched role, and
+`runtime-verified` only when independent client/task metadata shows the
+effective model *and* effort. An agent self-report is not evidence. Inspect
+`/subagents` in Codex or `/tasks` in Claude Code if supported; note possible
+runtime overrides and unavailable verification. Summarize actual versus
+configured roles in the final report.
 
 ## Skills
 
@@ -45,14 +58,14 @@ Invoke a matching skill through the Skill tool (other harnesses: open its `SKILL
 
 | Situation | Skill |
 | --- | --- |
-| Review of a ticket that changes code (`src/`, `tests/`, `sql/`) | `code-review` (planner, before commit) |
+| Review of a ticket that changes code (`src/`, `tests/`, `sql/`) | `code-review` (independent reviewer, before commit) |
 | Implementing a ticket with behavior change | `tdd` (implementer) |
 | Hard bug, flaky or unexplained failure | `diagnosing-bugs` |
 | A term or durable decision is being settled (glossary, ADR) | `domain-modeling` |
 | Turning a settled conversation into a spec / tickets | `to-spec`, then `to-tickets` |
 | Editing `AGENTS.md`, `CLAUDE.md`, agent docs or skills | `writing-for-agents` |
 
-Skip `code-review` for docs-only, config-only or purely mechanical changes; the planner's
+Skip `code-review` for docs-only, config-only or purely mechanical changes; the coordinator's
 own diff review is enough there.
 
 `code-review` fixed point: the commit before the ticket's first commit (or `HEAD` plus
