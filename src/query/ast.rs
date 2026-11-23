@@ -12,6 +12,25 @@ pub enum QueryTarget {
     Headings,
     Links,
     Files,
+    FsFiles,
+    FsDirs,
+}
+
+impl QueryTarget {
+    /// The target name used in the query language and diagnostics.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Headings => "headings",
+            Self::Links => "links",
+            Self::Files => "files",
+            Self::FsFiles => "fs-files",
+            Self::FsDirs => "fs-dirs",
+        }
+    }
+
+    pub const fn is_filesystem(self) -> bool {
+        matches!(self, Self::FsFiles | Self::FsDirs)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

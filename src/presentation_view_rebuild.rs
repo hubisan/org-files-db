@@ -28,8 +28,8 @@ use crate::{
     },
     query::{
         effective_query_date, execute_and_shape_query, load_link_target_locations, parse_query,
-        sqlite_query_validation_options, validate_query, QueryDateResolutionOptions,
-        QueryExecutionOptions, QueryOutputMode,
+        result::validate_filesystem_query_options, sqlite_query_validation_options, validate_query,
+        QueryDateResolutionOptions, QueryExecutionOptions, QueryOutputMode,
     },
 };
 
@@ -72,13 +72,20 @@ pub(crate) fn run_rebuild_worker(
         sqlite_query_validation_options(&connection).map_err(|source| source.to_string())?;
     let validated =
         validate_query(parsed, &validation_options).map_err(|source| source.to_string())?;
+    let output_mode = query_output_mode(view.definition.output);
+    validate_filesystem_query_options(
+        validated.target(),
+        output_mode,
+        !view.definition.includes.is_empty(),
+    )
+    .map_err(|source| source.to_string())?;
     // Registered includes add nothing to a presentation payload; only the
     // includes the columns, sort rules and row source need are loaded.
     let query_includes = spec
         .required_includes_for_query_target(validated.target)
         .map_err(|source| source.to_string())?;
     let options = QueryExecutionOptions {
-        output_mode: query_output_mode(view.definition.output),
+        output_mode,
         includes: query_includes,
         query_timezone: view.definition.query_timezone.clone(),
         now_utc: Some(query_now_utc),
@@ -95,7 +102,8 @@ pub(crate) fn run_rebuild_worker(
             query_response.results,
             &link_targets,
         )
-        .map_err(|source| source.to_string())?;
+        .map_err(|source| source.to_string())?
+        .for_query_target(query_response.target);
     connection
         .execute_batch("COMMIT")
         .map_err(|source| source.to_string())?;

@@ -690,6 +690,7 @@ fn execution_file_restriction_filters_structural_targets_and_combines_with_query
             QueryRows::Headings(rows) => rows.is_empty(),
             QueryRows::Links(rows) => rows.is_empty(),
             QueryRows::Files(rows) => rows.is_empty(),
+            QueryRows::Filesystem(_, rows) => rows.is_empty(),
         };
         assert!(empty, "empty restriction returned rows for {query}");
     }
@@ -2667,6 +2668,7 @@ fn injection_like_strings_remain_bound_and_do_not_broaden_results() {
             QueryRows::Headings(rows) => assert!(rows.is_empty()),
             QueryRows::Files(rows) => assert!(rows.is_empty()),
             QueryRows::Links(rows) => assert!(rows.is_empty()),
+            QueryRows::Filesystem(_, rows) => assert!(rows.is_empty()),
         }
     }
 }
@@ -2767,6 +2769,9 @@ fn every_validator_predicate_has_an_executed_query() {
         ("todo", r#"(headings (todo))"#),
         ("done", r#"(headings (done))"#),
         ("title", r#"(headings (title "Query Engine"))"#),
+        ("extension", r#"(fs-files (extension "pdf"))"#),
+        ("name", r#"(fs-dirs (name "notes"))"#),
+        ("path", r#"(fs-files (path "/tmp/query-alpha.org"))"#),
         ("has-text", r#"(headings (has-text "query"))"#),
         ("level", r#"(headings (level 1))"#),
         ("id", r#"(headings (id 11))"#),
@@ -4423,4 +4428,48 @@ fn table_counts(connection: &Connection) -> Vec<(&'static str, i64)> {
         (table, count)
     })
     .collect()
+}
+
+#[test]
+fn filesystem_queries_filter_metadata_and_keep_files_and_directories_separate() {
+    let connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+        crate::db::CURRENT_SCHEMA_VERSION,
+        false,
+    ))
+    .expect("database should open");
+    connection
+        .execute_batch(
+            "INSERT INTO filesystem_entries (path, kind, name, parent, extension, size, mtime_ns)
+             VALUES
+                 ('/work', 'directory', 'work', '/', NULL, NULL, NULL),
+                 ('/work/docs', 'directory', 'docs', '/work', NULL, NULL, NULL),
+                 ('/work/docs/Über 100%_draft.PDF', 'file', 'Über 100%_draft.PDF', '/work/docs', 'PDF', 3, 4),
+                 ('/work/docs/archive.tar.gz', 'file', 'archive.tar.gz', '/work/docs', 'gz', 5, 6),
+                 ('/work/README', 'file', 'README', '/work', NULL, 7, 8)",
+        )
+        .expect("index fixture should seed");
+    for (query, expected) in [
+        (
+            r#"(fs-files (and (file-name "ÜBER" "%_") (parent "/WORK/DOCS" :exact t) (extension "pdf")))"#,
+            vec!["/work/docs/Über 100%_draft.PDF"],
+        ),
+        (
+            r#"(fs-dirs (or (path "/work/docs" :exact t) (name "READ")))"#,
+            vec!["/work/docs"],
+        ),
+        (
+            r#"(fs-files (not (extension "pdf")))"#,
+            vec!["/work/README", "/work/docs/archive.tar.gz"],
+        ),
+        (r#"(fs-files (extension "p"))"#, vec![]),
+        (r#"(fs-files (name "100%%"))"#, vec![]),
+    ] {
+        let QueryRows::Filesystem(_, rows) = execute_sqlite_query(&connection, &validated(query))
+            .expect("filesystem query should execute")
+        else {
+            panic!("expected filesystem rows");
+        };
+        let paths: Vec<&str> = rows.iter().map(|row| row.path.as_str()).collect();
+        assert_eq!(paths, expected, "{query}");
+    }
 }

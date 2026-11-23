@@ -266,7 +266,7 @@ pub(in crate::query::sqlite) fn compile_nested_target_exists(
     let nested_scope = match query.target {
         QueryTarget::Headings => aliases.next_all_headings_scope(),
         QueryTarget::Files => aliases.next_scope(QueryTarget::Files),
-        QueryTarget::Links => unreachable!("validator should reject nested links here"),
+        _ => unreachable!("validator should allow only nested Org headings and files here"),
     };
     let filter = compile_query_match_filter(query, &nested_scope, aliases)?;
 
@@ -286,7 +286,7 @@ pub(in crate::query::sqlite) fn compile_nested_target_exists(
                 fragment_references_root(&nested_scope, filter.as_ref()),
             ),
         ),
-        QueryTarget::Links => unreachable!("validator should reject nested links here"),
+        _ => unreachable!("validator should allow only nested Org headings and files here"),
     };
 
     let mut fragments = vec![sql_literal(&format!("({id_column} = {outer_id_sql})"))];
@@ -430,7 +430,7 @@ pub(in crate::query::sqlite) fn compile_has_link_predicate(
             link_scope.link_col("file_id"),
             scope.file_col("id")
         )),
-        QueryTarget::Links => unreachable!("validator should constrain has-link target"),
+        _ => unreachable!("validator should constrain has-link target"),
     };
 
     let mut fragments = vec![source_fragment];
@@ -460,7 +460,7 @@ pub(in crate::query::sqlite) fn compile_links_to_predicate(
     let target_column = match target_query.target {
         QueryTarget::Headings => link_scope.link_col("target_heading_id"),
         QueryTarget::Files => link_scope.link_col("target_file_id"),
-        QueryTarget::Links => unreachable!("validator should constrain links-to targets"),
+        _ => unreachable!("validator should constrain links-to targets"),
     };
     let source_fragment = match scope.target {
         QueryTarget::Headings => sql_literal(&format!(
@@ -473,7 +473,7 @@ pub(in crate::query::sqlite) fn compile_links_to_predicate(
             link_scope.link_col("file_id"),
             scope.file_col("id")
         )),
-        QueryTarget::Links => unreachable!("validator should constrain links-to target"),
+        _ => unreachable!("validator should constrain links-to target"),
     };
     let target_fragment = compile_nested_target_exists(target_query, aliases, &target_column)?;
     let combined = combine_fragments_with(
@@ -512,7 +512,7 @@ pub(in crate::query::sqlite) fn compile_linked_from_predicate(
             link_scope.link_col("target_file_id"),
             scope.file_col("id")
         )),
-        QueryTarget::Links => unreachable!("validator should constrain linked-from target"),
+        _ => unreachable!("validator should constrain linked-from target"),
     };
     let source_fragment = match &predicate.args[0] {
         ValidatedArg::Scalar(QueryValue::Keyword(value)) if value == "any" => None,
@@ -520,7 +520,7 @@ pub(in crate::query::sqlite) fn compile_linked_from_predicate(
             let outer_id = match query.target {
                 QueryTarget::Headings => link_scope.link_col("heading_id"),
                 QueryTarget::Files => link_scope.link_col("file_id"),
-                QueryTarget::Links => unreachable!("validator should constrain linked-from source"),
+                _ => unreachable!("validator should constrain linked-from source"),
             };
             Some(compile_nested_target_exists(query, aliases, &outer_id)?)
         }

@@ -64,6 +64,25 @@ ON files(identity)
 WHERE identity IS NOT NULL;
 
 --------------------------------------------------
+-- FILESYSTEM ENTRIES
+--------------------------------------------------
+/*
+  A snapshot of eligible regular files and directories reached from configured
+  directory roots. The path and parent use canonical absolute display paths.
+  Extension, size in bytes, and modification time in Unix epoch nanoseconds
+  apply only to regular files.
+*/
+CREATE TABLE IF NOT EXISTS filesystem_entries (
+    path            TEXT PRIMARY KEY,
+    kind            TEXT NOT NULL CHECK (kind IN ('file', 'directory')),
+    name            TEXT NOT NULL,
+    parent          TEXT,
+    extension       TEXT,
+    size            INTEGER,
+    mtime_ns        INTEGER
+);
+
+--------------------------------------------------
 -- DATABASE METADATA
 --------------------------------------------------
 /*

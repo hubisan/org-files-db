@@ -3,7 +3,7 @@
 
 [[https://www.gnu.org/licenses/gpl-3.0][https://img.shields.io/badge/License-GPL%20v3-blue.svg]] [[https://github.com/hubisan/org-files-db][GitHub repository]]
 
-~org-files-db~ indexes Org files in SQLite. The ~orgfdb~ command can rebuild the index, keep it current, and query stored Org data.
+~org-files-db~ indexes Org files and filesystem metadata in SQLite. The ~orgfdb~ command can rebuild both indexes, keep the Org index current, and query stored data.
 
 The index stores headings, file metadata, tags, properties, keywords, timestamps, and Org links. Structural queries read this indexed data without reparsing source files.
 
@@ -93,6 +93,13 @@ Files with a project tag:
 orgfdb query --config ./org-files-db.toml '(files (tags "project"))'
 #+end_src
 
+Search for PDFs by extension, or list the directories in the configured trees.
+
+#+begin_src shell
+orgfdb query --config ./org-files-db.toml '(fs-files (extension "pdf"))'
+orgfdb query --config ./org-files-db.toml '(fs-dirs)'
+#+end_src
+
 Include structured path data:
 
 #+begin_src shell
@@ -135,7 +142,7 @@ Read [[./docs/cli.org][docs/cli.org]] and [[./docs/config.org][docs/config.org]]
 
 * Configuration
 
-A configuration file selects the SQLite database and the Org source set. It also controls link parsing, TODO defaults, search indexing, and query timezone handling.
+A configuration file selects the SQLite database and the sources for Org and filesystem indexing. It also controls link parsing, TODO defaults, search indexing, and query timezone handling.
 
 Relative paths in a configuration file use the configuration file directory as their base.
 

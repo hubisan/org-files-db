@@ -11,8 +11,8 @@ use crate::{
     },
     presentation_view_cache::{PresentationViewCacheReadError, PresentationViewCacheStore},
     query::{
-        parse_query, query_depends_on_relative_dates, sqlite_query_validation_options,
-        validate_query,
+        parse_query, query_depends_on_relative_dates, result::validate_filesystem_query_options,
+        sqlite_query_validation_options, validate_query,
     },
 };
 
@@ -131,6 +131,8 @@ pub(super) fn presentation_view_definition(
     let validation_options =
         sqlite_query_validation_options(&connection).map_err(CliError::QueryExecute)?;
     let validated = validate_query(parsed, &validation_options).map_err(CliError::QueryValidate)?;
+    validate_filesystem_query_options(validated.target(), output.into(), !includes.is_empty())
+        .map_err(CliError::QueryShape)?;
     let spec =
         PresentationSpec::parse_json(presentation_spec_json).map_err(CliError::PresentationSpec)?;
     spec.validate_for_query_target(validated.target)

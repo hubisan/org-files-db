@@ -99,6 +99,7 @@ pub(in crate::query::result) fn collect_matched_ids(
             }
             (file_ids, heading_ids, Vec::new())
         }
+        QueryRows::Filesystem(..) => unreachable!("filesystem results need no Org shaping"),
         QueryRows::Links(rows) => {
             let mut file_ids = BTreeSet::new();
             let mut heading_ids = BTreeSet::new();

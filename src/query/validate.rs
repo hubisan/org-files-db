@@ -128,7 +128,7 @@ impl fmt::Display for QueryValidationError {
             f,
             "{} (target {}, predicate {})",
             self.message,
-            target_name(self.target),
+            self.target.as_str(),
             self.predicate
         )
     }
@@ -181,25 +181,30 @@ fn validate_call(
     target: QueryTarget,
     options: &QueryValidationOptions,
 ) -> Result<ValidatedPredicate, QueryValidationError> {
+    if target.is_filesystem() {
+        return match call.name.as_str() {
+            "name" | "path" | "parent" | "file-name" => validate_text_predicate(
+                call,
+                target,
+                options,
+                &["regexp", "exact"],
+                ExactRule::SingleArg,
+            ),
+            "extension" => validate_extension(call, target),
+            other => Err(unavailable_predicate(target, other)),
+        };
+    }
+
     match call.name.as_str() {
         "todo" => validate_todo(call, target),
         "done" => validate_done(call, target),
-        "title" => match target {
-            QueryTarget::Headings => validate_text_predicate(
-                call,
-                target,
-                options,
-                &["regexp", "exact"],
-                ExactRule::SingleArg,
-            ),
-            QueryTarget::Files | QueryTarget::Links => validate_text_predicate(
-                call,
-                target,
-                options,
-                &["regexp", "exact"],
-                ExactRule::SingleArg,
-            ),
-        },
+        "title" => validate_text_predicate(
+            call,
+            target,
+            options,
+            &["regexp", "exact"],
+            ExactRule::SingleArg,
+        ),
         "has-text" => validate_has_text(call, target, options),
         "level" => validate_level(call, target),
         "id" => validate_id(call, target),
@@ -252,22 +257,38 @@ fn validate_call(
             "tags-regexp",
             "unsupported operator: tags-regexp; use (tags ... :regexp t) instead",
         )),
-        other if predicate_is_known_globally(other) => Err(QueryValidationError::new(
-            QueryValidationErrorKind::InvalidTarget,
-            target,
-            other,
-            format!(
-                "predicate {other} is not valid for target {}",
-                target_name(target)
-            ),
-        )),
-        other => Err(QueryValidationError::new(
+        other => Err(unavailable_predicate(target, other)),
+    }
+}
+
+fn unavailable_predicate(target: QueryTarget, predicate: &str) -> QueryValidationError {
+    if predicate_is_known_globally(predicate) {
+        invalid_target(target, predicate)
+    } else {
+        QueryValidationError::new(
             QueryValidationErrorKind::UnsupportedOperator,
             target,
-            other,
-            format!("unsupported operator: {other}"),
-        )),
+            predicate,
+            format!("unsupported operator: {predicate}"),
+        )
     }
+}
+
+fn validate_extension(
+    call: PredicateCall,
+    target: QueryTarget,
+) -> Result<ValidatedPredicate, QueryValidationError> {
+    ensure_target(target, &call.name, &[QueryTarget::FsFiles])?;
+    let options = validate_options(target, &call.name, &call.options, &[])?;
+    let args = validate_scalar_values(
+        target,
+        &call.name,
+        &call.args,
+        Arity::ExactlyOne,
+        |value| matches!(value, QueryValue::String(text) if !text.is_empty() && !text.contains('.')),
+        "nonempty string without a dot",
+    )?;
+    Ok(validated_predicate(target, call.name, args, options))
 }
 
 fn validate_todo(
@@ -437,7 +458,7 @@ fn validate_tags(
     let allowed = match target {
         QueryTarget::Headings => &["inherit", "regexp", "match"][..],
         QueryTarget::Files => &["regexp", "match"][..],
-        QueryTarget::Links => &[][..],
+        _ => unreachable!("tags target was validated above"),
     };
     let options = validate_options(target, &call.name, &call.options, allowed)?;
     let regexp = bool_option(target, &call.name, &options, "regexp")?.unwrap_or(false);
@@ -479,7 +500,7 @@ fn validate_property(
     let allowed = match target {
         QueryTarget::Headings => &["inherit", "regexp"][..],
         QueryTarget::Files => &["regexp"][..],
-        QueryTarget::Links => &[][..],
+        _ => unreachable!("property target was validated above"),
     };
     let options = validate_options(target, &call.name, &call.options, allowed)?;
     let _regexp = optional_bool_option(target, &call.name, &options, "regexp")?;
@@ -521,7 +542,7 @@ fn validate_keyword(
     let allowed_options = match target {
         QueryTarget::Headings => &["regexp", "inherit"][..],
         QueryTarget::Files => &["regexp"][..],
-        QueryTarget::Links => unreachable!("keyword target was validated above"),
+        _ => unreachable!("keyword target was validated above"),
     };
     let options = validate_options(target, &call.name, &call.options, allowed_options)?;
     if target == QueryTarget::Headings {
@@ -885,7 +906,7 @@ fn validate_nested_target_arg(
                         predicate,
                         allowed_targets
                             .iter()
-                            .map(|target| target_name(*target))
+                            .map(|target| target.as_str())
                             .collect::<Vec<_>>()
                             .join(" or ")
                     ),
@@ -927,16 +948,20 @@ fn ensure_target(
     if allowed_targets.contains(&target) {
         Ok(())
     } else {
-        Err(QueryValidationError::new(
-            QueryValidationErrorKind::InvalidTarget,
-            target,
-            predicate,
-            format!(
-                "predicate {predicate} is not valid for target {}",
-                target_name(target)
-            ),
-        ))
+        Err(invalid_target(target, predicate))
     }
+}
+
+fn invalid_target(target: QueryTarget, predicate: &str) -> QueryValidationError {
+    QueryValidationError::new(
+        QueryValidationErrorKind::InvalidTarget,
+        target,
+        predicate,
+        format!(
+            "predicate {predicate} is not valid for target {}",
+            target.as_str()
+        ),
+    )
 }
 
 fn ensure_text_predicate_target(
@@ -948,9 +973,13 @@ fn ensure_text_predicate_target(
             &[QueryTarget::Headings][..]
         }
         "link-target" | "link-description" => &[QueryTarget::Links][..],
-        "file-name" | "file-path" | "file-dir" | "file-title" => {
-            &[QueryTarget::Headings, QueryTarget::Files][..]
-        }
+        "file-name" => &[
+            QueryTarget::Headings,
+            QueryTarget::Files,
+            QueryTarget::FsFiles,
+        ][..],
+        "file-path" | "file-dir" | "file-title" => &[QueryTarget::Headings, QueryTarget::Files][..],
+        "name" | "path" | "parent" => &[QueryTarget::FsFiles, QueryTarget::FsDirs][..],
         _ => &[
             QueryTarget::Headings,
             QueryTarget::Links,
@@ -1087,6 +1116,7 @@ where
 {
     let count_ok = match arity {
         Arity::ZeroOrMore => true,
+        Arity::ExactlyOne => args.len() == 1,
         Arity::OneOrMore => !args.is_empty(),
         Arity::OneOrTwo => (1..=2).contains(&args.len()),
     };
@@ -1099,6 +1129,7 @@ where
                 Arity::ZeroOrMore => {
                     format!("{predicate} accepts zero or more {expected} arguments")
                 }
+                Arity::ExactlyOne => format!("{predicate} expects exactly one {expected} argument"),
                 Arity::OneOrMore => format!("{predicate} expects one or more {expected} arguments"),
                 Arity::OneOrTwo => format!("{predicate} expects one or two {expected} arguments"),
             },
@@ -1230,6 +1261,9 @@ fn predicate_is_known_globally(name: &str) -> bool {
     matches!(
         name,
         "todo"
+            | "name"
+            | "path"
+            | "extension"
             | "done"
             | "title"
             | "has-text"
@@ -1275,14 +1309,6 @@ fn is_comparator(value: &str) -> bool {
     matches!(value, "<" | "<=" | ">" | ">=")
 }
 
-fn target_name(target: QueryTarget) -> &'static str {
-    match target {
-        QueryTarget::Headings => "headings",
-        QueryTarget::Links => "links",
-        QueryTarget::Files => "files",
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExactRule {
     NotSupported,
@@ -1293,6 +1319,7 @@ enum ExactRule {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Arity {
     ZeroOrMore,
+    ExactlyOne,
     OneOrMore,
     OneOrTwo,
 }

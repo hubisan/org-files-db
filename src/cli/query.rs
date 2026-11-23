@@ -9,8 +9,8 @@ use crate::{
     presentation::{PresentationResponse, PresentationSpec},
     query::{
         execute_and_shape_query, load_link_target_locations, parse_query,
-        sqlite_query_validation_options, validate_query, QueryExecutionOptions, QueryInclude,
-        QueryResponse,
+        result::validate_filesystem_query_options, sqlite_query_validation_options, validate_query,
+        QueryExecutionOptions, QueryInclude, QueryResponse,
     },
 };
 
@@ -135,6 +135,7 @@ pub(super) fn query_response_with_restriction(
 pub(super) fn presentation_response_with_restriction(
     query: &str,
     output: CliQueryOutput,
+    includes: &[CliQueryInclude],
     config_path: Option<&Path>,
     restricted_file_paths: Option<Vec<String>>,
     spec: &PresentationSpec,
@@ -156,6 +157,8 @@ pub(super) fn presentation_response_with_restriction(
     let validation_options =
         sqlite_query_validation_options(&connection).map_err(CliError::QueryExecute)?;
     let validated = validate_query(parsed, &validation_options).map_err(CliError::QueryValidate)?;
+    validate_filesystem_query_options(validated.target(), output.into(), !includes.is_empty())
+        .map_err(CliError::QueryShape)?;
     // `--include` adds nothing to a presentation response; only the includes
     // the columns, sort rules and row source need are loaded.
     let query_includes = spec
@@ -179,7 +182,8 @@ pub(super) fn presentation_response_with_restriction(
             query_response.results,
             &link_targets,
         )
-        .map_err(CliError::PresentationBuild)?;
+        .map_err(CliError::PresentationBuild)?
+        .for_query_target(query_response.target);
 
     connection
         .execute_batch("COMMIT")

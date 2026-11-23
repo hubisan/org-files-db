@@ -45,6 +45,7 @@ use crate::{
 
 mod candidate;
 mod discovery;
+mod filesystem;
 mod plan;
 mod rows;
 mod snapshot;
@@ -53,6 +54,7 @@ mod tests;
 
 pub(crate) use self::candidate::{CandidatePathNormalizer, CandidatePathResolution};
 use self::discovery::*;
+use self::filesystem::*;
 pub(crate) use self::plan::*;
 use self::rows::*;
 use self::snapshot::*;
@@ -752,6 +754,12 @@ where
                 }),
             }
         }
+        let mut filesystem_entries = Vec::with_capacity(discovery.filesystem_entries.len());
+        for (path, kind) in discovery.filesystem_entries {
+            if let Some(entry) = FilesystemEntry::read(&path, kind)? {
+                filesystem_entries.push(entry);
+            }
+        }
         source_root_evidence
             .ensure_unchanged(
                 &SourceRootEvidenceSet::capture(config)
@@ -763,6 +771,19 @@ where
             .transaction()
             .map_err(|source| IndexerError::Write(DbWriteError::Transaction { source }))?;
         DbWriter::delete_all_indexed_data(&tx).map_err(IndexerError::Write)?;
+        tx.execute("DELETE FROM filesystem_entries", [])
+            .map_err(|source| {
+                IndexerError::Write(DbWriteError::Write {
+                    operation: "delete_all_filesystem_entries",
+                    source,
+                })
+            })?;
+        {
+            let mut statement = FilesystemEntry::prepare_upsert(&tx)?;
+            for entry in filesystem_entries {
+                entry.upsert(&mut statement)?;
+            }
+        }
         DbWriter::set_metadata_flag(
             &tx,
             DB_METADATA_BODY_TEXT_AVAILABLE_KEY,

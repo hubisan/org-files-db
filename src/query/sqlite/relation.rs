@@ -31,13 +31,14 @@ pub(crate) enum MatchedSqlRelation {
     },
     Links,
     Files(CompiledSqlQuery),
+    Filesystem,
 }
 
 impl MatchedSqlRelation {
     pub(crate) fn heading_relation(&self) -> Option<&CompiledSqlQuery> {
         match self {
             Self::Headings { headings, .. } => Some(headings),
-            Self::Links | Self::Files(_) => None,
+            Self::Links | Self::Files(_) | Self::Filesystem => None,
         }
     }
 
@@ -45,7 +46,7 @@ impl MatchedSqlRelation {
         match self {
             Self::Headings { roots, .. } => roots.as_ref(),
             Self::Files(compiled) => Some(compiled),
-            Self::Links => None,
+            Self::Links | Self::Filesystem => None,
         }
     }
 }

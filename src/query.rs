@@ -21,16 +21,17 @@ pub use resolve::{
 };
 pub use result::{
     execute_and_shape_query, load_link_target_locations, shape_matched_heading_nodes,
-    shape_query_results, EffectivePropertyFact, FileResultNode, HeadingResultNode, IncludedLink,
-    KeywordFact, LinkResultNode, LinkSource, LinkTarget, LinkTargetLocation, Location, PathEntry,
-    PropertyFact, QueryExecutionOptions, QueryInclude, QueryOutputMode, QueryResponse,
-    QueryResultKind, QueryResultNode, QueryShapeError, QueryShapeErrorKind,
+    shape_query_results, EffectivePropertyFact, FileResultNode, FilesystemResultNode,
+    HeadingResultNode, IncludedLink, KeywordFact, LinkResultNode, LinkSource, LinkTarget,
+    LinkTargetLocation, Location, PathEntry, PropertyFact, QueryExecutionOptions, QueryInclude,
+    QueryOutputMode, QueryResponse, QueryResultKind, QueryResultNode, QueryShapeError,
+    QueryShapeErrorKind,
 };
 pub use sqlite::{
     compile_sqlite_query, execute_sqlite_query, execute_sqlite_query_with_options,
-    sqlite_query_validation_options, CompiledSqlQuery, FileQueryRow, HeadingQueryMatch,
-    HeadingQueryRow, LinkQueryRow, QueryExecutionError, QueryExecutionErrorKind, QueryParam,
-    QueryRows,
+    sqlite_query_validation_options, CompiledSqlQuery, FileQueryRow, FilesystemQueryRow,
+    HeadingQueryMatch, HeadingQueryRow, LinkQueryRow, QueryExecutionError, QueryExecutionErrorKind,
+    QueryParam, QueryRows,
 };
 pub use validate::{
     validate_query, QueryValidationError, QueryValidationErrorKind, QueryValidationOptions,

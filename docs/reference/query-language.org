@@ -1,7 +1,7 @@
 #+TITLE: Structural Query Language
 #+STARTUP: showall
 
-~orgfdb query~ uses a small Lisp-like language for structural queries over indexed Org data.
+~orgfdb query~ uses a small Lisp-like language for structural queries over indexed Org data and filesystem metadata.
 
 This document describes the current implemented language. It does not describe presentation output or FTS5 search.
 
@@ -45,6 +45,8 @@ The main forms are:
 (headings EXPR?)
 (links EXPR?)
 (files EXPR?)
+(fs-files EXPR?)
+(fs-dirs EXPR?)
 
 (and EXPR...)
 (or EXPR...)
@@ -87,6 +89,29 @@ A link query requires the explicit ~links~ wrapper. Nested source or target filt
 ~files~ returns file objects.
 
 File-level tags, properties, keywords, and preamble links use the synthetic file-root storage context.
+
+** ~fs-files~ and ~fs-dirs~
+
+~fs-files~ returns regular files of all extensions and ~fs-dirs~ returns directories, including the configured roots and empty directories. Both read the metadata index for ~[[dirs]]~. See [[../config.org][Configuration Reference]] for discovery rules.
+
+Both targets support text filters for names and paths. Files can also be filtered by extension.
+
+| Predicate | Applies to | Matches |
+|-----------+------------+---------|
+| ~(name TEXT)~ | Both | Entry name |
+| ~(file-name TEXT)~ | ~fs-files~ | Alias for ~name~ |
+| ~(path TEXT)~ | Both | Canonical absolute entry path |
+| ~(parent TEXT)~ | Both | Canonical absolute parent path |
+| ~(extension EXT)~ | ~fs-files~ | Case-insensitive exact final extension, without the leading dot |
+
+Name, path and parent use case-insensitive substring matching by default. They also accept ~:exact t~ for exact text and ~:regexp t~ for regular expressions. Combine predicates with ~and~, ~or~ and ~not~. Filesystem targets support flat output only and have no structural includes or nested relation predicates.
+
+#+begin_src lisp
+(fs-files (extension "pdf"))
+(fs-files (file-name "rechnung"))
+(fs-dirs (name "familie"))
+(fs-files (and (extension "pdf") (parent "/memento/rechnungen" :exact t)))
+#+end_src
 
 * Boolean expressions
 

@@ -2240,6 +2240,131 @@ exclude = ["secret.org", "archive/**"]
 }
 
 #[test]
+fn rebuild_indexes_filesystem_metadata_and_preserves_org_only_explicit_paths() {
+    use std::{ffi::OsStr, os::unix::ffi::OsStrExt, os::unix::fs::symlink};
+
+    let test_dir = TestDir::new("filesystem-metadata-rebuild");
+    let root = test_dir.path().join("notes");
+    let config_path = test_dir.path().join("config.toml");
+    let document = root.join("report.PDF");
+    let native_name = Path::new(OsStr::from_bytes(b"report-\xff.\xfe"));
+    let native_file = root.join(native_name);
+    let kept_directory = root.join("empty");
+    let org = root.join("note.org");
+    let explicit = test_dir.path().join("explicit.txt");
+    write_file(&document, "pdf");
+    write_file(&native_file, "native path");
+    write_file(&org, "* Note\n");
+    write_file(&explicit, "* Explicit\n");
+    write_file(&root.join("global.txt"), "excluded globally");
+    write_file(&root.join("local.txt"), "excluded locally");
+    write_file(&root.join("ignored/old.org"), "* Excluded directory\n");
+    write_file(&root.join("nested/skipped.org"), "* Too deep\n");
+    fs::create_dir(&kept_directory).unwrap();
+    let db_path = root.join("index.sqlite");
+    write_file(&db_path, "database path");
+    for sidecar in [
+        "index.sqlite-wal",
+        "index.sqlite-shm",
+        "index.sqlite-journal",
+    ] {
+        write_file(&root.join(sidecar), "database sidecar");
+    }
+    symlink(&db_path, root.join("db-alias.sqlite")).unwrap();
+    symlink(&document, root.join("report-link.pdf")).unwrap();
+    symlink(&kept_directory, root.join("empty-link")).unwrap();
+    symlink("missing.pdf", root.join("dangling.pdf")).unwrap();
+    write_config(
+        &config_path,
+        r#"
+db_path = "notes/index.sqlite"
+files = ["explicit.txt"]
+files_exclude = ["notes/global.txt"]
+
+[search]
+fts5_enabled = false
+
+[[dirs]]
+path = "notes"
+recursive = false
+exclude = ["local.txt", "ignored/"]
+"#,
+    );
+    let config = Config::load_from_file(&config_path).unwrap();
+    let mut connection =
+        open_in_memory_database_with_schema(&SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false))
+            .unwrap();
+    let indexer = Indexer::new(OrgizeAdapter::new());
+    indexer.rebuild(&mut connection, &config).unwrap();
+
+    let rows = || {
+        connection
+            .prepare("SELECT path, kind FROM filesystem_entries ORDER BY path")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<BTreeSet<(String, String)>, _>>()
+            .unwrap()
+    };
+    let stored_path = |path: &Path| super::display_path(&fs::canonicalize(path).unwrap());
+    assert_eq!(
+        rows(),
+        BTreeSet::from([
+            (stored_path(&root), "directory".to_string()),
+            (stored_path(&kept_directory), "directory".to_string()),
+            (stored_path(&root.join("nested")), "directory".to_string()),
+            (stored_path(&org), "file".to_string()),
+            (stored_path(&document), "file".to_string()),
+            (stored_path(&native_file), "file".to_string()),
+        ])
+    );
+    let read_metadata = |path: &Path| {
+        connection
+            .query_row(
+                "SELECT name, parent, extension, size, mtime_ns FROM filesystem_entries WHERE path = ?1",
+                [stored_path(path)],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?, row.get::<_, Option<i64>>(3)?, row.get::<_, Option<i64>>(4)?)),
+            )
+            .unwrap()
+    };
+    let metadata = read_metadata(&document);
+    assert_eq!(metadata.0, "report.PDF");
+    assert_eq!(metadata.1, stored_path(&root));
+    assert_eq!(metadata.2.as_deref(), Some("PDF"));
+    assert_eq!(metadata.3, Some(3));
+    assert!(metadata.4.is_some());
+    let metadata = read_metadata(&native_file);
+    assert_eq!(metadata.0, super::display_path(native_name));
+    assert_eq!(metadata.2.as_deref(), Some("path-bytes:%FE"));
+    assert_eq!(
+        read_metadata(&kept_directory),
+        ("empty".to_string(), stored_path(&root), None, None, None)
+    );
+    let org_paths = connection
+        .prepare("SELECT path FROM files")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<BTreeSet<String>, _>>()
+        .unwrap();
+    assert_eq!(
+        org_paths,
+        BTreeSet::from([stored_path(&explicit), stored_path(&org)])
+    );
+
+    fs::remove_file(document).unwrap();
+    fs::remove_dir(kept_directory).unwrap();
+    indexer.rebuild(&mut connection, &config).unwrap();
+    assert_eq!(
+        connection
+            .query_row("SELECT COUNT(*) FROM filesystem_entries", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        4
+    );
+}
+
+#[test]
 fn absolute_global_and_local_exclusion_patterns_apply_to_their_logical_paths() {
     let test_dir = TestDir::new("absolute-discovery-exclusions");
     let config_path = test_dir.path().join("config.toml");
@@ -2318,12 +2443,15 @@ fn exclusions_use_logical_symlink_paths_and_global_matches_win_across_roots() {
     let config_path = test_dir.path().join("config.toml");
     let target = external.join("target.org");
     write_file(&target, "* Target\n");
+    let org_only = external.join("org-only.org");
+    write_file(&org_only, "* File visible to Org discovery\n");
+    symlink(&org_only, external.join("excluded.txt")).unwrap();
     fs::create_dir_all(&aliases).expect("alias directory should be created");
     symlink(&external, aliases.join("linked")).expect("directory symlink should be created");
     write_config(
         &config_path,
         r#"
-files_exclude = ["aliases/linked/target.org"]
+files_exclude = ["aliases/linked/target.org", "aliases/linked/excluded.txt"]
 
 [[dirs]]
 path = "aliases"
@@ -2338,10 +2466,13 @@ recursive = true
     let discovery =
         discover_org_files(&Config::load_from_file(&config_path).expect("config should load"))
             .expect("discovery should succeed");
-    assert!(discovery.files.is_empty());
-    assert!(!discovery
-        .indexed_universe
-        .contains(&fs::canonicalize(&target).expect("target should canonicalize")));
+    let target = fs::canonicalize(&target).unwrap();
+    let org_only = fs::canonicalize(&org_only).unwrap();
+    assert_eq!(discovery.files.len(), 1);
+    assert_eq!(discovery.files[0].path, org_only);
+    assert!(!discovery.indexed_universe.contains(&target));
+    assert!(!discovery.filesystem_entries.contains_key(&target));
+    assert!(!discovery.filesystem_entries.contains_key(&org_only));
 }
 
 #[cfg(unix)]
@@ -2385,6 +2516,56 @@ recursive = true
     assert!(discovery
         .indexed_universe
         .contains(&fs::canonicalize(&target).expect("target should canonicalize")));
+    assert!(discovery
+        .filesystem_entries
+        .contains_key(&fs::canonicalize(&target).unwrap()));
+}
+
+#[test]
+fn filesystem_exclusions_consider_alternate_directory_routes() {
+    use std::os::unix::fs::symlink;
+
+    let test_dir = TestDir::new("filesystem-alternate-directory-routes");
+    let root = test_dir.path().join("root");
+    let physical = root.join("z");
+    let config_path = test_dir.path().join("config.toml");
+    let globally_excluded = physical.join("secret.pdf");
+    let locally_excluded = physical.join("public.pdf");
+    let org_first_route = physical.join("first.org");
+    let org_alternate_route = physical.join("alternate.org");
+    write_file(&globally_excluded, "globally excluded");
+    write_file(&locally_excluded, "excluded on one route only");
+    write_file(&org_first_route, "* Selected by Org's first route\n");
+    write_file(&org_alternate_route, "* Seen on the alternate route\n");
+    symlink(&physical, root.join("a")).unwrap();
+    symlink(&root, physical.join("cycle")).unwrap();
+    write_config(
+        &config_path,
+        r#"
+files_exclude = ["root/z/secret.pdf", "root/z/first.org"]
+
+[[dirs]]
+path = "root"
+recursive = true
+exclude = ["a/public.pdf", "a/alternate.org"]
+"#,
+    );
+
+    let discovery = discover_org_files(&Config::load_from_file(&config_path).unwrap()).unwrap();
+    let indexed = |path: &Path| {
+        discovery
+            .filesystem_entries
+            .contains_key(&fs::canonicalize(path).unwrap())
+    };
+    assert!(!indexed(&globally_excluded));
+    assert!(indexed(&locally_excluded));
+    assert!(!indexed(&org_first_route));
+    assert!(indexed(&org_alternate_route));
+    assert_eq!(discovery.files.len(), 1);
+    assert_eq!(
+        discovery.files[0].path,
+        fs::canonicalize(org_first_route).unwrap()
+    );
 }
 
 #[cfg(unix)]

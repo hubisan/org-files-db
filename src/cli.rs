@@ -208,6 +208,7 @@ where
                     let response = presentation_response_with_restriction(
                         &query,
                         output,
+                        &include,
                         config.as_deref(),
                         restricted_file_paths,
                         spec,

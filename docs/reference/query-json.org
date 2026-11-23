@@ -40,7 +40,7 @@ A query response contains:
 
 Fields:
 
-- ~target~ is ~headings~, ~links~, or ~files~.
+- ~target~ is ~headings~, ~links~, ~files~, ~fs_files~, or ~fs_dirs~.
 - ~output~ is ~flat~ or ~outline~.
 - ~includes~ contains the normalized enabled include names.
 - ~results~ contains result nodes.
@@ -57,6 +57,8 @@ Supported kinds are:
 - ~root~
 - ~heading~
 - ~link~
+- ~fs_file~
+- ~fs_dir~
 
 A ~files~ query returns ~file~ nodes.
 
@@ -64,11 +66,13 @@ A real heading in a ~headings~ query returns a ~heading~ node. A synthetic file 
 
 A ~links~ query returns ~link~ nodes.
 
+A ~fs_files~ query returns ~fs_file~ nodes. A ~fs_dirs~ query returns ~fs_dir~ nodes.
+
 Outline context can also contain file-root and heading nodes needed to represent hierarchy.
 
 * Common result fields
 
-Every result node has:
+Every Org result node has:
 
 - ~kind~
 - ~matched~
@@ -89,7 +93,19 @@ Every result node has:
 
 Location fields can be null where the stored object has no corresponding source position.
 
-The canonical owning file path is always available through ~location.file_path~ on structural result nodes.
+The canonical owning file path is always available through ~location.file_path~ on Org result nodes.
+
+* Filesystem nodes
+
+Both filesystem targets return flat results in canonical path order. Each node has a ~kind~, ~path~, ~name~, ~parent~, ~extension~, ~size~ and ~mtime_ns~.
+
+- ~path~ is the canonical absolute path and ~name~ is its basename.
+- ~parent~ is the canonical absolute parent path, or ~null~ for the filesystem root.
+- ~extension~ is the final file extension without the dot, or ~null~ when none is available.
+- ~size~ is the file size in bytes and ~mtime_ns~ is the modification time in nanoseconds since the Unix epoch. Either is ~null~ when the value is unavailable or cannot be represented.
+- Directory results use ~null~ for ~extension~, ~size~ and ~mtime_ns~.
+
+As for indexed Org paths, native Unix paths with non-UTF-8 bytes use reversible ~path-bytes:~ encoding.
 
 * File and root nodes
 

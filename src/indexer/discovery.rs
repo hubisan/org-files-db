@@ -2,6 +2,7 @@ use super::*;
 
 pub(in crate::indexer) struct DiscoveryResult {
     pub(in crate::indexer) files: Vec<DiscoveredOrgFile>,
+    pub(in crate::indexer) filesystem_entries: BTreeMap<PathBuf, FilesystemKind>,
     pub(in crate::indexer) indexed_universe: IndexedUniverse,
     pub(in crate::indexer) missing_explicit_files: Vec<PathBuf>,
     pub(in crate::indexer) had_exclusion_match: bool,
@@ -24,9 +25,12 @@ pub(in crate::indexer) fn discover_org_files(
     config: &Config,
 ) -> Result<DiscoveryResult, IndexerError> {
     let mut paths = BTreeMap::new();
+    let mut filesystem_entries = BTreeMap::new();
+    let filesystem_internal_paths = FilesystemInternalPaths::new(config);
     let mut indexed_universe = IndexedUniverse::default();
     let mut missing_explicit_files = Vec::new();
     let mut globally_excluded = BTreeSet::new();
+    let mut globally_excluded_filesystem_files = BTreeSet::new();
     let global_exclusions = ExclusionMatcher::global(&config.discovery);
     indexed_universe.set_global_exclusions(ExclusionMatcher::global(&config.discovery));
     let mut had_exclusion_match = false;
@@ -62,7 +66,9 @@ pub(in crate::indexer) fn discover_org_files(
 
     for dir in &config.dirs {
         let canonical_dir = canonicalize_existing_dir(&dir.path)?;
-        let mut visited_directories = BTreeSet::new();
+        filesystem_entries.insert(canonical_dir.clone(), FilesystemKind::Directory);
+        let collect_filesystem = !filesystem_internal_paths.contains(&dir.path)
+            && !filesystem_internal_paths.contains(&canonical_dir);
         let local_exclusions = ExclusionMatcher::local(dir, &config.discovery);
         let scope_id = indexed_universe.add_root_scope(
             dir.path.clone(),
@@ -74,18 +80,25 @@ pub(in crate::indexer) fn discover_org_files(
             scan_root: &canonical_dir,
             recursive: dir.recursive,
             output: &mut paths,
+            filesystem_entries: &mut filesystem_entries,
+            filesystem_internal_paths: &filesystem_internal_paths,
             indexed_universe: &mut indexed_universe,
-            visited_directories: &mut visited_directories,
+            visited_org_directories: BTreeSet::new(),
+            active_filesystem_directories: BTreeSet::new(),
             global_exclusions: &global_exclusions,
             globally_excluded: &mut globally_excluded,
+            globally_excluded_filesystem_files: &mut globally_excluded_filesystem_files,
             had_exclusion_match: &mut had_exclusion_match,
             scope_id,
         };
-        collector.collect(&dir.path)?;
+        collector.collect(&dir.path, &canonical_dir, true, collect_filesystem)?;
     }
 
     for excluded in &globally_excluded {
         paths.remove(excluded);
+    }
+    for excluded in &globally_excluded_filesystem_files {
+        filesystem_entries.remove(excluded);
     }
 
     Ok(DiscoveryResult {
@@ -97,6 +110,7 @@ pub(in crate::indexer) fn discover_org_files(
                 scan_root,
             })
             .collect(),
+        filesystem_entries,
         indexed_universe,
         missing_explicit_files,
         had_exclusion_match,
@@ -118,29 +132,62 @@ pub(in crate::indexer) fn existing_indexed_file_count(
     Ok(count as usize)
 }
 
-pub(in crate::indexer) struct DirectoryCollector<'a> {
-    pub(in crate::indexer) scan_root: &'a Path,
-    pub(in crate::indexer) recursive: bool,
-    pub(in crate::indexer) output: &'a mut BTreeMap<PathBuf, (PathBuf, ScanRootKind)>,
-    pub(in crate::indexer) indexed_universe: &'a mut IndexedUniverse,
-    pub(in crate::indexer) visited_directories: &'a mut BTreeSet<PathBuf>,
-    pub(in crate::indexer) global_exclusions: &'a ExclusionMatcher,
-    pub(in crate::indexer) globally_excluded: &'a mut BTreeSet<PathBuf>,
-    pub(in crate::indexer) had_exclusion_match: &'a mut bool,
-    pub(in crate::indexer) scope_id: usize,
+struct DirectoryCollector<'a> {
+    scan_root: &'a Path,
+    recursive: bool,
+    output: &'a mut BTreeMap<PathBuf, (PathBuf, ScanRootKind)>,
+    filesystem_entries: &'a mut BTreeMap<PathBuf, FilesystemKind>,
+    filesystem_internal_paths: &'a FilesystemInternalPaths,
+    indexed_universe: &'a mut IndexedUniverse,
+    visited_org_directories: BTreeSet<PathBuf>,
+    active_filesystem_directories: BTreeSet<PathBuf>,
+    global_exclusions: &'a ExclusionMatcher,
+    globally_excluded: &'a mut BTreeSet<PathBuf>,
+    globally_excluded_filesystem_files: &'a mut BTreeSet<PathBuf>,
+    had_exclusion_match: &'a mut bool,
+    scope_id: usize,
 }
 
 impl DirectoryCollector<'_> {
-    pub(in crate::indexer) fn collect(&mut self, logical_dir: &Path) -> Result<(), IndexerError> {
-        let canonical_dir = canonicalize_existing_dir(logical_dir)?;
-        if !self.visited_directories.insert(canonical_dir.clone()) {
+    fn collect(
+        &mut self,
+        logical_dir: &Path,
+        canonical_dir: &Path,
+        collect_org: bool,
+        collect_filesystem: bool,
+    ) -> Result<(), IndexerError> {
+        // Org keeps the first logical route to each canonical directory. Filesystem
+        // exclusions can differ by route, so only cut cycles in the active ancestry.
+        let collect_org = collect_org && self.visited_org_directories.insert(canonical_dir.into());
+        let collect_filesystem = collect_filesystem
+            && self
+                .active_filesystem_directories
+                .insert(canonical_dir.into());
+        if !collect_org && !collect_filesystem {
             return Ok(());
         }
-        self.indexed_universe.add_directory_mapping(
-            self.scope_id,
-            logical_dir.to_path_buf(),
-            canonical_dir,
-        );
+        if collect_org {
+            self.indexed_universe.add_directory_mapping(
+                self.scope_id,
+                logical_dir.to_path_buf(),
+                canonical_dir.to_path_buf(),
+            );
+        }
+        let result =
+            self.collect_children(logical_dir, canonical_dir, collect_org, collect_filesystem);
+        if collect_filesystem {
+            self.active_filesystem_directories.remove(canonical_dir);
+        }
+        result
+    }
+
+    fn collect_children(
+        &mut self,
+        logical_dir: &Path,
+        canonical_dir: &Path,
+        collect_org: bool,
+        collect_filesystem: bool,
+    ) -> Result<(), IndexerError> {
         let mut entries = fs::read_dir(logical_dir)
             .map_err(|source| IndexerError::Discover {
                 path: logical_dir.to_path_buf(),
@@ -155,6 +202,14 @@ impl DirectoryCollector<'_> {
 
         for entry in entries {
             let path = entry.path();
+            let canonical_child =
+                canonical_dir.join(path.file_name().expect("directory entry has a name"));
+            let collect_filesystem = collect_filesystem
+                && !self.filesystem_internal_paths.contains(&path)
+                && !self.filesystem_internal_paths.contains(&canonical_child);
+            if !collect_org && !collect_filesystem {
+                continue;
+            }
             let file_type = entry.file_type().map_err(|source| IndexerError::Discover {
                 path: path.clone(),
                 source,
@@ -183,44 +238,150 @@ impl DirectoryCollector<'_> {
                 file_type.is_dir() || followed_metadata.as_ref().is_some_and(fs::Metadata::is_dir);
 
             if is_file {
-                if is_org_source_path(&path) {
-                    let canonical_path = canonicalize_existing_file(&path)?;
-                    if self.global_exclusions.matches_file(&path) {
-                        self.globally_excluded.insert(canonical_path.clone());
-                        self.indexed_universe
-                            .add_globally_excluded_path(canonical_path);
-                        *self.had_exclusion_match = true;
-                        continue;
-                    }
-                    if self
-                        .indexed_universe
-                        .root_scope_excludes_file(self.scope_id, &path)
-                    {
-                        *self.had_exclusion_match = true;
-                        continue;
-                    }
-                    self.indexed_universe
-                        .add_source_mapping(path.clone(), canonical_path.clone());
-                    insert_discovered_path(
-                        self.output,
-                        canonical_path,
-                        self.scan_root.to_path_buf(),
-                        ScanRootKind::ConfiguredDir,
-                    );
-                }
-            } else if self.recursive && is_dir {
-                if self
-                    .indexed_universe
-                    .root_scope_excludes_directory(self.scope_id, &path)
-                {
-                    *self.had_exclusion_match = true;
-                    continue;
-                }
-                self.collect(&path)?;
+                self.collect_file(
+                    &path,
+                    canonical_child,
+                    file_type.is_symlink(),
+                    collect_org,
+                    collect_filesystem,
+                )?;
+            } else if is_dir {
+                self.collect_directory(
+                    &path,
+                    canonical_child,
+                    file_type.is_symlink(),
+                    collect_org,
+                    collect_filesystem,
+                )?;
             }
         }
 
         Ok(())
+    }
+
+    fn collect_file(
+        &mut self,
+        path: &Path,
+        canonical_child: PathBuf,
+        symlink: bool,
+        collect_org: bool,
+        collect_filesystem: bool,
+    ) -> Result<(), IndexerError> {
+        let org_source = collect_org && is_org_source_path(path);
+        if !org_source && !collect_filesystem {
+            return Ok(());
+        }
+        let canonical_path = if org_source {
+            canonicalize_existing_file(path)?
+        } else if let Some(canonical) =
+            canonicalize_filesystem_entry(path, canonical_child, symlink)?
+        {
+            canonical
+        } else {
+            return Ok(());
+        };
+        let collect_filesystem =
+            collect_filesystem && !self.filesystem_internal_paths.contains(&canonical_path);
+        if self.global_exclusions.matches_file(path) {
+            if collect_filesystem {
+                self.globally_excluded_filesystem_files
+                    .insert(canonical_path.clone());
+            }
+            if org_source {
+                self.globally_excluded.insert(canonical_path.clone());
+                self.indexed_universe
+                    .add_globally_excluded_path(canonical_path);
+                *self.had_exclusion_match = true;
+            }
+            return Ok(());
+        }
+        if self
+            .indexed_universe
+            .root_scope_excludes_file(self.scope_id, path)
+        {
+            *self.had_exclusion_match |= org_source;
+            return Ok(());
+        }
+        if collect_filesystem {
+            self.filesystem_entries
+                .insert(canonical_path.clone(), FilesystemKind::File);
+        }
+        if org_source {
+            self.indexed_universe
+                .add_source_mapping(path.to_path_buf(), canonical_path.clone());
+            insert_discovered_path(
+                self.output,
+                canonical_path,
+                self.scan_root.to_path_buf(),
+                ScanRootKind::ConfiguredDir,
+            );
+        }
+        Ok(())
+    }
+
+    fn collect_directory(
+        &mut self,
+        path: &Path,
+        canonical_child: PathBuf,
+        symlink: bool,
+        collect_org: bool,
+        collect_filesystem: bool,
+    ) -> Result<(), IndexerError> {
+        let collect_org = collect_org && self.recursive;
+        if !collect_org && !collect_filesystem {
+            return Ok(());
+        }
+        if self
+            .indexed_universe
+            .root_scope_excludes_directory(self.scope_id, path)
+        {
+            *self.had_exclusion_match |= collect_org;
+            return Ok(());
+        }
+        let canonical_path = if collect_org {
+            canonicalize_existing_dir(path)?
+        } else if let Some(canonical) =
+            canonicalize_filesystem_entry(path, canonical_child, symlink)?
+        {
+            canonical
+        } else {
+            return Ok(());
+        };
+        let collect_filesystem =
+            collect_filesystem && !self.filesystem_internal_paths.contains(&canonical_path);
+        if collect_filesystem {
+            self.filesystem_entries
+                .insert(canonical_path.clone(), FilesystemKind::Directory);
+        }
+        if self.recursive {
+            self.collect(path, &canonical_path, collect_org, collect_filesystem)?;
+        }
+        Ok(())
+    }
+}
+
+fn canonicalize_filesystem_entry(
+    path: &Path,
+    canonical_child: PathBuf,
+    symlink: bool,
+) -> Result<Option<PathBuf>, IndexerError> {
+    if !symlink {
+        return Ok(Some(canonical_child));
+    }
+    match fs::canonicalize(path) {
+        Ok(canonical) => Ok(Some(canonical)),
+        Err(source)
+            if matches!(
+                source.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+            ) =>
+        {
+            Ok(None)
+        }
+        Err(source) => Err(IndexerError::Discover {
+            path: path.to_path_buf(),
+            source,
+        }),
     }
 }
 

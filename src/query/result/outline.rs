@@ -78,6 +78,7 @@ pub(in crate::query::result) fn sort_outline_children(children: Option<&mut Vec<
                 QueryResultNode::File(node) => sort_outline_children(node.children.as_mut()),
                 QueryResultNode::Heading(node) => sort_outline_children(node.children.as_mut()),
                 QueryResultNode::Link(_) => {}
+                QueryResultNode::Filesystem(_) => unreachable!("filesystem results are flat"),
             }
         }
         children.sort_by_key(node_sort_key);
@@ -91,5 +92,6 @@ pub(in crate::query::result) fn node_sort_key(node: &QueryResultNode) -> (i64, i
             (node.location.byte_start.unwrap_or(i64::MIN), node.id, 1)
         }
         QueryResultNode::Link(node) => (node.location.byte_start.unwrap_or(i64::MIN), node.id, 2),
+        QueryResultNode::Filesystem(_) => unreachable!("filesystem results are flat"),
     }
 }

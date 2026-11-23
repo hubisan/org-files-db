@@ -7,7 +7,10 @@ use crate::{
     presentation::{PresentationBuildError, PresentationSpecError},
     presentation_view::ViewControlClientError,
     presentation_view_cache::{PresentationViewCachePathError, PresentationViewCacheReadError},
-    query::{QueryExecutionError, QueryParseError, QueryShapeError, QueryValidationError},
+    query::{
+        QueryExecutionError, QueryParseError, QueryShapeError, QueryShapeErrorKind,
+        QueryValidationError,
+    },
     watcher_cli::WatcherCommandError,
 };
 
@@ -109,6 +112,7 @@ pub(super) enum CliError {
 impl CliError {
     pub(super) fn exit_code(&self) -> u8 {
         match self {
+            Self::QueryShape(error) if error.kind == QueryShapeErrorKind::InvalidOptions => 2,
             Self::Parse(_)
             | Self::InvalidSearchUsage(_)
             | Self::InvalidPresentationUsage(_)
@@ -149,6 +153,7 @@ impl CliError {
     /// Stable machine-readable error kind (see `docs/cli.org`).
     pub(super) fn kind(&self) -> &'static str {
         match self {
+            Self::QueryShape(error) if error.kind == QueryShapeErrorKind::InvalidOptions => "usage",
             Self::Parse(_)
             | Self::InvalidSearchUsage(_)
             | Self::InvalidPresentationUsage(_)

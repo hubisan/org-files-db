@@ -154,3 +154,28 @@ fn validates_heading_title_without_root_option_removed() {
     assert_eq!(predicate.name(), "title");
     assert!(predicate.options().is_empty());
 }
+
+#[test]
+fn validates_filesystem_text_predicates_and_rejects_org_relations() {
+    for query in [
+        r#"(fs-files (and (name "report") (file-name ".pdf") (extension "PDF") (not (parent "temp"))))"#,
+        r#"(fs-dirs (or (path "/work" :exact t) (name "archive")))"#,
+    ] {
+        let parsed = parse_query(query).expect("filesystem query should parse");
+        validate_query(parsed, &full_capabilities()).expect("filesystem query should validate");
+    }
+
+    for query in [
+        r#"(fs-dirs (extension "pdf"))"#,
+        r#"(fs-dirs (file-name "notes"))"#,
+        r#"(fs-files (extension ".pdf"))"#,
+        r#"(fs-files (title "notes"))"#,
+        r#"(fs-files (id 42))"#,
+        r#"(headings (name "notes"))"#,
+    ] {
+        let parsed = parse_query(query).expect("query should parse");
+        validate_query(parsed, &full_capabilities()).expect_err("query should be rejected");
+    }
+
+    assert!(parse_query(r#"(links (source (fs-files)))"#).is_err());
+}

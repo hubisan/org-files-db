@@ -44,7 +44,7 @@ pub(crate) use self::relation::{
 };
 use self::rows::*;
 pub use self::rows::{
-    CompiledSqlQuery, FileQueryRow, HeadingQueryMatch, HeadingQueryRow, LinkQueryRow,
-    QueryExecutionError, QueryExecutionErrorKind, QueryParam, QueryRows,
+    CompiledSqlQuery, FileQueryRow, FilesystemQueryRow, HeadingQueryMatch, HeadingQueryRow,
+    LinkQueryRow, QueryExecutionError, QueryExecutionErrorKind, QueryParam, QueryRows,
 };
 use self::sql::*;

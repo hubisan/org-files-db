@@ -27,6 +27,17 @@ pub enum QueryRows {
     Headings(Vec<HeadingQueryMatch>),
     Links(Vec<LinkQueryRow>),
     Files(Vec<FileQueryRow>),
+    Filesystem(QueryTarget, Vec<FilesystemQueryRow>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FilesystemQueryRow {
+    pub path: String,
+    pub name: String,
+    pub parent: Option<String>,
+    pub extension: Option<String>,
+    pub size: Option<i64>,
+    pub mtime_ns: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -192,7 +203,7 @@ impl fmt::Display for QueryExecutionError {
             f,
             "{} (target {}, predicate {})",
             self.message,
-            target_name(self.target),
+            self.target.as_str(),
             self.predicate
         )
     }

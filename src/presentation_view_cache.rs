@@ -80,7 +80,7 @@ impl PresentationViewCacheSession {
         database_path: PathBuf,
         session_id: String,
     ) -> Result<Self, PresentationViewCacheSessionError> {
-        let views_root = root.join("presentation-views");
+        let views_root = root.join(PRESENTATION_VIEWS_DIRECTORY);
         let owners_root = views_root.join("session-owners");
         prepare_private_session_directories(&root, &views_root, &owners_root)?;
         let session_dir = session_directory_path(&root, &session_id);
@@ -606,6 +606,8 @@ fn view_definition_identity(
     Ok(format!("sha256:{}", encode_lower(digest.finalize())))
 }
 
+pub(crate) const PRESENTATION_VIEWS_DIRECTORY: &str = "presentation-views";
+
 pub(crate) fn presentation_view_cache_root(
     config: &Config,
 ) -> Result<PathBuf, PresentationViewCachePathError> {
@@ -630,7 +632,7 @@ fn presentation_view_cache_root_from(
 }
 
 fn session_directory_path(root: &Path, session_id: &str) -> PathBuf {
-    root.join("presentation-views")
+    root.join(PRESENTATION_VIEWS_DIRECTORY)
         .join(session_directory_name(session_id))
 }
 
