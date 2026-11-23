@@ -97,7 +97,7 @@ fn parse_query_node(
     } else if allow_heading_shorthand {
         Ok(QueryAst {
             target: QueryTarget::Headings,
-            predicate: Some(parse_expr(node, false)?),
+            predicate: Some(parse_expr(node, QueryTarget::Headings)?),
         })
     } else {
         Err(QueryParseError::new(
@@ -114,13 +114,13 @@ fn parse_explicit_target_query(
 ) -> Result<QueryAst, QueryParseError> {
     let predicate = match list.items.len() {
         1 => None,
-        2 => Some(parse_expr(&list.items[1], false)?),
+        2 => Some(parse_expr(&list.items[1], target)?),
         _ => {
             return Err(QueryParseError::new(
                 QueryParseErrorKind::StructuralArity,
                 format!(
                     "target query {} expects zero or one predicate expression",
-                    target_name(target)
+                    target.as_str()
                 ),
                 Some(list.span.tuple()),
             ))
@@ -130,7 +130,7 @@ fn parse_explicit_target_query(
     Ok(QueryAst { target, predicate })
 }
 
-fn parse_expr(node: &RawNode, allow_heading_shorthand: bool) -> Result<Expr, QueryParseError> {
+fn parse_expr(node: &RawNode, target: QueryTarget) -> Result<Expr, QueryParseError> {
     let list = expect_list(
         node,
         QueryParseErrorKind::InvalidPredicateForm,
@@ -151,9 +151,9 @@ fn parse_expr(node: &RawNode, allow_heading_shorthand: bool) -> Result<Expr, Que
     )?;
 
     match operator {
-        "and" => parse_boolean_expr("and", &list.items[1..], list.span, Expr::And),
-        "or" => parse_boolean_expr("or", &list.items[1..], list.span, Expr::Or),
-        "not" => parse_not_expr(&list.items[1..], list.span),
+        "and" => parse_boolean_expr("and", &list.items[1..], list.span, target, Expr::And),
+        "or" => parse_boolean_expr("or", &list.items[1..], list.span, target, Expr::Or),
+        "not" => parse_not_expr(&list.items[1..], list.span, target),
         "source" => parse_relation_query_or_any_call(
             "source",
             &list.items[1..],
@@ -174,18 +174,14 @@ fn parse_expr(node: &RawNode, allow_heading_shorthand: bool) -> Result<Expr, Que
             &[QueryTarget::Headings, QueryTarget::Files],
         ),
         "linked-from" => parse_linked_from_call(&list.items[1..], list.span),
+        "parent" if target.is_filesystem() => parse_generic_call(operator, &list.items[1..]),
         "parent" | "ancestors" | "children" | "descendants" => parse_optional_relation_query_call(
             operator,
             &list.items[1..],
             list.span,
             &[QueryTarget::Headings],
         ),
-        _ => parse_generic_call(
-            operator,
-            &list.items[1..],
-            list.span,
-            allow_heading_shorthand,
-        ),
+        _ => parse_generic_call(operator, &list.items[1..]),
     }
 }
 
@@ -193,6 +189,7 @@ fn parse_boolean_expr<F>(
     name: &str,
     args: &[RawNode],
     span: Span,
+    target: QueryTarget,
     build: F,
 ) -> Result<Expr, QueryParseError>
 where
@@ -208,13 +205,17 @@ where
 
     let mut parsed = Vec::with_capacity(args.len());
     for arg in args {
-        parsed.push(parse_expr(arg, false)?);
+        parsed.push(parse_expr(arg, target)?);
     }
 
     Ok(build(parsed))
 }
 
-fn parse_not_expr(args: &[RawNode], span: Span) -> Result<Expr, QueryParseError> {
+fn parse_not_expr(
+    args: &[RawNode],
+    span: Span,
+    target: QueryTarget,
+) -> Result<Expr, QueryParseError> {
     if args.len() != 1 {
         return Err(QueryParseError::new(
             QueryParseErrorKind::InvalidBooleanForm,
@@ -223,7 +224,7 @@ fn parse_not_expr(args: &[RawNode], span: Span) -> Result<Expr, QueryParseError>
         ));
     }
 
-    Ok(Expr::Not(Box::new(parse_expr(&args[0], false)?)))
+    Ok(Expr::Not(Box::new(parse_expr(&args[0], target)?)))
 }
 
 fn parse_relation_query_call(
@@ -368,7 +369,7 @@ fn parse_required_nested_query(
                 "nested query expects one of: {}",
                 allowed_targets
                     .iter()
-                    .map(|target| target_name(*target))
+                    .map(|target| target.as_str())
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
@@ -377,12 +378,7 @@ fn parse_required_nested_query(
     }
 }
 
-fn parse_generic_call(
-    name: &str,
-    args: &[RawNode],
-    _span: Span,
-    _allow_heading_shorthand: bool,
-) -> Result<Expr, QueryParseError> {
+fn parse_generic_call(name: &str, args: &[RawNode]) -> Result<Expr, QueryParseError> {
     let (positional, options) = split_positional_args_and_options(args)?;
     if name == "tags-all" {
         return parse_tags_all_call(positional, options);
@@ -513,15 +509,9 @@ fn parse_target_name(value: &str) -> Option<QueryTarget> {
         "headings" => Some(QueryTarget::Headings),
         "links" => Some(QueryTarget::Links),
         "files" => Some(QueryTarget::Files),
+        "fs-files" => Some(QueryTarget::FsFiles),
+        "fs-dirs" => Some(QueryTarget::FsDirs),
         _ => None,
-    }
-}
-
-fn target_name(target: QueryTarget) -> &'static str {
-    match target {
-        QueryTarget::Headings => "headings",
-        QueryTarget::Links => "links",
-        QueryTarget::Files => "files",
     }
 }
 

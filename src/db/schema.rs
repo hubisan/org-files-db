@@ -14,7 +14,7 @@ use super::{
     DB_METADATA_FTS_SCHEMA_VERSION_KEY, DB_METADATA_FTS_SUBSTRING_INDEXED_KEY,
 };
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 14;
+pub const CURRENT_SCHEMA_VERSION: u32 = 15;
 /// Oldest schema version that can still be upgraded in place. The database is
 /// a rebuildable cache, so older files must be deleted and rebuilt.
 pub const MIN_SUPPORTED_SCHEMA_VERSION: u32 = 10;

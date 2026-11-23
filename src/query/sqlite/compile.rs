@@ -165,6 +165,15 @@ pub(crate) fn compile_sqlite_query_with_file_restriction(
             root_title_raw = scope.root_col("title_raw"),
             root_line_number = scope.root_col("line_number"),
         ),
+        QueryTarget::FsFiles | QueryTarget::FsDirs => format!(
+            "/* orgfdb:match-filesystem-entries params={bound_parameter_count} */
+             SELECT path, name, parent, extension, size, mtime_ns
+             FROM filesystem_entries AS {}
+             {}
+             ORDER BY path",
+            scope.file_alias,
+            render_where_clause(where_clause.as_ref()),
+        ),
     };
 
     Ok(CompiledSqlQuery {
@@ -298,6 +307,8 @@ pub(in crate::query::sqlite) fn scope_base_filter(scope: &QueryScope) -> Option<
             HeadingMatchKind::AllHeadings => None,
         },
         QueryTarget::Links | QueryTarget::Files => None,
+        QueryTarget::FsFiles => Some(sql_literal("kind = 'file'")),
+        QueryTarget::FsDirs => Some(sql_literal("kind = 'directory'")),
     }
 }
 
@@ -356,7 +367,37 @@ pub(in crate::query::sqlite) fn compile_predicate(
         QueryTarget::Headings => compile_heading_predicate(scope, aliases, predicate),
         QueryTarget::Links => compile_link_predicate(scope, aliases, predicate),
         QueryTarget::Files => compile_file_predicate(scope, aliases, predicate),
+        QueryTarget::FsFiles | QueryTarget::FsDirs => {
+            compile_filesystem_predicate(scope, predicate)
+        }
     }
+}
+
+fn compile_filesystem_predicate(
+    scope: &QueryScope,
+    predicate: &ValidatedPredicate,
+) -> Result<SqlFragment, QueryExecutionError> {
+    let column = match predicate.name.as_str() {
+        "name" | "file-name" => "name",
+        "path" => "path",
+        "parent" => "parent",
+        "extension" => {
+            let [ValidatedArg::Scalar(QueryValue::String(extension))] = predicate.args.as_slice()
+            else {
+                unreachable!("extension arguments were validated");
+            };
+            return Ok(SqlFragment {
+                sql: "COALESCE(orgfdb_lower(extension) = orgfdb_lower(?), 0)".to_string(),
+                params: vec![QueryParam::Text(extension.clone())],
+            });
+        }
+        _ => unreachable!("filesystem predicate was validated"),
+    };
+    let mut fragment = compile_text_predicate(scope.target, column, predicate, false)?;
+    if column == "parent" {
+        fragment.sql = format!("(parent IS NOT NULL AND {})", fragment.sql);
+    }
+    Ok(fragment)
 }
 
 pub(in crate::query::sqlite) fn compile_heading_predicate(

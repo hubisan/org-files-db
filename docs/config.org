@@ -180,6 +180,12 @@ A missing configured directory is an error. A missing explicit file is an absent
 
 The rebuild safety guard prevents an accidental empty-source replacement of an existing index. Use ~--allow-empty~ only for an intentional empty rebuild.
 
+** Filesystem metadata
+
+~[[dirs]]~ also supplies filesystem results. The index includes each configured root, eligible regular files of any extension, and eligible directories, including empty and hidden directories. With ~recursive = false~, it includes immediate child directories and stops before reading their contents. Explicit ~files~ entries outside the directory trees are only part of the Org source set.
+
+The same global file exclusions and root-local file and directory exclusions apply. File and directory symlinks use their canonical target paths, which may be outside the logical root. Traversal stops at links back to an ancestor directory. Dangling symlinks are skipped, and multiple roots or aliases produce one row per canonical path. An operating system error resolving a cyclic link is reported as a discovery error. Hard links with distinct paths remain separate. The filesystem index skips the configured SQLite database, its ~-wal~, ~-shm~ and ~-journal~ files, and the generated presentation-view cache.
+
 * Exclusion glob rules
 
 Exclusion globs are case-sensitive. A slash is a literal path separator.

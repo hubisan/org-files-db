@@ -69,6 +69,7 @@ pub struct PresentationResponse {
     pub files: Vec<String>,
     pub results: Vec<PresentationActionRecord>,
     pub rows: Vec<PresentationRow>,
+    filesystem_action_kinds: bool,
 }
 
 /// Kinds of action records in wire order. The index is the record's `kind`.
@@ -77,7 +78,11 @@ const PRESENTATION_RESULT_KINDS: &[QueryResultKind] = &[
     QueryResultKind::Heading,
     QueryResultKind::File,
     QueryResultKind::Link,
+    QueryResultKind::FsFile,
+    QueryResultKind::FsDir,
 ];
+
+const LEGACY_RESULT_KIND_COUNT: usize = 4;
 
 fn presentation_result_kind_index(kind: QueryResultKind) -> usize {
     PRESENTATION_RESULT_KINDS
@@ -97,12 +102,18 @@ pub struct PresentationLocation {
 
 /// The slim per-result record clients keep for actions on a selected row.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PresentationActionRecord {
-    pub kind: QueryResultKind,
-    pub id: i64,
-    pub location: PresentationLocation,
-    /// Link records only: the resolved target, or `None` for an unresolved link.
-    pub target: Option<PresentationLocation>,
+pub enum PresentationActionRecord {
+    Located {
+        kind: QueryResultKind,
+        id: i64,
+        location: PresentationLocation,
+        /// Link records only: the resolved target, or `None` for an unresolved link.
+        target: Option<PresentationLocation>,
+    },
+    Filesystem {
+        kind: QueryResultKind,
+        file: usize,
+    },
 }
 
 impl Serialize for PresentationActionRecord {
@@ -110,17 +121,31 @@ impl Serialize for PresentationActionRecord {
     where
         S: Serializer,
     {
-        let is_link = self.kind == QueryResultKind::Link;
+        let (kind, id, location, target) = match self {
+            Self::Located {
+                kind,
+                id,
+                location,
+                target,
+            } => (*kind, id, location, target),
+            Self::Filesystem { kind, file } => {
+                let mut seq = serializer.serialize_seq(Some(2))?;
+                seq.serialize_element(&presentation_result_kind_index(*kind))?;
+                seq.serialize_element(file)?;
+                return seq.end();
+            }
+        };
+        let is_link = kind == QueryResultKind::Link;
         let mut seq = serializer.serialize_seq(Some(if is_link { 8 } else { 5 }))?;
-        seq.serialize_element(&presentation_result_kind_index(self.kind))?;
-        seq.serialize_element(&self.id)?;
-        seq.serialize_element(&self.location.file)?;
-        seq.serialize_element(&self.location.line)?;
-        seq.serialize_element(&self.location.byte_start)?;
+        seq.serialize_element(&presentation_result_kind_index(kind))?;
+        seq.serialize_element(id)?;
+        seq.serialize_element(&location.file)?;
+        seq.serialize_element(&location.line)?;
+        seq.serialize_element(&location.byte_start)?;
         if is_link {
-            seq.serialize_element(&self.target.map(|target| target.file))?;
-            seq.serialize_element(&self.target.and_then(|target| target.line))?;
-            seq.serialize_element(&self.target.and_then(|target| target.byte_start))?;
+            seq.serialize_element(&target.map(|target| target.file))?;
+            seq.serialize_element(&target.and_then(|target| target.line))?;
+            seq.serialize_element(&target.and_then(|target| target.byte_start))?;
         }
         seq.end()
     }
@@ -156,8 +181,14 @@ pub fn build_action_records(
                     &node.location,
                     link_targets.get(&node.id),
                 ),
+                QueryResultNode::Filesystem(node) => {
+                    return PresentationActionRecord::Filesystem {
+                        kind: node.kind,
+                        file: file_index(&node.entry.path),
+                    };
+                }
             };
-            PresentationActionRecord {
+            PresentationActionRecord::Located {
                 kind,
                 id,
                 location: PresentationLocation {
@@ -187,13 +218,18 @@ impl Serialize for PresentationResponse {
         map.serialize_entry("generation", &self.generation)?;
         map.serialize_entry("files", &self.files)?;
         map.serialize_entry("results", &self.results)?;
-        map.serialize_entry("schemas", &PresentationWireSchemas)?;
+        let kinds = if self.filesystem_action_kinds {
+            PRESENTATION_RESULT_KINDS
+        } else {
+            &PRESENTATION_RESULT_KINDS[..LEGACY_RESULT_KIND_COUNT]
+        };
+        map.serialize_entry("schemas", &PresentationWireSchemas(kinds))?;
         map.serialize_entry("rows", &PresentationWireRows(&self.rows))?;
         map.end()
     }
 }
 
-struct PresentationWireSchemas;
+struct PresentationWireSchemas(&'static [QueryResultKind]);
 
 impl Serialize for PresentationWireSchemas {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -201,8 +237,8 @@ impl Serialize for PresentationWireSchemas {
         S: Serializer,
     {
         let mut map = serializer.serialize_map(Some(9))?;
-        map.serialize_entry("result_kinds", &PresentationWireResultKinds)?;
-        map.serialize_entry("result_shapes", &PresentationWireResultShapes)?;
+        map.serialize_entry("result_kinds", &self.0)?;
+        map.serialize_entry("result_shapes", &PresentationWireResultShapes(self.0))?;
         map.serialize_entry("result_file_encoding", "index-into-files")?;
         map.serialize_entry("row_fields", &["result_index", "row_context", "cells"])?;
         map.serialize_entry("cell_fields", &["search_text", "display_text", "role"])?;
@@ -214,22 +250,7 @@ impl Serialize for PresentationWireSchemas {
     }
 }
 
-struct PresentationWireResultKinds;
-
-impl Serialize for PresentationWireResultKinds {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut seq = serializer.serialize_seq(Some(PRESENTATION_RESULT_KINDS.len()))?;
-        for kind in PRESENTATION_RESULT_KINDS {
-            seq.serialize_element(kind.as_str())?;
-        }
-        seq.end()
-    }
-}
-
-struct PresentationWireResultShapes;
+struct PresentationWireResultShapes(&'static [QueryResultKind]);
 
 impl Serialize for PresentationWireResultShapes {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -247,13 +268,15 @@ impl Serialize for PresentationWireResultShapes {
             "target_line",
             "target_byte_start",
         ];
-        let mut map = serializer.serialize_map(Some(PRESENTATION_RESULT_KINDS.len()))?;
-        for kind in PRESENTATION_RESULT_KINDS {
-            if *kind == QueryResultKind::Link {
-                map.serialize_entry(kind.as_str(), &LINK)?;
-            } else {
-                map.serialize_entry(kind.as_str(), &LOCATED)?;
-            }
+        const FILESYSTEM: [&str; 2] = ["kind", "file"];
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+        for kind in self.0 {
+            let shape: &[&str] = match kind {
+                QueryResultKind::Link => &LINK,
+                QueryResultKind::FsFile | QueryResultKind::FsDir => &FILESYSTEM,
+                _ => &LOCATED,
+            };
+            map.serialize_entry(kind.as_str(), shape)?;
         }
         map.end()
     }
@@ -399,6 +422,9 @@ impl PresentationResponse {
         results: Vec<PresentationActionRecord>,
         rows: Vec<PresentationRow>,
     ) -> Self {
+        let filesystem_action_kinds = results
+            .iter()
+            .any(|result| matches!(result, PresentationActionRecord::Filesystem { .. }));
         Self {
             presentation_version: PRESENTATION_VERSION,
             database_id: database_id.into(),
@@ -406,7 +432,13 @@ impl PresentationResponse {
             files,
             results,
             rows,
+            filesystem_action_kinds,
         }
+    }
+
+    pub(crate) fn for_query_target(mut self, target: QueryTarget) -> Self {
+        self.filesystem_action_kinds |= target.is_filesystem();
+        self
     }
 }
 
@@ -448,6 +480,14 @@ const FILE_LOCATION_RESULTS: &[PresentationResultKind] = &[
     PresentationResultKind::File,
     PresentationResultKind::Link,
     PresentationResultKind::Search,
+];
+const PATH_RESULTS: &[PresentationResultKind] = &[
+    PresentationResultKind::Heading,
+    PresentationResultKind::File,
+    PresentationResultKind::Link,
+    PresentationResultKind::Search,
+    PresentationResultKind::FsFile,
+    PresentationResultKind::FsDir,
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -908,7 +948,7 @@ impl PresentationSpec {
                     let tags = match result {
                         QueryResultNode::File(node) => &node.tags,
                         QueryResultNode::Heading(node) => &node.all_tags,
-                        QueryResultNode::Link(_) => {
+                        QueryResultNode::Link(_) | QueryResultNode::Filesystem(_) => {
                             return Err(PresentationRowExpansionError::unsupported_result(
                                 row_source.kind,
                                 result,
@@ -930,7 +970,7 @@ impl PresentationSpec {
                     let properties = match result {
                         QueryResultNode::File(node) => node.effective_properties.as_deref(),
                         QueryResultNode::Heading(node) => node.effective_properties.as_deref(),
-                        QueryResultNode::Link(_) => {
+                        QueryResultNode::Link(_) | QueryResultNode::Filesystem(_) => {
                             return Err(PresentationRowExpansionError::unsupported_result(
                                 row_source.kind,
                                 result,
@@ -960,7 +1000,7 @@ impl PresentationSpec {
                     let keywords = match result {
                         QueryResultNode::File(node) => node.keywords.as_deref(),
                         QueryResultNode::Heading(node) => node.keywords.as_deref(),
-                        QueryResultNode::Link(_) => {
+                        QueryResultNode::Link(_) | QueryResultNode::Filesystem(_) => {
                             return Err(PresentationRowExpansionError::unsupported_result(
                                 row_source.kind,
                                 result,
@@ -1349,7 +1389,7 @@ impl PresentationColumn {
                 None,
             ),
             Column::FileName => PresentationColumnDefinition::new(
-                FILE_LOCATION_RESULTS,
+                PATH_RESULTS,
                 PresentationIncludeRule::None,
                 Value::FileName,
                 Role::Static(SemanticRole::FileName),
@@ -1357,7 +1397,7 @@ impl PresentationColumn {
                 None,
             ),
             Column::FilePath => PresentationColumnDefinition::new(
-                FILE_LOCATION_RESULTS,
+                PATH_RESULTS,
                 PresentationIncludeRule::None,
                 Value::FilePath,
                 Role::Static(SemanticRole::FilePath),
@@ -1365,7 +1405,7 @@ impl PresentationColumn {
                 None,
             ),
             Column::FileDir => PresentationColumnDefinition::new(
-                FILE_LOCATION_RESULTS,
+                PATH_RESULTS,
                 PresentationIncludeRule::None,
                 Value::FileDir,
                 Role::Static(SemanticRole::FilePath),
@@ -1486,6 +1526,8 @@ pub enum PresentationResultKind {
     File,
     Link,
     Search,
+    FsFile,
+    FsDir,
 }
 
 impl PresentationResultKind {
@@ -1494,6 +1536,8 @@ impl PresentationResultKind {
             QueryTarget::Headings => Self::Heading,
             QueryTarget::Files => Self::File,
             QueryTarget::Links => Self::Link,
+            QueryTarget::FsFiles => Self::FsFile,
+            QueryTarget::FsDirs => Self::FsDir,
         }
     }
 
@@ -1503,6 +1547,8 @@ impl PresentationResultKind {
             Self::File => "file",
             Self::Link => "link",
             Self::Search => "search",
+            Self::FsFile => "fs_file",
+            Self::FsDir => "fs_dir",
         }
     }
 }
@@ -1676,11 +1722,7 @@ impl PresentationRowExpansionError {
         result: &QueryResultNode,
         result_index: usize,
     ) -> Self {
-        let kind = match result {
-            QueryResultNode::File(node) => node.kind.as_str(),
-            QueryResultNode::Heading(node) => node.kind.as_str(),
-            QueryResultNode::Link(node) => node.kind.as_str(),
-        };
+        let kind = result.kind().as_str();
         Self::new(format!(
             "row_source kind `{}` cannot expand {kind} result at result_index {result_index}",
             row_source.as_str()
@@ -1879,7 +1921,7 @@ fn extract_registered_value(
         .extract(column, result, row_context, outline_path)?;
     let todo_type = match result {
         QueryResultNode::Heading(node) => node.todo_type.as_deref(),
-        QueryResultNode::File(_) | QueryResultNode::Link(_) => None,
+        _ => None,
     };
     Ok(PresentationExtractedValue {
         value,
@@ -1901,72 +1943,80 @@ impl PresentationValueSource {
             Self::Title => match result {
                 QueryResultNode::File(node) => Value::Text(node.title.clone()),
                 QueryResultNode::Heading(node) => Value::Text(node.title.clone()),
-                QueryResultNode::Link(_) => return Err(unexpected_result(column, result)),
+                _ => return Err(unexpected_result(column, result)),
             },
             Self::TodoKeyword => match result {
                 QueryResultNode::Heading(node) => optional_text(node.todo_keyword.as_deref()),
                 QueryResultNode::File(_) => Value::Missing,
-                QueryResultNode::Link(_) => return Err(unexpected_result(column, result)),
+                _ => return Err(unexpected_result(column, result)),
             },
             Self::TodoType => match result {
                 QueryResultNode::Heading(node) => optional_text(node.todo_type.as_deref()),
                 QueryResultNode::File(_) => Value::Missing,
-                QueryResultNode::Link(_) => return Err(unexpected_result(column, result)),
+                _ => return Err(unexpected_result(column, result)),
             },
             Self::Priority => match result {
                 QueryResultNode::Heading(node) => optional_text(node.priority.as_deref()),
                 QueryResultNode::File(_) => Value::Missing,
-                QueryResultNode::Link(_) => return Err(unexpected_result(column, result)),
+                _ => return Err(unexpected_result(column, result)),
             },
             Self::OutlinePath => extract_generic_outline(column, result, outline_path)?,
             Self::Tags => match result {
                 QueryResultNode::File(node) => Value::TextList(node.tags.clone()),
                 QueryResultNode::Heading(node) => Value::TextList(node.all_tags.clone()),
-                QueryResultNode::Link(_) => return Err(unexpected_result(column, result)),
+                _ => return Err(unexpected_result(column, result)),
             },
             Self::ScheduledRaw => match result {
                 QueryResultNode::Heading(node) => optional_text(node.scheduled_raw.as_deref()),
                 QueryResultNode::File(_) => Value::Missing,
-                QueryResultNode::Link(_) => return Err(unexpected_result(column, result)),
+                _ => return Err(unexpected_result(column, result)),
             },
             Self::DeadlineRaw => match result {
                 QueryResultNode::Heading(node) => optional_text(node.deadline_raw.as_deref()),
                 QueryResultNode::File(_) => Value::Missing,
-                QueryResultNode::Link(_) => return Err(unexpected_result(column, result)),
+                _ => return Err(unexpected_result(column, result)),
             },
             Self::ClosedRaw => match result {
                 QueryResultNode::Heading(node) => optional_text(node.closed_raw.as_deref()),
                 QueryResultNode::File(_) => Value::Missing,
-                QueryResultNode::Link(_) => return Err(unexpected_result(column, result)),
+                _ => return Err(unexpected_result(column, result)),
             },
             Self::FileTitle => extract_file_title(column, result)?,
             Self::FileName => extract_file_name(result),
-            Self::FileDir => Value::Text(file_dir(result_file_path(result))),
+            Self::FileDir => match result {
+                QueryResultNode::Filesystem(node) => match node.entry.parent.as_deref() {
+                    Some(parent) if parent.starts_with('/') && !parent.ends_with('/') => {
+                        Value::Text(format!("{parent}/"))
+                    }
+                    parent => optional_text(parent),
+                },
+                _ => Value::Text(file_dir(result_file_path(result))),
+            },
             Self::FilePath => Value::Text(result_file_path(result).to_string()),
             Self::LineNumber => result_line(result)
                 .map(Value::Integer)
                 .unwrap_or(Value::Missing),
             Self::LinkType => match result {
                 QueryResultNode::Link(node) => Value::Text(node.link_type.clone()),
-                QueryResultNode::File(_) | QueryResultNode::Heading(_) => {
+                _ => {
                     return Err(unexpected_result(column, result));
                 }
             },
             Self::LinkTarget => match result {
                 QueryResultNode::Link(node) => Value::Text(node.raw_target.clone()),
-                QueryResultNode::File(_) | QueryResultNode::Heading(_) => {
+                _ => {
                     return Err(unexpected_result(column, result));
                 }
             },
             Self::LinkDescription => match result {
                 QueryResultNode::Link(node) => optional_text(node.raw_description.as_deref()),
-                QueryResultNode::File(_) | QueryResultNode::Heading(_) => {
+                _ => {
                     return Err(unexpected_result(column, result));
                 }
             },
             Self::ResolutionStatus => match result {
                 QueryResultNode::Link(node) => optional_text(node.resolution_status.as_deref()),
-                QueryResultNode::File(_) | QueryResultNode::Heading(_) => {
+                _ => {
                     return Err(unexpected_result(column, result));
                 }
             },
@@ -2017,6 +2067,7 @@ fn result_file_path(result: &QueryResultNode) -> &str {
         QueryResultNode::File(node) => &node.location.file_path,
         QueryResultNode::Heading(node) => &node.location.file_path,
         QueryResultNode::Link(node) => &node.location.file_path,
+        QueryResultNode::Filesystem(node) => &node.entry.path,
     }
 }
 
@@ -2085,12 +2136,17 @@ fn result_line(result: &QueryResultNode) -> Option<i64> {
         QueryResultNode::File(node) => node.location.line,
         QueryResultNode::Heading(node) => node.location.line,
         QueryResultNode::Link(node) => node.location.line,
+        QueryResultNode::Filesystem(_) => None,
     }
 }
 
 fn extract_file_name(result: &QueryResultNode) -> PresentationValue {
-    if let QueryResultNode::File(node) = result {
-        return PresentationValue::Text(node.name.clone());
+    match result {
+        QueryResultNode::File(node) => return PresentationValue::Text(node.name.clone()),
+        QueryResultNode::Filesystem(node) => {
+            return PresentationValue::Text(node.entry.name.clone())
+        }
+        _ => {}
     }
 
     let path = result_file_path(result);
@@ -2116,7 +2172,7 @@ fn extract_file_title(
             root.map(PresentationValue::Text)
                 .ok_or_else(|| PresentationValueError::new("heading path has no file root"))
         }
-        QueryResultNode::Link(_) => Err(unexpected_result(column, result)),
+        _ => Err(unexpected_result(column, result)),
     }
 }
 
@@ -2143,7 +2199,7 @@ fn extract_generic_outline(
             let (root, headings) = outline_data(path);
             Ok(outline_value(root, headings, options))
         }
-        QueryResultNode::Link(_) => Err(unexpected_result(column, result)),
+        _ => Err(unexpected_result(column, result)),
     }
 }
 
@@ -2252,11 +2308,7 @@ fn unexpected_result(
     column: PresentationColumn,
     result: &QueryResultNode,
 ) -> PresentationValueError {
-    let kind = match result {
-        QueryResultNode::File(node) => node.kind.as_str(),
-        QueryResultNode::Heading(node) => node.kind.as_str(),
-        QueryResultNode::Link(node) => node.kind.as_str(),
-    };
+    let kind = result.kind().as_str();
     PresentationValueError::new(format!(
         "presentation column `{}` cannot extract a value from {kind} result",
         column.as_str()

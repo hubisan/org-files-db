@@ -3857,3 +3857,127 @@ fn docs_query_reference_mentions_public_predicates_includes_and_options() {
         );
     }
 }
+
+#[test]
+fn filesystem_query_presentation_actions_open_indexed_paths() {
+    let temp = TestDir::new("filesystem-query-presentation");
+    let fixture = temp.path().join("files");
+    let reports = fixture.join("reports");
+    fs::create_dir_all(&reports).unwrap();
+    let report = reports.join("Results.PDF");
+    write_file(&report, "PDF");
+    write_file(&fixture.join("notes.org"), "* Notes\n");
+    let report = fs::canonicalize(report).unwrap();
+    let reports = fs::canonicalize(reports).unwrap();
+    let config_path = temp.path().join("config.toml");
+    write_file(
+        &config_path,
+        r#"
+db_path = "./db.sqlite"
+
+[search]
+fts5_enabled = false
+
+[[dirs]]
+path = "files"
+recursive = true
+"#,
+    );
+    rebuild(&config_path).expect("fixture should index");
+    let config = config_path.to_str().unwrap();
+
+    let run = |query: &str, presentation: bool| {
+        let mut args = vec!["orgfdb", "query", "--config", config, query];
+        if presentation {
+            args.extend([
+                "--format",
+                "presentation-json",
+                "--presentation-spec-json",
+                r#"{"columns":[{"name":"file-name"},{"name":"file-dir"},{"name":"file-path"}]}"#,
+            ]);
+        }
+        let output = run_cli_output(args.into_iter().map(str::to_string).collect()).unwrap();
+        serde_json::from_slice::<Value>(&output).unwrap()
+    };
+
+    let raw = run(r#"(fs-files (extension "pdf"))"#, false);
+    assert_eq!(raw["target"], "fs_files");
+    assert_eq!(raw["results"][0]["kind"], "fs_file");
+    assert_eq!(raw["results"][0]["path"], serde_json::json!(report));
+    assert_eq!(raw["results"][0]["name"], "Results.PDF");
+    assert_eq!(raw["results"][0]["parent"], serde_json::json!(reports));
+    assert_eq!(raw["results"][0]["extension"], "PDF");
+    assert_eq!(raw["results"][0]["size"], 3);
+    assert!(raw["results"][0]["mtime_ns"].as_i64().is_some());
+
+    for (query, kind, index, path, name) in [
+        (
+            r#"(fs-files (extension "pdf"))"#,
+            "fs_file",
+            4,
+            &report,
+            "Results.PDF",
+        ),
+        (
+            r#"(fs-dirs (name "reports"))"#,
+            "fs_dir",
+            5,
+            &reports,
+            "reports",
+        ),
+    ] {
+        let value = run(query, true);
+        assert_eq!(value["files"], serde_json::json!([path]));
+        assert_eq!(value["schemas"]["result_kinds"][index], kind);
+        assert_eq!(
+            value["schemas"]["result_shapes"][kind],
+            serde_json::json!(["kind", "file"])
+        );
+        assert_eq!(value["results"], serde_json::json!([[index, 0]]));
+        assert_eq!(value["rows"][0][2][0][0], name);
+    }
+
+    let no_match = run(r#"(fs-dirs (name "missing"))"#, true);
+    assert_eq!(no_match["schemas"]["result_kinds"][5], "fs_dir");
+    assert_eq!(no_match["results"], serde_json::json!([]));
+    assert_eq!(
+        run("(files)", true)["schemas"]["result_kinds"],
+        serde_json::json!(["root", "heading", "file", "link"])
+    );
+}
+
+#[test]
+fn filesystem_query_rejects_outline_and_structural_includes() {
+    let temp = TestDir::new("filesystem-query-invalid-options");
+    let config_path = write_query_fixture(&temp);
+    let config = config_path.to_str().unwrap();
+    for (option, value, message) in [
+        ("--output", "outline", "supports only flat output"),
+        ("--include", "properties", "does not support includes"),
+    ] {
+        for format in ["json", "presentation-json"] {
+            let mut args = vec![
+                "orgfdb",
+                "query",
+                "--config",
+                config,
+                "(fs-dirs)",
+                option,
+                value,
+                "--format",
+                format,
+            ];
+            if format == "presentation-json" {
+                args.extend([
+                    "--presentation-spec-json",
+                    r#"{"columns":[{"name":"file-name"}]}"#,
+                ]);
+            }
+            let error = run_cli_output(args.into_iter().map(str::to_string).collect())
+                .expect_err("filesystem query should reject the option");
+            assert_eq!(error.kind(), "usage");
+            assert_eq!(error.exit_code(), 2);
+            assert_eq!(error.to_string(), format!("fs-dirs {message}"));
+        }
+    }
+}

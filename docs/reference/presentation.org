@@ -53,7 +53,7 @@ The CLI rejects ~--presentation-spec-json~ with normal ~--format json~ output.
 
 ~--output~, ~--restrict-files-json~, ~--config~, ~--expect-database-id~, and ~--expect-generation~ keep their normal query meanings.
 
-~--include~ is accepted but adds no data to the response: ~results~ are slim action records. Presentation still infers the includes it needs for columns, sort rules, and the row source.
+Org targets accept ~--include~, which adds no data to the slim action records. Presentation infers the includes it needs for columns, sort rules, and the row source. Filesystem targets use flat output with no includes.
 
 The query runs once and returns one complete ~presentation-json~ response.
 
@@ -315,9 +315,9 @@ The inferred include column shows data that Rust adds to the query automatically
 | ~deadline-raw~ | headings | none | ~date~ | none |
 | ~closed-raw~ | headings | none | ~date~ | none |
 | ~file-title~ | headings, files | ~path~ for headings | ~title~ | none |
-| ~file-name~ | headings, files, links | none | ~file-name~ | none |
-| ~file-path~ | headings, files, links | none | ~file-path~ | none |
-| ~file-dir~ | headings, files, links | none | ~file-path~ | none |
+| ~file-name~ | headings, files, links, fs-files, fs-dirs | none | ~file-name~ | none |
+| ~file-path~ | headings, files, links, fs-files, fs-dirs | none | ~file-path~ | none |
+| ~file-dir~ | headings, files, links, fs-files, fs-dirs | none | ~file-path~ | none |
 | ~line-number~ | headings, files, links | none | none | none |
 | ~link-type~ | links | none | none | none |
 | ~link-target~ | links | none | none | none |
@@ -350,7 +350,8 @@ The main value rules are:
 - ~file-title~ uses the source file title.
 - ~file-name~ uses the owning file name.
 - ~file-path~ uses the owning file path.
-- ~file-dir~ uses the directory of the owning file path with a trailing ~/~, like Emacs ~file-name-directory~; a file in the root directory gives ~/~.
+- ~file-dir~ uses the directory of the owning file path with a trailing ~/~, like Emacs ~file-name-directory~. A file in the root directory gives ~/~.
+- For ~fs-files~ and ~fs-dirs~, ~file-name~ and ~file-path~ use the entry name and path. ~file-dir~ uses its parent directory with a trailing ~/~ when there is a parent. All three columns can be used for sorting.
 - ~line-number~ keeps numeric ordering before text conversion.
 - ~link-target~ uses the authored ~raw_target~ value.
 - ~link-description~ uses ~raw_description~.
@@ -588,7 +589,7 @@ Record 21 is a link in ~projects.org~ at line 6 that resolves to ~notes.org~ lin
 
 ** Files table
 
-~files~ is an array of absolute paths. Each distinct path appears once, in order of first use by a result record. A record refers to a path by its index.
+~files~ is an array of absolute paths. For filesystem queries it can contain directory paths. Each distinct path appears once, in order of first use by a result record. A record refers to a path by its index.
 
 ** Action records
 
@@ -625,7 +626,9 @@ A ~link~ record has eight positions. The first five describe the link itself: ~f
 
 All three target positions are ~null~ when the link has no resolved target in the index. A target is resolved when its ~resolution_status~ is ~resolved~. The target is the heading or file the link resolved to when the index was built.
 
-Clients must treat the record length as part of the kind: five positions for ~root~, ~heading~, and ~file~, eight for ~link~. ~schemas.result_shapes~ names the positions per kind.
+Filesystem query responses advertise two additional kinds in ~schemas.result_kinds~. Index 4 is ~fs_file~ and index 5 is ~fs_dir~. Each record has two positions, ~kind~ and ~file~. The ~file~ value indexes the canonical entry path in ~files~. Existing Org query responses keep their four-kind schema.
+
+~schemas.result_shapes~ names the positions per kind. Clients can use the canonical path from a filesystem action record to open the entry or to look it up in a normal JSON query.
 
 ** Loading more data by id
 

@@ -134,7 +134,9 @@ pub(super) enum Command {
         expect_generation: Option<i64>,
         #[arg(long)]
         config: Option<PathBuf>,
-        #[arg(help = "Structural query expression, for example '(todo \"NEXT\")'")]
+        #[arg(
+            help = "Query expression, for example '(todo \"NEXT\")' or '(fs-files (extension \"pdf\"))'"
+        )]
         query: String,
     },
     Search {

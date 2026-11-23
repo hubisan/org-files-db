@@ -5,6 +5,11 @@ pub fn execute_and_shape_query(
     query: &ValidatedQuery,
     options: &QueryExecutionOptions,
 ) -> Result<QueryResponse, QueryShapeError> {
+    validate_filesystem_query_options(
+        query.target,
+        options.output_mode,
+        !options.includes.is_empty(),
+    )?;
     let owns_snapshot = connection.is_autocommit();
     if owns_snapshot {
         connection
@@ -71,6 +76,30 @@ pub(in crate::query::result) fn shape_query_results_internal(
     options: &QueryExecutionOptions,
     relation: Option<&MatchedSqlRelation>,
 ) -> Result<QueryResponse, QueryShapeError> {
+    let rows = match rows {
+        QueryRows::Filesystem(target, rows) => {
+            validate_filesystem_query_options(
+                target,
+                options.output_mode,
+                !options.includes.is_empty(),
+            )?;
+            let kind = match target {
+                QueryTarget::FsFiles => QueryResultKind::FsFile,
+                QueryTarget::FsDirs => QueryResultKind::FsDir,
+                _ => unreachable!("filesystem result has a filesystem target"),
+            };
+            return Ok(QueryResponse {
+                target,
+                output: QueryOutputMode::Flat,
+                includes: Vec::new(),
+                results: rows
+                    .into_iter()
+                    .map(|entry| QueryResultNode::Filesystem(FilesystemResultNode { kind, entry }))
+                    .collect(),
+            });
+        }
+        rows => rows,
+    };
     let includes = normalized_includes(&options.includes);
     if options.output_mode == QueryOutputMode::Flat
         && supports_direct_flat_shaping(&rows, &includes, relation.is_some())
@@ -121,6 +150,7 @@ pub(in crate::query::result) fn shape_query_results_internal(
                     .map(QueryResultNode::File)
             })
             .collect::<Result<Vec<_>, QueryShapeError>>()?,
+        (QueryRows::Filesystem(..), _) => unreachable!("filesystem results need no Org shaping"),
     };
 
     Ok(QueryResponse {
@@ -128,10 +158,31 @@ pub(in crate::query::result) fn shape_query_results_internal(
             QueryRows::Headings(_) => QueryTarget::Headings,
             QueryRows::Links(_) => QueryTarget::Links,
             QueryRows::Files(_) => QueryTarget::Files,
+            QueryRows::Filesystem(..) => unreachable!("filesystem results need no Org shaping"),
         },
         output: options.output_mode,
         includes,
         results,
+    })
+}
+
+pub(crate) fn validate_filesystem_query_options(
+    target: QueryTarget,
+    output: QueryOutputMode,
+    has_includes: bool,
+) -> Result<(), QueryShapeError> {
+    if !target.is_filesystem() {
+        return Ok(());
+    }
+    let message = match (output, has_includes) {
+        (QueryOutputMode::Outline, _) => "supports only flat output",
+        (_, true) => "does not support includes",
+        _ => return Ok(()),
+    };
+    Err(QueryShapeError {
+        kind: QueryShapeErrorKind::InvalidOptions,
+        message: format!("{} {message}", target.as_str()),
+        source: None,
     })
 }
 
@@ -160,6 +211,7 @@ pub(in crate::query::result) fn shape_direct_flat_results(
         QueryRows::Headings(_) => QueryTarget::Headings,
         QueryRows::Links(_) => QueryTarget::Links,
         QueryRows::Files(_) => QueryTarget::Files,
+        QueryRows::Filesystem(..) => unreachable!("filesystem results need no Org shaping"),
     };
     let results = match rows {
         QueryRows::Headings(rows) => rows
@@ -185,6 +237,7 @@ pub(in crate::query::result) fn shape_direct_flat_results(
                     .map(QueryResultNode::File)
             })
             .collect::<Result<Vec<_>, QueryShapeError>>()?,
+        QueryRows::Filesystem(..) => unreachable!("filesystem results need no Org shaping"),
     };
 
     Ok(QueryResponse {

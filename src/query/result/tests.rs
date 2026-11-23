@@ -681,7 +681,7 @@ fn rust_driven_path_respects_small_runtime_variable_limit() {
         .expect("query should execute");
     let rows = match &executed.rows {
         QueryRows::Headings(rows) => rows,
-        QueryRows::Links(_) | QueryRows::Files(_) => {
+        QueryRows::Links(_) | QueryRows::Files(_) | QueryRows::Filesystem(..) => {
             panic!("heading query should return headings")
         }
     };
@@ -715,7 +715,7 @@ fn rust_driven_path_rejects_cross_file_parent() {
         .expect("query should execute");
     let rows = match &executed.rows {
         QueryRows::Headings(rows) => rows,
-        QueryRows::Links(_) | QueryRows::Files(_) => {
+        QueryRows::Links(_) | QueryRows::Files(_) | QueryRows::Filesystem(..) => {
             panic!("heading query should return headings")
         }
     };
@@ -744,7 +744,7 @@ fn rust_driven_path_keeps_ancestor_outline_validation() {
         .expect("query should execute");
     let rows = match &executed.rows {
         QueryRows::Headings(rows) => rows,
-        QueryRows::Links(_) | QueryRows::Files(_) => {
+        QueryRows::Links(_) | QueryRows::Files(_) | QueryRows::Filesystem(..) => {
             panic!("heading query should return headings")
         }
     };
@@ -1299,7 +1299,7 @@ fn collect_matched_heading_ids(nodes: &[QueryResultNode], ids: &mut Vec<i64>) {
                     collect_matched_heading_ids(children, ids);
                 }
             }
-            QueryResultNode::Link(_) => {}
+            QueryResultNode::Link(_) | QueryResultNode::Filesystem(_) => {}
         }
     }
 }

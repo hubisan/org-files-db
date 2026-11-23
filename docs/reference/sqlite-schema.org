@@ -30,6 +30,10 @@ Core facts, written by the parser:
 - ~heading_text_segments~: source byte, line and column of each piece of the indexed title (~field~ 0) and body text (~field~ 1). Body rows exist only with ~search.index_body_text~. Search uses them for ~--occurrences~.
 - ~todo_keywords~: the TODO keyword configuration used per file.
 
+Filesystem facts:
+
+- ~filesystem_entries~: lightweight metadata for canonical file and directory paths discovered under ~[[dirs]]~. Schema version 15 adds this table independently of Org content.
+
 Derived tables, rebuilt when a file is reparsed:
 
 - ~effective_properties~ and ~effective_tags~: inherited projections of the direct facts.

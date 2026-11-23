@@ -108,7 +108,40 @@ pub(crate) fn execute_sqlite_query_with_relation(
                 temporary_relation: None,
             })
         }
+        QueryTarget::FsFiles | QueryTarget::FsDirs => {
+            let compiled = compile_sqlite_query_with_file_restriction(&resolved, restrict_files)?;
+            let rows = execute_filesystem_query(connection, &compiled)?;
+            Ok(ExecutedSqliteQuery {
+                rows,
+                relation: MatchedSqlRelation::Filesystem,
+                temporary_relation: None,
+            })
+        }
     }
+}
+
+fn execute_filesystem_query(
+    connection: &Connection,
+    compiled: &CompiledSqlQuery,
+) -> Result<QueryRows, QueryExecutionError> {
+    let mut statement = connection
+        .prepare(&compiled.sql)
+        .map_err(|source| QueryExecutionError::database(compiled.target, "prepare", source))?;
+    let rows = statement
+        .query_map(params_from_iter(compiled.params.iter()), |row| {
+            Ok(FilesystemQueryRow {
+                path: row.get(0)?,
+                name: row.get(1)?,
+                parent: row.get(2)?,
+                extension: row.get(3)?,
+                size: row.get(4)?,
+                mtime_ns: row.get(5)?,
+            })
+        })
+        .map_err(|source| QueryExecutionError::database(compiled.target, "query", source))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|source| QueryExecutionError::database(compiled.target, "collect", source))?;
+    Ok(QueryRows::Filesystem(compiled.target, rows))
 }
 
 pub(in crate::query::sqlite) fn execute_heading_query_with_relation(

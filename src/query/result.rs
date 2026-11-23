@@ -14,8 +14,8 @@ use super::sqlite::{
     heading_relation_columns, HeadingQueryMatch, MatchedSqlRelation,
 };
 use super::{
-    FileQueryRow, HeadingQueryRow, LinkQueryRow, QueryExecutionError, QueryRows, QueryTarget,
-    ValidatedQuery,
+    FileQueryRow, FilesystemQueryRow, HeadingQueryRow, LinkQueryRow, QueryExecutionError,
+    QueryRows, QueryTarget, ValidatedQuery,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -73,6 +73,25 @@ pub enum QueryResultNode {
     File(FileResultNode),
     Heading(HeadingResultNode),
     Link(Box<LinkResultNode>),
+    Filesystem(FilesystemResultNode),
+}
+
+impl QueryResultNode {
+    pub fn kind(&self) -> QueryResultKind {
+        match self {
+            Self::File(node) => node.kind,
+            Self::Heading(node) => node.kind,
+            Self::Link(node) => node.kind,
+            Self::Filesystem(node) => node.kind,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FilesystemResultNode {
+    pub kind: QueryResultKind,
+    #[serde(flatten)]
+    pub entry: FilesystemQueryRow,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -82,6 +101,8 @@ pub enum QueryResultKind {
     Root,
     Heading,
     Link,
+    FsFile,
+    FsDir,
 }
 
 impl QueryResultKind {
@@ -99,6 +120,8 @@ impl QueryResultKind {
             Self::Root => "root",
             Self::Heading => "heading",
             Self::Link => "link",
+            Self::FsFile => "fs_file",
+            Self::FsDir => "fs_dir",
         }
     }
 }
@@ -336,6 +359,7 @@ pub struct IncludedLink {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueryShapeErrorKind {
+    InvalidOptions,
     Database,
     InvalidStoredJson,
     MissingStoredData,
@@ -411,6 +435,7 @@ mod paths;
 mod tests;
 
 use self::enrich::*;
+pub(crate) use self::execute::validate_filesystem_query_options;
 pub use self::execute::{
     execute_and_shape_query, shape_matched_heading_nodes, shape_query_results,
 };

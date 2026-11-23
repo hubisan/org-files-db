@@ -42,6 +42,7 @@ impl FlatMetadataContext {
                 }
             }
             QueryRows::Links(_) => {}
+            QueryRows::Filesystem(..) => unreachable!("filesystem results need no Org shaping"),
         }
         let has_root_rows = !root_heading_ids.is_empty();
 
@@ -129,7 +130,10 @@ impl FlatMetadataContext {
                     load_heading_paths_from_relation(connection, relation, rows)?
                 }
                 (QueryRows::Headings(_), None) => HashMap::new(),
-                (QueryRows::Files(_), _) | (QueryRows::Links(_), _) => HashMap::new(),
+                (QueryRows::Files(_) | QueryRows::Links(_), _) => HashMap::new(),
+                (QueryRows::Filesystem(..), _) => {
+                    unreachable!("filesystem results need no Org shaping")
+                }
             }
         } else {
             HashMap::new()

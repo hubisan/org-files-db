@@ -54,7 +54,7 @@ A read-only command rejects a database whose schema version is not current. Run 
 
 * ~orgfdb rebuild~
 
-~rebuild~ reconciles the complete configured source set and writes a complete index state.
+~rebuild~ reconciles the complete configured source set and writes the Org index and filesystem metadata from ~[[dirs]]~ in one transaction.
 
 ** Synopsis
 
@@ -488,7 +488,7 @@ The command does not execute a structural query. Read [[./design/index-generatio
 
 * ~orgfdb query~
 
-~query~ runs the structural query language against the existing SQLite database.
+~query~ runs the structural query language against the existing SQLite database. Use ~(fs-files)~ and ~(fs-dirs)~ to query filesystem metadata from the configured directory trees.
 
 ** Synopsis
 
@@ -529,11 +529,13 @@ For example, ~link-target~ is valid for ~(links)~ but not for ~(headings)~. The 
 
 Singular row columns require their matching ~row_source~ value. Row sources are valid for heading and file query results.
 
+Use ~file-name~, ~file-path~ and ~file-dir~ to display or sort filesystem results.
+
 Only outline-path columns accept the ~outline_path~ option object.
 
 The registry records required query includes for every supported column. The CLI adds these includes before it runs the query.
 
-Displayed columns, sort-only columns, and row sources can add required includes. Explicit ~--include~ values are accepted but add nothing to a ~presentation-json~ response, because its ~results~ are slim action records. A client that needs more data about a result loads it by id with ~(id N ...)~ and the normal JSON query.
+Displayed columns, sort-only columns, and row sources can add required includes. For Org queries, explicit ~--include~ values add nothing to ~presentation-json~ because its ~results~ are slim action records. A client can load more data for an Org result by id with ~(id N ...)~ and the normal JSON query.
 
 For example, a hidden ~outline-path~ sort adds ~path~. An ~effective-properties~ row source adds ~effective_properties~.
 
@@ -590,7 +592,7 @@ The response contains:
 
 ~files~ lists each absolute file path once.
 
-~results~ stores one slim positional action record per top-level query result: kind, database id and source location, plus the resolved target for links. It does not repeat the normal query result objects.
+~results~ stores one slim positional action record per top-level query result. Org records contain the kind, database id and source location, plus the resolved target for links. Filesystem records contain the kind and an index into the path table.
 
 ~schemas~ defines the positional result, row, row-context, and cell layouts.
 
@@ -615,7 +617,7 @@ Supported include values are:
 - ~source~
 - ~target~
 
-The CLI accepts every listed include for every query target. Each include affects only result kinds that provide its data.
+These includes are accepted for Org targets. Each affects only result kinds that provide its data. Filesystem targets use flat output with no includes.
 
 - ~path~ affects ~headings~, ~links~, and ~files~.
 - ~properties~, ~effective_properties~, ~keywords~, ~links~, and ~backlinks~ affect ~headings~ and ~files~.
@@ -653,7 +655,7 @@ printf '%s' '["/home/user/notes/a.org","/home/user/notes/b.org"]' |
 
 Duplicate paths are removed. An empty array returns no rows. Unknown paths also return no rows.
 
-The restriction applies to ~headings~, ~links~, and ~files~ by owning indexed file.
+The restriction applies to ~headings~, ~links~, and ~files~ by owning indexed file. It matches ~fs-files~ and ~fs-dirs~ by the exact canonical entry path.
 
 This option can support file-based client refresh work. It does not prove that every higher-level cached view is safe to patch.
 

@@ -389,11 +389,3 @@ pub(in crate::query::sqlite) fn file_from_clause(scope: &QueryScope, include_roo
     }
     sql
 }
-
-pub(in crate::query::sqlite) fn target_name(target: QueryTarget) -> &'static str {
-    match target {
-        QueryTarget::Headings => "headings",
-        QueryTarget::Links => "links",
-        QueryTarget::Files => "files",
-    }
-}
