@@ -11,14 +11,16 @@ correction -> `make ci` -> commit -> PR.
 
 ## Roles and model routing
 
-| Role | Claude Code |
-| --- | --- |
-| Planner and reviewer | main session, Opus 5.5, effort low |
-| Implementer (default) | subagent `implementer`: Sonnet, effort medium |
-| Escalated implementer | subagent `implementer-escalated`: Sonnet, effort high |
+| Role | Claude Code | Codex |
+| --- | --- | --- |
+| Planner and reviewer | main session, Claude Opus, effort low | GPT Sol, effort high |
+| Implementer (default) | subagent `implementer`: Claude Sonnet, effort medium | GPT Luna, effort high |
+| Escalated implementer | subagent `implementer-escalated`: Claude Sonnet, effort high | GPT Sol, effort medium |
 
-- The planner is the main session; the user selects its model and effort (`/model`,
+- In Claude Code, the planner is the main session; the user selects its model and effort (`/model`,
   `/effort`). Subagent model and effort are fixed in `.claude/agents/*.md`.
+- Model family names are intentionally versionless. Use the corresponding available model
+  and effort setting in each harness.
 - The planner reads the issue, writes a short plan (owned files, seam, focused test
   command, relevant docs section), and delegates to `implementer`.
 - Use one implementer by default. Start several only for genuinely independent work with
@@ -27,7 +29,7 @@ correction -> `make ci` -> commit -> PR.
 - The planner reviews. For tickets that change transaction boundaries, change planning,
   watcher recovery or the DB schema, the planner may raise its own effort to medium for
   the review.
-- `implementer-escalated` and any `xhigh`/`max` effort require explicit user approval.
+- Escalated implementation and any `xhigh`/`max` effort require explicit user approval.
 - Git/GitHub housekeeping (branch, commit, push, PR, issues, labels) stays in the planner
   session; delegating it costs more context than it saves.
 - Other harnesses keep the same three roles with their own models.
