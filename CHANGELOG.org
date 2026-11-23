@@ -4,6 +4,7 @@ This file records completed changes.
 
 * Unreleased
 
+- =ADDED= ~orgfdb watch~ keeps filesystem queries current. File events apply bounded row changes, and startup and recovery reconcile the configured directory trees. A changed filesystem result advances the committed index generation in the same transaction as any Org updates.
 - =ADDED= ~orgfdb rebuild~ indexes filesystem metadata from ~[[dirs]]~ alongside Org content. Query all eligible files with ~(fs-files)~ and directories, including roots and empty directories, with ~(fs-dirs)~. Both targets support JSON and ~presentation-json~. Schema version ~15~ adds this metadata separately from the Org tables. See ~docs/reference/query-language.org~ and ~docs/config.org~.
 
 - =ADDED= ~depth~ option for the ~file-path~ and ~file-dir~ presentation columns shows only the first N directory components: ~"depth": 2~ turns =~/memento/path/sub/a.org= into =~/memento/path/…/a.org= (~file-path~ keeps the file name) and a directory into =~/memento/path/=. It changes only ~display_text~ and the column width; ~search_text~, sorting and action records keep the complete path. See ~docs/reference/presentation.org~.

@@ -84,6 +84,7 @@ Current full-invalidation cases include:
 - a successful full rebuild
 - migration of a populated database from a schema before generation support
 - an incremental context change that cannot use a safe file delta
+- a filesystem metadata change that is outside the corresponding Org affected-file delta, such as a directory move or a change to a non-Org file
 
 If the requested interval contains full invalidation, ~orgfdb changes~ returns ~cache_action = rebuild~.
 

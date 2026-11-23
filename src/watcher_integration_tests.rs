@@ -712,7 +712,85 @@ fn real_backend_converges_for_recursive_changes_and_event_bursts() {
 }
 
 #[test]
+fn real_backend_updates_filesystem_metadata_without_org_rows() {
+    let test_dir = TestDir::new("filesystem-metadata");
+    let notes = test_dir.path().join("notes");
+    fs::create_dir_all(&notes).expect("notes directory should exist");
+    let note = notes.join("note.org");
+    write_file(&note, "* Note\n");
+    let config = recursive_config(&test_dir, &notes, test_dir.path().join("db.sqlite"));
+    let mut harness = RealWatcherHarness::new_started(config);
+
+    let first = notes.join("document.pdf");
+    let second = notes.join("renamed.txt");
+    let before = read_index_state(&harness.connection).expect("index state");
+    write_file(&first, "PDF");
+    harness.wait_until("non-Org file creation", |connection| {
+        filesystem_file_size(connection, &first) == Some(3)
+    });
+    let after_create = read_index_state(&harness.connection).expect("index state");
+    assert_eq!(after_create.generation, before.generation + 1);
+    assert_eq!(
+        crate::db::read_index_changes(&harness.connection, &before.database_id, before.generation,)
+            .expect("index changes")
+            .cache_action,
+        crate::db::index_state::CacheAction::Rebuild,
+    );
+
+    write_file(&first, "expanded PDF");
+    let mtime = 1_700_000_000;
+    fs::File::open(&first)
+        .expect("metadata target")
+        .set_modified(std::time::UNIX_EPOCH + Duration::from_secs(mtime))
+        .expect("set modification time");
+    harness.wait_until("non-Org file metadata update", |connection| {
+        filesystem_file_metadata(connection, &first) == Some((12, mtime as i64 * 1_000_000_000))
+    });
+    fs::rename(&first, &second).expect("file rename");
+    harness.wait_until("non-Org file rename", |connection| {
+        filesystem_file_size(connection, &first).is_none()
+            && filesystem_file_size(connection, &second) == Some(12)
+    });
+    fs::remove_file(&second).expect("file removal");
+    harness.wait_until("non-Org file deletion", |connection| {
+        filesystem_file_size(connection, &second).is_none()
+    });
+    assert_eq!(heading_titles(&harness.connection), vec!["Note"]);
+    assert_eq!(
+        indexed_paths(&harness.connection),
+        vec![note.display().to_string()]
+    );
+}
+
+fn filesystem_file_size(connection: &Connection, path: &Path) -> Option<i64> {
+    filesystem_file_metadata(connection, path).map(|(size, _)| size)
+}
+
+fn filesystem_file_metadata(connection: &Connection, path: &Path) -> Option<(i64, i64)> {
+    connection
+        .query_row(
+            "SELECT size, mtime_ns FROM filesystem_entries WHERE kind = 'file' AND path = ?1",
+            [path.to_str().expect("test path should be UTF-8")],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .expect("filesystem metadata should be readable")
+}
+
+fn indexed_directory(connection: &Connection, path: &Path) -> bool {
+    connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM filesystem_entries WHERE kind = 'directory' AND path = ?1)",
+            [path.to_str().expect("test path should be UTF-8")],
+            |row| row.get(0),
+        )
+        .expect("filesystem directories should be readable")
+}
+
+#[test]
 fn real_backend_reconciles_recursive_directory_rename_and_delete() {
+    use std::os::unix::fs::symlink;
+
     let test_dir = TestDir::new("directory-topology");
     let notes = test_dir.path().join("notes");
     let nested = notes.join("nested");
@@ -722,8 +800,17 @@ fn real_backend_reconciles_recursive_directory_rename_and_delete() {
     fs::create_dir_all(&notes).expect("notes directory should exist");
     write_file(&alpha, "* Alpha\n");
     write_file(&beta, "* Beta\n");
+    let outside = test_dir.path().join("outside/document.pdf");
+    write_file(&outside, "PDF");
+    symlink(&outside, nested.join("document.pdf")).expect("external file alias");
     let config = recursive_config(&test_dir, &notes, test_dir.path().join("db.sqlite"));
     let mut harness = RealWatcherHarness::new_started(config);
+
+    let empty = nested.join("empty");
+    fs::create_dir(&empty).expect("empty directory should be created");
+    harness.wait_until("created empty directory", |connection| {
+        indexed_directory(connection, &empty)
+    });
 
     fs::rename(&nested, &renamed).expect("nested directory rename should succeed");
     let renamed_alpha = renamed.join("alpha.org");
@@ -735,11 +822,19 @@ fn real_backend_reconciles_recursive_directory_rename_and_delete() {
             && !paths.contains(&alpha.display().to_string())
             && !paths.contains(&beta.display().to_string())
             && heading_titles(connection) == vec!["Alpha", "Beta"]
+            && indexed_directory(connection, &renamed.join("empty"))
+            && !indexed_directory(connection, &empty)
+            && filesystem_file_size(connection, &outside) == Some(3)
     });
 
     fs::remove_dir_all(&renamed).expect("renamed directory should be deleted");
     harness.wait_until("recursive directory deletion", |connection| {
-        indexed_paths(connection).is_empty() && heading_titles(connection).is_empty()
+        indexed_paths(connection).is_empty()
+            && heading_titles(connection).is_empty()
+            && !indexed_directory(connection, &renamed.join("empty"))
+            && !indexed_directory(connection, &renamed)
+            && indexed_directory(connection, &notes)
+            && filesystem_file_size(connection, &outside).is_none()
     });
 }
 
@@ -862,6 +957,15 @@ fn real_backend_respects_scope_exclusions_and_database_activity() {
     harness.settle_quietly("SQLite WAL and sidecar activity inside the watched root");
 
     assert!(db_path.exists(), "watched database should exist");
+    assert!(filesystem_file_size(&harness.connection, &db_path).is_none());
+    assert_eq!(
+        filesystem_file_size(&harness.connection, &recursive.join("unrelated.txt")),
+        Some(8)
+    );
+    assert!(
+        filesystem_file_size(&harness.connection, &recursive.join("archive/new.org")).is_none()
+    );
+    assert!(filesystem_file_size(&harness.connection, &shallow.join("nested/new.org")).is_none());
     assert_eq!(heading_titles(&harness.connection), expected);
 }
 

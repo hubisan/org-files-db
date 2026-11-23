@@ -15,8 +15,8 @@ pub mod schema;
 pub(crate) mod writer;
 
 pub(crate) use index_state::{
-    advance_index_generation, read_index_changes, read_index_state, AffectedFile, IndexChanges,
-    IndexGenerationChange, IndexStateReadError,
+    advance_index_generation, read_index_changes, read_index_state, AffectedFile,
+    AffectedFileAction, IndexChanges, IndexGenerationChange, IndexStateReadError,
 };
 pub(crate) use reader::{DbReadError, DbReader, HeadingListRow, LinkListRow};
 pub use schema::{
