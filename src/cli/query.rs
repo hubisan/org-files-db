@@ -43,7 +43,10 @@ pub(super) fn query_json_response_with_restriction(
         output,
         includes,
         config_path,
-        restricted_file_paths,
+        QuerySelection {
+            restricted_file_paths,
+            ..QuerySelection::default()
+        },
         &IndexStateGuard::default(),
     )
 }
@@ -81,12 +84,18 @@ impl IndexStateGuard {
     }
 }
 
+#[derive(Default)]
+pub(super) struct QuerySelection {
+    pub(super) restricted_file_paths: Option<Vec<String>>,
+    pub(super) show_hidden: bool,
+}
+
 pub(super) fn query_response_with_restriction(
     query: &str,
     output: CliQueryOutput,
     includes: &[CliQueryInclude],
     config_path: Option<&Path>,
-    restricted_file_paths: Option<Vec<String>>,
+    selection: QuerySelection,
     guard: &IndexStateGuard,
 ) -> Result<QueryResponse, CliError> {
     let config = load_cli_config(config_path)?;
@@ -117,7 +126,8 @@ pub(super) fn query_response_with_restriction(
         includes: explicit_includes,
         query_timezone: config.query.timezone.clone(),
         now_utc: None,
-        restricted_file_paths,
+        restricted_file_paths: selection.restricted_file_paths,
+        show_hidden: selection.show_hidden,
     };
     let response =
         execute_and_shape_query(&connection, &validated, &options).map_err(CliError::QueryShape)?;
@@ -137,7 +147,7 @@ pub(super) fn presentation_response_with_restriction(
     output: CliQueryOutput,
     includes: &[CliQueryInclude],
     config_path: Option<&Path>,
-    restricted_file_paths: Option<Vec<String>>,
+    selection: QuerySelection,
     spec: &PresentationSpec,
     guard: &IndexStateGuard,
 ) -> Result<PresentationResponse, CliError> {
@@ -169,7 +179,8 @@ pub(super) fn presentation_response_with_restriction(
         includes: query_includes,
         query_timezone: config.query.timezone.clone(),
         now_utc: None,
-        restricted_file_paths,
+        restricted_file_paths: selection.restricted_file_paths,
+        show_hidden: selection.show_hidden,
     };
     let query_response =
         execute_and_shape_query(&connection, &validated, &options).map_err(CliError::QueryShape)?;

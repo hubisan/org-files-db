@@ -90,6 +90,7 @@ pub(crate) fn run_rebuild_worker(
         query_timezone: view.definition.query_timezone.clone(),
         now_utc: Some(query_now_utc),
         restricted_file_paths: None,
+        show_hidden: view.definition.show_hidden,
     };
     let query_response = execute_and_shape_query(&connection, &validated, &options)
         .map_err(|source| source.to_string())?;
@@ -992,6 +993,7 @@ index_body_text = false
             includes: Vec::new(),
             query_timezone: None,
             relative_date_dependent: false,
+            show_hidden: false,
             presentation_spec: json!({"columns":[{"name":"title"}]}),
         }
     }

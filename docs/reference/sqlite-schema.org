@@ -32,7 +32,7 @@ Core facts, written by the parser:
 
 Filesystem facts:
 
-- ~filesystem_entries~: lightweight metadata for canonical file and directory paths discovered under ~[[dirs]]~. Schema version 15 adds this table independently of Org content.
+- ~filesystem_entries~: lightweight metadata for canonical file and directory paths discovered under ~[[dirs]]~. Schema version 15 adds this table independently of Org content. Schema version 16 adds ~visible~, which records whether any eligible logical route is visible below its configured root. The first successful indexing run after upgrade fills this column for existing rows. Default filesystem queries require that visibility backfill. Queries with ~--hidden~ can use the prior snapshot during backfill. The partial index ~idx_filesystem_visibility_pending~ finds rows awaiting backfill and is empty once it finishes.
 
 Derived tables, rebuilt when a file is reparsed:
 

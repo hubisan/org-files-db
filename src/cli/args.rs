@@ -108,6 +108,8 @@ pub(super) enum Command {
         output: CliQueryOutput,
         #[arg(long, value_enum, value_delimiter = ',')]
         include: Vec<CliQueryInclude>,
+        #[arg(long, help = "Include hidden entries in filesystem queries")]
+        hidden: bool,
         #[arg(
             long,
             value_name = "PATH_OR_DASH",
@@ -173,6 +175,8 @@ pub(super) enum ViewCommand {
         output: CliQueryOutput,
         #[arg(long, value_enum, value_delimiter = ',')]
         include: Vec<CliQueryInclude>,
+        #[arg(long, help = "Include hidden entries in filesystem queries")]
+        hidden: bool,
         #[arg(
             long,
             value_name = "JSON",

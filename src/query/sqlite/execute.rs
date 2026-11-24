@@ -91,7 +91,7 @@ pub(crate) fn execute_sqlite_query_with_relation(
             execute_heading_query_with_relation(connection, &resolved, restrict_files)
         }
         QueryTarget::Links => {
-            let compiled = compile_sqlite_query_with_file_restriction(&resolved, restrict_files)?;
+            let compiled = compile_sqlite_query_with_options(&resolved, restrict_files, false)?;
             let rows = execute_links_query(connection, &compiled)?;
             Ok(ExecutedSqliteQuery {
                 rows,
@@ -100,7 +100,7 @@ pub(crate) fn execute_sqlite_query_with_relation(
             })
         }
         QueryTarget::Files => {
-            let compiled = compile_sqlite_query_with_file_restriction(&resolved, restrict_files)?;
+            let compiled = compile_sqlite_query_with_options(&resolved, restrict_files, false)?;
             let rows = execute_files_query(connection, &compiled)?;
             Ok(ExecutedSqliteQuery {
                 rows,
@@ -109,7 +109,11 @@ pub(crate) fn execute_sqlite_query_with_relation(
             })
         }
         QueryTarget::FsFiles | QueryTarget::FsDirs => {
-            let compiled = compile_sqlite_query_with_file_restriction(&resolved, restrict_files)?;
+            if !options.show_hidden {
+                ensure_filesystem_visibility_available(connection, resolved.target)?;
+            }
+            let compiled =
+                compile_sqlite_query_with_options(&resolved, restrict_files, options.show_hidden)?;
             let rows = execute_filesystem_query(connection, &compiled)?;
             Ok(ExecutedSqliteQuery {
                 rows,
@@ -118,6 +122,27 @@ pub(crate) fn execute_sqlite_query_with_relation(
             })
         }
     }
+}
+
+fn ensure_filesystem_visibility_available(
+    connection: &Connection,
+    target: QueryTarget,
+) -> Result<(), QueryExecutionError> {
+    let pending = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM filesystem_entries WHERE visible IS NULL)",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|source| QueryExecutionError::database(target, "filesystem_visibility", source))?;
+    if pending {
+        return Err(QueryExecutionError::unsupported_backend_feature(
+            target,
+            "filesystem_visibility",
+            "run an indexing command to finish upgrading filesystem visibility",
+        ));
+    }
+    Ok(())
 }
 
 fn execute_filesystem_query(
@@ -149,7 +174,7 @@ pub(in crate::query::sqlite) fn execute_heading_query_with_relation(
     resolved: &ValidatedQuery,
     restrict_files: bool,
 ) -> Result<ExecutedSqliteQuery, QueryExecutionError> {
-    let compiled = compile_sqlite_query_with_file_restriction(resolved, restrict_files)?;
+    let compiled = compile_sqlite_query_with_options(resolved, restrict_files, false)?;
 
     let materialize = heading_matched_relation_cost(resolved) == MatchedRelationCost::Expensive;
     let (heading_relation, temporary_relation) = if materialize {

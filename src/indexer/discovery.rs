@@ -2,8 +2,9 @@ use super::*;
 
 pub(in crate::indexer) struct DiscoveryResult {
     pub(in crate::indexer) files: Vec<DiscoveredOrgFile>,
-    pub(in crate::indexer) filesystem_entries: BTreeMap<PathBuf, FilesystemKind>,
+    pub(in crate::indexer) filesystem_entries: BTreeMap<PathBuf, DiscoveredFilesystemEntry>,
     pub(in crate::indexer) filesystem_symlinks: BTreeMap<PathBuf, PathBuf>,
+    pub(in crate::indexer) suppressed_filesystem_symlinks: BTreeSet<PathBuf>,
     pub(in crate::indexer) globally_excluded_filesystem_symlinks: BTreeMap<PathBuf, PathBuf>,
     pub(in crate::indexer) dangling_filesystem_symlinks: BTreeSet<PathBuf>,
     pub(in crate::indexer) indexed_universe: IndexedUniverse,
@@ -72,7 +73,13 @@ pub(in crate::indexer) fn discover_org_files(
 
     for dir in &config.dirs {
         let canonical_dir = canonicalize_existing_dir(&dir.path)?;
-        filesystem_entries.insert(canonical_dir.clone(), FilesystemKind::Directory);
+        filesystem_entries.insert(
+            canonical_dir.clone(),
+            DiscoveredFilesystemEntry {
+                kind: FilesystemKind::Directory,
+                visible: true,
+            },
+        );
         let collect_filesystem = !filesystem_internal_paths.contains(&dir.path)
             && !filesystem_internal_paths.contains(&canonical_dir);
         if collect_filesystem && dir.path != canonical_dir {
@@ -103,7 +110,12 @@ pub(in crate::indexer) fn discover_org_files(
             had_exclusion_match: &mut had_exclusion_match,
             scope_id,
         };
-        collector.collect(&dir.path, &canonical_dir, true, collect_filesystem)?;
+        collector.collect(
+            &dir.path,
+            &canonical_dir,
+            true,
+            collect_filesystem.then_some(true),
+        )?;
     }
 
     for excluded in &globally_excluded {
@@ -112,7 +124,15 @@ pub(in crate::indexer) fn discover_org_files(
     for excluded in &globally_excluded_filesystem_files {
         filesystem_entries.remove(excluded);
     }
-    filesystem_symlinks.retain(|_, canonical| filesystem_entries.contains_key(canonical));
+    let mut suppressed_filesystem_symlinks = BTreeSet::new();
+    filesystem_symlinks.retain(|alias, canonical| {
+        if filesystem_entries.contains_key(canonical) {
+            return true;
+        }
+        // A retarget can make an alias to an excluded target eligible again.
+        suppressed_filesystem_symlinks.insert(alias.clone());
+        false
+    });
 
     Ok(DiscoveryResult {
         files: paths
@@ -125,6 +145,7 @@ pub(in crate::indexer) fn discover_org_files(
             .collect(),
         filesystem_entries,
         filesystem_symlinks,
+        suppressed_filesystem_symlinks,
         globally_excluded_filesystem_symlinks,
         dangling_filesystem_symlinks,
         indexed_universe,
@@ -152,7 +173,7 @@ struct DirectoryCollector<'a> {
     scan_root: &'a Path,
     recursive: bool,
     output: &'a mut BTreeMap<PathBuf, (PathBuf, ScanRootKind)>,
-    filesystem_entries: &'a mut BTreeMap<PathBuf, FilesystemKind>,
+    filesystem_entries: &'a mut BTreeMap<PathBuf, DiscoveredFilesystemEntry>,
     filesystem_symlinks: &'a mut BTreeMap<PathBuf, PathBuf>,
     filesystem_internal_paths: &'a FilesystemInternalPaths,
     dangling_filesystem_symlinks: &'a mut BTreeSet<PathBuf>,
@@ -173,15 +194,17 @@ impl DirectoryCollector<'_> {
         logical_dir: &Path,
         canonical_dir: &Path,
         collect_org: bool,
-        collect_filesystem: bool,
+        filesystem_visibility: Option<bool>,
     ) -> Result<(), IndexerError> {
         // Org keeps the first logical route to each canonical directory. Filesystem
         // exclusions can differ by route, so only cut cycles in the active ancestry.
         let collect_org = collect_org && self.visited_org_directories.insert(canonical_dir.into());
-        let collect_filesystem = collect_filesystem
-            && self
-                .active_filesystem_directories
-                .insert(canonical_dir.into());
+        // None disables filesystem traversal. A present value tracks route visibility.
+        let filesystem_visibility = filesystem_visibility.filter(|_| {
+            self.active_filesystem_directories
+                .insert(canonical_dir.into())
+        });
+        let collect_filesystem = filesystem_visibility.is_some();
         if !collect_org && !collect_filesystem {
             return Ok(());
         }
@@ -199,8 +222,12 @@ impl DirectoryCollector<'_> {
                 canonical_dir,
             );
         }
-        let result =
-            self.collect_children(logical_dir, canonical_dir, collect_org, collect_filesystem);
+        let result = self.collect_children(
+            logical_dir,
+            canonical_dir,
+            collect_org,
+            filesystem_visibility,
+        );
         if collect_filesystem {
             self.active_filesystem_directories.remove(canonical_dir);
         }
@@ -212,7 +239,7 @@ impl DirectoryCollector<'_> {
         logical_dir: &Path,
         canonical_dir: &Path,
         collect_org: bool,
-        collect_filesystem: bool,
+        filesystem_visibility: Option<bool>,
     ) -> Result<(), IndexerError> {
         let mut entries = fs::read_dir(logical_dir)
             .map_err(|source| IndexerError::Discover {
@@ -228,11 +255,15 @@ impl DirectoryCollector<'_> {
 
         for entry in entries {
             let path = entry.path();
-            let canonical_child =
-                canonical_dir.join(path.file_name().expect("directory entry has a name"));
-            let collect_filesystem = collect_filesystem
-                && !self.filesystem_internal_paths.contains(&path)
-                && !self.filesystem_internal_paths.contains(&canonical_child);
+            let name = path.file_name().expect("directory entry has a name");
+            let canonical_child = canonical_dir.join(name);
+            let filesystem_visibility = filesystem_visibility
+                .filter(|_| {
+                    !self.filesystem_internal_paths.contains(&path)
+                        && !self.filesystem_internal_paths.contains(&canonical_child)
+                })
+                .map(|parent_visible| parent_visible && !name.as_encoded_bytes().starts_with(b"."));
+            let collect_filesystem = filesystem_visibility.is_some();
             if !collect_org && !collect_filesystem {
                 continue;
             }
@@ -245,7 +276,12 @@ impl DirectoryCollector<'_> {
                 match fs::metadata(&path) {
                     Ok(metadata) => Some(metadata),
                     // Dangling symlinks (e.g. Emacs lock files) are treated as absent.
-                    Err(source) if source.kind() == io::ErrorKind::NotFound => {
+                    Err(source)
+                        if matches!(
+                            source.kind(),
+                            io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+                        ) =>
+                    {
                         if collect_filesystem {
                             self.record_dangling_symlink(path);
                         }
@@ -274,7 +310,7 @@ impl DirectoryCollector<'_> {
                     canonical_child,
                     file_type.is_symlink(),
                     collect_org,
-                    collect_filesystem,
+                    filesystem_visibility,
                 )?;
             } else if is_dir {
                 self.collect_directory(
@@ -282,7 +318,7 @@ impl DirectoryCollector<'_> {
                     canonical_child,
                     file_type.is_symlink(),
                     collect_org,
-                    collect_filesystem,
+                    filesystem_visibility,
                 )?;
             }
         }
@@ -310,10 +346,10 @@ impl DirectoryCollector<'_> {
         canonical_child: PathBuf,
         symlink: bool,
         collect_org: bool,
-        collect_filesystem: bool,
+        filesystem_visibility: Option<bool>,
     ) -> Result<(), IndexerError> {
         let org_source = collect_org && is_org_source_path(path);
-        if !org_source && !collect_filesystem {
+        if !org_source && filesystem_visibility.is_none() {
             return Ok(());
         }
         let canonical_path = if org_source {
@@ -325,10 +361,10 @@ impl DirectoryCollector<'_> {
         } else {
             return Ok(());
         };
-        let collect_filesystem =
-            collect_filesystem && !self.filesystem_internal_paths.contains(&canonical_path);
+        let filesystem_visibility = filesystem_visibility
+            .filter(|_| !self.filesystem_internal_paths.contains(&canonical_path));
         if self.global_exclusions.matches_file(path) {
-            if collect_filesystem {
+            if filesystem_visibility.is_some() {
                 self.globally_excluded_filesystem_files
                     .insert(canonical_path.clone());
                 if symlink {
@@ -351,13 +387,14 @@ impl DirectoryCollector<'_> {
             *self.had_exclusion_match |= org_source;
             return Ok(());
         }
-        if collect_filesystem {
-            self.filesystem_entries
-                .insert(canonical_path.clone(), FilesystemKind::File);
-            if symlink {
-                self.filesystem_symlinks
-                    .insert(path.to_path_buf(), canonical_path.clone());
-            }
+        if let Some(visible) = filesystem_visibility {
+            self.record_filesystem_entry(
+                path,
+                &canonical_path,
+                FilesystemKind::File,
+                visible,
+                symlink,
+            );
         }
         if org_source {
             self.indexed_universe
@@ -378,10 +415,10 @@ impl DirectoryCollector<'_> {
         canonical_child: PathBuf,
         symlink: bool,
         collect_org: bool,
-        collect_filesystem: bool,
+        filesystem_visibility: Option<bool>,
     ) -> Result<(), IndexerError> {
         let collect_org = collect_org && self.recursive;
-        if !collect_org && !collect_filesystem {
+        if !collect_org && filesystem_visibility.is_none() {
             return Ok(());
         }
         if self
@@ -400,20 +437,39 @@ impl DirectoryCollector<'_> {
         } else {
             return Ok(());
         };
-        let collect_filesystem =
-            collect_filesystem && !self.filesystem_internal_paths.contains(&canonical_path);
-        if collect_filesystem {
-            self.filesystem_entries
-                .insert(canonical_path.clone(), FilesystemKind::Directory);
-            if symlink {
-                self.filesystem_symlinks
-                    .insert(path.to_path_buf(), canonical_path.clone());
-            }
+        let filesystem_visibility = filesystem_visibility
+            .filter(|_| !self.filesystem_internal_paths.contains(&canonical_path));
+        if let Some(visible) = filesystem_visibility {
+            self.record_filesystem_entry(
+                path,
+                &canonical_path,
+                FilesystemKind::Directory,
+                visible,
+                symlink,
+            );
         }
         if self.recursive {
-            self.collect(path, &canonical_path, collect_org, collect_filesystem)?;
+            self.collect(path, &canonical_path, collect_org, filesystem_visibility)?;
         }
         Ok(())
+    }
+
+    fn record_filesystem_entry(
+        &mut self,
+        path: &Path,
+        canonical_path: &Path,
+        kind: FilesystemKind,
+        visible: bool,
+        symlink: bool,
+    ) {
+        self.filesystem_entries
+            .entry(canonical_path.to_path_buf())
+            .and_modify(|entry| entry.visible |= visible)
+            .or_insert(DiscoveredFilesystemEntry { kind, visible });
+        if symlink {
+            self.filesystem_symlinks
+                .insert(path.to_path_buf(), canonical_path.to_path_buf());
+        }
     }
 }
 
@@ -514,4 +570,110 @@ pub(in crate::indexer) fn canonicalize_existing_dir(path: &Path) -> Result<PathB
         });
     }
     Ok(canonical)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{write_file, TestDir};
+    use std::os::unix::fs::symlink;
+
+    fn visibility(discovery: &DiscoveryResult, path: &Path) -> Option<bool> {
+        discovery
+            .filesystem_entries
+            .get(&path.canonicalize().unwrap())
+            .map(|entry| entry.visible)
+    }
+
+    #[test]
+    fn filesystem_visibility_is_relative_to_each_configured_root() {
+        let fixture = TestDir::new("discovery-root-visibility");
+        let root = fixture.path().join(".ancestor/.root");
+        let nested = root.join(".private/deep");
+        write_file(&root.join("ordinary.txt"), "");
+        write_file(&root.join(".dot.txt"), "");
+        write_file(&nested.join("ordinary.txt"), "");
+        let config_path = fixture.path().join("config.toml");
+        write_file(
+            &config_path,
+            r#"
+[[dirs]]
+path = ".ancestor/.root"
+recursive = true
+"#,
+        );
+        let mut config = Config::load_from_file(config_path).unwrap();
+        let discovery = discover_org_files(&config).unwrap();
+        for (relative, expected) in [
+            ("", true),
+            ("ordinary.txt", true),
+            (".dot.txt", false),
+            (".private", false),
+            (".private/deep", false),
+            (".private/deep/ordinary.txt", false),
+        ] {
+            assert_eq!(
+                visibility(&discovery, &root.join(relative)),
+                Some(expected),
+                "{relative:?}"
+            );
+        }
+
+        config.dirs.push(crate::config::ConfiguredDir {
+            path: nested.clone(),
+            recursive: true,
+            exclude: Vec::new(),
+        });
+        for _ in 0..2 {
+            let discovery = discover_org_files(&config).unwrap();
+            assert_eq!(visibility(&discovery, &root.join(".private")), Some(false));
+            assert_eq!(visibility(&discovery, &nested), Some(true));
+            assert_eq!(
+                visibility(&discovery, &nested.join("ordinary.txt")),
+                Some(true)
+            );
+            config.dirs.reverse();
+        }
+    }
+
+    #[test]
+    fn filesystem_visibility_uses_any_eligible_alias_independent_of_traversal_order() {
+        let fixture = TestDir::new("discovery-alias-visibility");
+        let root = fixture.path().join("root");
+        write_file(&root.join(".private/visible.txt"), "");
+        write_file(&root.join(".private/local.txt"), "");
+        write_file(&root.join(".private/global.txt"), "");
+        write_file(&root.join("ordinary/visible.txt"), "");
+        fs::create_dir(root.join("z")).unwrap();
+        symlink(".private", root.join("alternate")).unwrap();
+        symlink("../ordinary", root.join("z/.alternate")).unwrap();
+        let config_path = fixture.path().join("config.toml");
+        write_file(
+            &config_path,
+            r#"
+files_exclude = ["root/alternate/global.txt"]
+
+[[dirs]]
+path = "root"
+recursive = true
+exclude = ["alternate/local.txt"]
+"#,
+        );
+        let config = Config::load_from_file(config_path).unwrap();
+        let discovery = discover_org_files(&config).unwrap();
+        for (relative, expected) in [
+            (".private", Some(true)),
+            (".private/visible.txt", Some(true)),
+            (".private/local.txt", Some(false)),
+            (".private/global.txt", None),
+            ("ordinary", Some(true)),
+            ("ordinary/visible.txt", Some(true)),
+        ] {
+            assert_eq!(
+                visibility(&discovery, &root.join(relative)),
+                expected,
+                "{relative:?}"
+            );
+        }
+    }
 }

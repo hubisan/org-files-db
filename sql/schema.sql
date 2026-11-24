@@ -70,7 +70,9 @@ WHERE identity IS NOT NULL;
   A snapshot of eligible regular files and directories reached from configured
   directory roots. The path and parent use canonical absolute display paths.
   Extension, size in bytes, and modification time in Unix epoch nanoseconds
-  apply only to regular files.
+  apply only to regular files. Visibility is true if any eligible logical
+  route has no dot component below its configured root. NULL marks rows
+  awaiting rediscovery after a schema upgrade.
 */
 CREATE TABLE IF NOT EXISTS filesystem_entries (
     path            TEXT PRIMARY KEY,
@@ -79,8 +81,12 @@ CREATE TABLE IF NOT EXISTS filesystem_entries (
     parent          TEXT,
     extension       TEXT,
     size            INTEGER,
-    mtime_ns        INTEGER
+    mtime_ns        INTEGER,
+    visible         INTEGER CHECK (visible IN (0, 1))
 );
+
+CREATE INDEX IF NOT EXISTS idx_filesystem_visibility_pending
+ON filesystem_entries(visible) WHERE visible IS NULL;
 
 --------------------------------------------------
 -- DATABASE METADATA

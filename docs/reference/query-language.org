@@ -94,6 +94,8 @@ File-level tags, properties, keywords, and preamble links use the synthetic file
 
 ~fs-files~ returns regular files of all extensions and ~fs-dirs~ returns directories, including the configured roots and empty directories. Both read the metadata index for ~[[dirs]]~. See [[../config.org][Configuration Reference]] for discovery rules.
 
+By default both targets omit entries reached only through logical paths with a dot component below the configured root. The roots themselves are visible. A visible eligible route makes its canonical entry visible once. Use ~query --hidden~ or ~view register --hidden~ to include hidden entries. Presentation output applies the same rules.
+
 Both targets support text filters for names and paths. Files can also be filtered by extension.
 
 | Predicate | Applies to | Matches |

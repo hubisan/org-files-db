@@ -1311,6 +1311,7 @@ mod tests {
                 includes: Vec::new(),
                 query_timezone: Some("Europe/Zurich".to_string()),
                 relative_date_dependent: false,
+                show_hidden: false,
                 presentation_spec: json!({
                     "columns": [
                         {

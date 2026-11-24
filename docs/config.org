@@ -186,6 +186,8 @@ The rebuild safety guard prevents an accidental empty-source replacement of an e
 
 The same global file exclusions and root-local file and directory exclusions apply. File and directory symlinks use their canonical target paths, which may be outside the logical root. Traversal stops at links back to an ancestor directory. Dangling symlinks are skipped, and multiple roots or aliases produce one row per canonical path. An operating system error resolving a cyclic link is reported as a discovery error. Hard links with distinct paths remain separate. The filesystem index skips the configured SQLite database, its ~-wal~, ~-shm~ and ~-journal~ files, and the generated presentation-view cache.
 
+A logical route is hidden if a component below its configured root starts with a dot. Configured roots are visible even when they or their ancestors start with a dot. A canonical entry is visible by default if at least one eligible logical route is visible. Both visible and hidden entries remain indexed for ~--hidden~ queries and registered views.
+
 * Exclusion glob rules
 
 Exclusion globs are case-sensitive. A slash is a literal path separator.

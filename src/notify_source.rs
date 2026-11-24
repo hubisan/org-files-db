@@ -1184,36 +1184,44 @@ mod tests {
 
     #[test]
     fn a_dangling_filesystem_symlink_watches_for_its_targets_parent_to_appear() {
-        let test_dir = TestDir::new("dangling-filesystem-symlink");
-        let notes = test_dir.path().join("notes");
-        let outside = test_dir.path().join("outside");
-        let target_parent = outside.join("missing");
-        fs::create_dir(&notes).unwrap();
-        fs::create_dir(&outside).unwrap();
-        std::os::unix::fs::symlink(target_parent.join("report.pdf"), notes.join("report.pdf"))
-            .unwrap();
-        let config = load_config(
+        for blocked in [false, true] {
+            let test_dir = TestDir::new("dangling-filesystem-symlink");
+            let notes = test_dir.path().join("notes");
+            let outside = test_dir.path().join("outside");
+            let target_parent = outside.join("missing");
+            fs::create_dir(&notes).unwrap();
+            fs::create_dir(&outside).unwrap();
+            if blocked {
+                write_file(&target_parent, "blocking file");
+            }
+            std::os::unix::fs::symlink(target_parent.join("report.pdf"), notes.join("report.pdf"))
+                .unwrap();
+            let config = load_config(
             &test_dir,
             "db_path = \"db.sqlite\"\n[[dirs]]\npath = \"notes\"\nrecursive = true\n[search]\nfts5_enabled = false\n",
         );
-        let mut source = NotifyWatcherSource::from_config(&config).expect("notify source");
-        let normalizer = WatcherBatchNormalizer::from_config(&config).expect("normalizer");
-        assert!(source.watch_targets().iter().any(|target| {
-            target.path() == outside && target.mode() == NotifyWatchMode::NonRecursive
-        }));
+            let mut source = NotifyWatcherSource::from_config(&config).expect("notify source");
+            let normalizer = WatcherBatchNormalizer::from_config(&config).expect("normalizer");
+            assert!(source.watch_targets().iter().any(|target| {
+                target.path() == outside && target.mode() == NotifyWatchMode::NonRecursive
+            }));
 
-        write_file(&target_parent.join("report.pdf"), "report");
-        let directory_created =
-            Event::new(EventKind::Create(CreateKind::Folder)).add_path(target_parent.clone());
-        assert_eq!(
-            normalizer.normalize([input(translate_notify_result(Ok(directory_created)))]),
-            NormalizedWatcherBatch::Reconcile
-        );
-        source.refresh_watches().expect("refresh watches");
-        assert!(source
-            .watch_targets()
-            .iter()
-            .any(|target| target.path() == target_parent));
+            if blocked {
+                fs::remove_file(&target_parent).unwrap();
+            }
+            write_file(&target_parent.join("report.pdf"), "report");
+            let directory_created =
+                Event::new(EventKind::Create(CreateKind::Folder)).add_path(target_parent.clone());
+            assert_eq!(
+                normalizer.normalize([input(translate_notify_result(Ok(directory_created)))]),
+                NormalizedWatcherBatch::Reconcile
+            );
+            source.refresh_watches().expect("refresh watches");
+            assert!(source
+                .watch_targets()
+                .iter()
+                .any(|target| target.path() == target_parent));
+        }
     }
 
     #[test]

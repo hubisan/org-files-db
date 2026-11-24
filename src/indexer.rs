@@ -786,8 +786,8 @@ where
             }
         }
         let mut filesystem_entries = Vec::with_capacity(discovery.filesystem_entries.len());
-        for (path, kind) in discovery.filesystem_entries {
-            if let Some(entry) = FilesystemEntry::read(&path, kind)? {
+        for (path, discovered) in discovery.filesystem_entries {
+            if let Some(entry) = FilesystemEntry::read(&path, discovered)? {
                 filesystem_entries.push(entry);
             }
         }

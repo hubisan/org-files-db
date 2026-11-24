@@ -34,7 +34,7 @@ use error::{CliError, ErrorFormat};
 use listing::{headings_json_rows, links_json_rows};
 use query::{
     parse_query_presentation_spec, presentation_response_with_restriction,
-    query_response_with_restriction, read_restricted_file_paths, IndexStateGuard,
+    query_response_with_restriction, read_restricted_file_paths, IndexStateGuard, QuerySelection,
 };
 use search::{cli_search_scope, search_json_rows_with_options, SearchIndex, SearchOptions};
 use view::run_view_command;
@@ -166,6 +166,7 @@ where
             format,
             output,
             include,
+            hidden,
             restrict_files_json,
             presentation_spec_json,
             expect_database_id,
@@ -186,6 +187,10 @@ where
                 None
             };
 
+            let selection = QuerySelection {
+                restricted_file_paths,
+                show_hidden: hidden,
+            };
             match output_format {
                 CliQueryOutputFormat::Json => {
                     let response = query_response_with_restriction(
@@ -193,7 +198,7 @@ where
                         output,
                         &include,
                         config.as_deref(),
-                        restricted_file_paths,
+                        selection,
                         &guard,
                     )?;
                     write_json_output(writer, &response)
@@ -210,7 +215,7 @@ where
                         output,
                         &include,
                         config.as_deref(),
-                        restricted_file_paths,
+                        selection,
                         spec,
                         &guard,
                     )?;

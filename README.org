@@ -93,7 +93,7 @@ Files with a project tag:
 orgfdb query --config ./org-files-db.toml '(files (tags "project"))'
 #+end_src
 
-Search for PDFs by extension, or list the directories in the configured trees.
+Search for PDFs by extension, or list the directories in the configured trees. Filesystem queries hide dot entries below the configured roots by default. Use ~--hidden~ to include them.
 
 #+begin_src shell
 orgfdb query --config ./org-files-db.toml '(fs-files (extension "pdf"))'
